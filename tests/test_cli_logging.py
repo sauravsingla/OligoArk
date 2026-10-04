@@ -37,7 +37,7 @@ def test_cli_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert recovered_reads.read_bytes() == source.read_bytes()
 
 
-def test_cli_recommend_and_policy(
+def test_cli_recommend_policy_and_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     economics = tmp_path / "economics.json"
@@ -58,6 +58,20 @@ def test_cli_recommend_and_policy(
         monkeypatch,
     )
     _run_cli(["policy", "--substitution", "0.01"], monkeypatch)
+    _run_cli(
+        [
+            "plan",
+            "--retention-years",
+            "100",
+            "--substitution",
+            "0.01",
+            "--dropout",
+            "0.05",
+            "--economics-json",
+            str(economics),
+        ],
+        monkeypatch,
+    )
 
 
 def test_logging_configuration_validation() -> None:
