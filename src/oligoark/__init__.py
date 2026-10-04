@@ -71,6 +71,7 @@ from .reconstruct import (
     alignment_consensus,
     build_similarity_graph,
     global_align,
+    medoid_consensus,
 )
 from .tiering import (
     EconomicAssumptions,
@@ -147,6 +148,7 @@ __all__ = [
     "evaluate_learning_from_records",
     "evaluate_optimized_archive_plan",
     "global_align",
+    "medoid_consensus",
     "objective_from_workload",
     "optimize_archive_plan",
     "optimize_codec",
