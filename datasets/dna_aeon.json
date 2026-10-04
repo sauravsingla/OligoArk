@@ -1,0 +1,15 @@
+{
+  "dataset": "DNA-Aeon public sequencing data",
+  "doi": "10.1038/s41467-023-36297-3",
+  "bioproject": "PRJNA855029",
+  "run_accessions": [
+    "SRR19954693",
+    "SRR19954694",
+    "SRR19954695",
+    "SRR19954696",
+    "SRR19954697"
+  ],
+  "data_restrictions": "No data restrictions apply, according to the paper's Data Availability statement.",
+  "reference_mapping_status": "Public reads are verified, but exact read-to-reference oligo mapping is not bundled in OligoArk. Supply a reference FASTA derived from the paper/source data before evaluation.",
+  "notes": "This manifest records provenance only. OligoArk does not claim end-to-end decoding of DNA-Aeon archives and does not silently download or reinterpret the study data."
+}
