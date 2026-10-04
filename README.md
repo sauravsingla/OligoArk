@@ -1,78 +1,103 @@
 # OligoArk 🧬
 
-**AI-Native DNA Archival Storage** — an open-source research framework for adaptive DNA encoding, software channel simulation, reliable reconstruction, and explainable heterogeneous storage tiering.
+[![CI](https://github.com/sauravsingla/OligoArk/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/OligoArk/actions/workflows/ci.yml)
 
-> **Status:** research alpha. OligoArk produces DNA-like sequence encodings and software simulations. It does **not** claim wet-lab validation, current commercial DNA-storage economics, or physical-media performance.
+**AI-Native DNA Archival Storage** — an open-source research framework for adaptive DNA encoding, software channel simulation, graph-assisted reconstruction, empirical policy learning, and explainable heterogeneous storage tiering.
+
+> **Research status:** alpha. OligoArk produces DNA-like sequence encodings and software simulations. It does **not** claim wet-lab validation, present-day commercial DNA-storage economics, or physical-media performance.
 
 ## Why OligoArk
 
-DNA storage research has demonstrated compelling archival density and durability concepts, but a practical software research stack also needs decisions around **when** a DNA tier makes sense, **how** codec parameters should adapt to channel conditions, and **how** noisy reads should be reconstructed. OligoArk treats those decisions as one reproducible system rather than only mapping bits to A/C/G/T.
+DNA data storage research has demonstrated high-density archival concepts, random access, error correction, and long-horizon preservation. A practical software research stack also needs to decide **when** a future DNA tier might be appropriate, **how** encoding/redundancy should adapt to channel conditions, and **how** noisy/duplicated reads should be reconstructed. OligoArk treats these questions as one reproducible system rather than only mapping bits to `A/C/G/T`.
 
-### Research contributions implemented in v0.1
+## Research contributions
 
-- **Explainable heterogeneous tiering** — scores SSD, object archive, tape, and an explicitly experimental future-DNA tier from retention, access, mutability, durability, latency, and energy priorities.
-- **Adaptive codec policy** — chooses chunk size, Reed-Solomon strength, XOR parity grouping, and sequence masking from a simulated channel profile.
-- **Graph-assisted reconstruction baseline** — deterministic similarity clustering + medoid/consensus interfaces designed so future GNN edge scorers can be evaluated without coupling ML to the core codec.
-- **Integrity-first recovery** — CRC per strand plus archive-level SHA-256 verification.
-- **Fountain-style research baseline** — seeded overlapping XOR symbols with peeling decode for experiments; independently implemented and explicitly not the published DNA Fountain implementation.
+OligoArk v0.2 separates four testable research layers:
+
+1. **Explainable heterogeneous storage tiering** — evaluates SSD, object archive, tape, and an explicitly experimental `dna_future` tier from retention, access, mutability, durability, retrieval urgency, redundancy, energy, and user-supplied normalized economic assumptions.
+2. **Adaptive DNA codec policy** — changes chunk size, Reed–Solomon strength, XOR erasure grouping, and sequence masking from simulated channel conditions and durability/overhead/retrieval objectives.
+3. **Graph-assisted strand reconstruction** — tries verified direct decoding first, then builds an implicit similarity graph using q-gram prefiltering + Levenshtein scoring and generates deterministic consensus reads before retrying checksum-verified recovery.
+4. **Empirical policy learning** — a dependency-free instance-based learning baseline ranks codec policies from prior channel/policy observations. It requires no proprietary model and always coexists with deterministic heuristics.
+
+The repository also contains an independently implemented **fountain-style seeded XOR/peeling baseline** for redundancy experiments. It is not represented as the published DNA Fountain implementation.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  A[File] --> B[Chunk + ECC]
-  B --> C[Adaptive DNA framing]
-  C --> D[Archive]
-  D --> E[Channel simulation]
-  E --> F[Reconstruction]
-  F --> G[Decode + parity recovery]
-  G --> H[SHA-256 verify]
-  I[Workload] --> J[Tiering engine]
-  K[Channel profile] --> L[Adaptive policy]
-  L --> B
+  A[File / bytes] --> B[Chunker]
+  B --> C[Reed-Solomon ECC]
+  C --> D[Adaptive reversible mask]
+  D --> E[DNA strand framing]
+  E --> F[Software archive]
+  F --> G[Channel simulator]
+  G --> H[Direct verified decode]
+  H -->|insufficient| I[Similarity graph + consensus]
+  I --> J[Decode + XOR erasure recovery]
+  H -->|sufficient| J
+  J --> K[SHA-256 verification]
+
+  L[Channel profile] --> M[Deterministic codec policy]
+  N[Policy observations] --> O[Empirical policy model]
+  M --> B
+  O --> B
+
+  P[Workload profile] --> Q[Explainable tiering]
+  R[User economic assumptions] --> Q
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for details.
+See [`docs/architecture.md`](docs/architecture.md) for module-level details.
 
 ## Install
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install -U pip
 pip install -e ".[dev,api,bench]"
 ```
+
+The core package has **no mandatory third-party runtime dependency**. FastAPI, plotting, and development tools are optional extras.
 
 ## Quick start
 
 ```bash
 printf 'OligoArk demo data\n' > demo.txt
 oligoark archive demo.txt --output demo.oligoark.json
+oligoark inspect demo.oligoark.json
 oligoark recover demo.oligoark.json --output recovered.txt
 cmp demo.txt recovered.txt
 ```
 
-The archive command reports measured software facts such as DNA-string length and SHA-256. It does not infer physical synthesis cost or sequencing accuracy.
+`archive` reports measured software facts such as strand count, encoded nucleotide count, GC statistics, homopolymer maximum, logical bits/nucleotide, and SHA-256. These are **software encoding measurements**, not physical synthesis claims.
 
-### Simulate a channel
+### Simulate errors and reconstruct reads
 
 ```bash
 oligoark simulate demo.oligoark.json \
   --substitution 0.001 \
   --dropout 0.01 \
-  --duplicate 0.10 \
+  --duplicate 0.20 \
   --seed 7 \
   --output reads.txt
 
-oligoark recover-reads demo.oligoark.json reads.txt --output recovered-from-reads.txt
+oligoark recover-reads \
+  demo.oligoark.json reads.txt \
+  --similarity-threshold 0.90 \
+  --output recovered-from-reads.txt
 ```
 
-Recovery can fail if corruption exceeds the configured code/redundancy budget; this is expected and is part of the research surface.
+The recovery report states whether direct decoding succeeded or graph reconstruction was needed. Recovery is accepted only after the original SHA-256 is reproduced.
 
-### Adaptive policy recommendation
+### Adaptive codec recommendation
 
 ```bash
-oligoark policy --substitution 0.01 --deletion 0.002 --dropout 0.08
+oligoark policy \
+  --substitution 0.01 \
+  --deletion 0.002 \
+  --dropout 0.08 \
+  --durability-priority 0.9 \
+  --storage-overhead-priority 0.1
 ```
 
 ### Storage-tier recommendation
@@ -84,29 +109,63 @@ oligoark recommend \
   --mutability 0.0 \
   --retrieval-urgency 0.1 \
   --durability-priority 1.0 \
-  --energy-priority 0.8
+  --energy-priority 0.8 \
+  --redundancy-priority 0.8 \
+  --cost-priority 0.5
 ```
 
-Scores are normalized research heuristics, not vendor price quotes. Replace them with real operational/economic inputs before production use.
+The default economics are deliberately **neutral across tiers**; OligoArk does not invent vendor pricing or future DNA costs. Real normalized inputs can be supplied through the Python API, REST API, or `--economics-json`. For example:
+
+```json
+{
+  "storage_cost_index": {"ssd": 0.8, "object_archive": 0.3, "tape": 0.2, "dna_future": 0.5},
+  "retrieval_cost_index": {"ssd": 0.1, "object_archive": 0.4, "tape": 0.7, "dna_future": 0.9}
+}
+```
+
+Lower normalized values mean lower assumed cost. These values are user inputs, not prices asserted by OligoArk.
 
 ## Python SDK
 
 ```python
-from oligoark import ArchiveConfig, archive_bytes, recover_bytes
+from oligoark import ArchiveConfig, archive_bytes, archive_statistics, recover_bytes
 
 payload = b"long-lived research artifact"
 archive = archive_bytes(payload, ArchiveConfig(rs_nsym=12))
+print(archive_statistics(archive).to_dict())
 recovered = recover_bytes(archive)
 assert recovered == payload
 ```
 
+### Empirical policy-learning baseline
+
+```python
+from oligoark import EmpiricalPolicyModel, PolicyObservation
+
+model = EmpiricalPolicyModel().fit(observations)
+recommendation = model.recommend(target_channel)
+print(recommendation.policy)
+```
+
+`observations` must come from explicitly labeled simulated or measured experiments. The model is transparent instance-based learning, not a pretrained black box.
+
 ## REST API
 
 ```bash
-uvicorn oligoark.api:app --reload
+uvicorn oligoark.api:app --host 127.0.0.1 --port 8000
 ```
 
-Then visit `/docs` for the OpenAPI UI. The API exposes `/health`, `/encode`, `/recover`, and `/recommend`.
+Open `/docs` for the generated OpenAPI UI. Endpoints include:
+
+- `GET /health`
+- `POST /encode`
+- `POST /recover`
+- `POST /recover-reads`
+- `POST /simulate`
+- `POST /recommend`
+- `POST /policy`
+
+Runtime settings can be supplied via `OLIGOARK_LOG_LEVEL`, `OLIGOARK_RECONSTRUCTION_THRESHOLD`, and `OLIGOARK_MAX_API_PAYLOAD_BYTES`. See [`docs/configuration.md`](docs/configuration.md).
 
 ## Reproducible benchmark
 
@@ -114,57 +173,90 @@ Then visit `/docs` for the OpenAPI UI. The API exposes `/health`, `/encode`, `/r
 python benchmarks/run_benchmark.py
 ```
 
-Outputs are written to `benchmark-results/results.json` and `benchmark-results/results.csv`; when Matplotlib is installed, `recovery_by_regime.png` is generated as well. The benchmark deliberately labels its outputs as **software simulation results**.
+The benchmark writes:
 
-A deterministic local run using seed `2026` showed the intended adaptive-policy trade-off: under the included 1% substitution simulation, the fixed baseline failed while the adaptive policy recovered successfully, at the cost of higher nucleotide/strand overhead. Re-run the benchmark on the exact commit and environment before citing results.
+- `benchmark-results/results.json`
+- `benchmark-results/results.csv`
+- `benchmark-results/metadata.json`
+- `benchmark-results/recovery_by_regime.png` when Matplotlib is installed
+- `benchmark-results/overhead_by_regime.png` when Matplotlib is installed
+
+Metadata records the OligoArk version, Python version, platform, deterministic seed, payload size, payload SHA-256, and claim scope.
+
+### Current deterministic software-simulation finding
+
+With seed `2026` and an 8 KiB deterministic payload, the v0.2 benchmark showed:
+
+| Simulated regime | Fixed | Adaptive |
+| --- | --- | --- |
+| Clean | recovered | recovered |
+| 0.1% substitutions | recovered | recovered |
+| 1% substitutions | **failed** | **recovered** |
+| 0.1% insertions | failed | failed |
+| 0.1% deletions | failed | failed |
+| 2% dropout | failed | failed |
+| Mixed channel | failed | failed |
+
+For the 1% substitution case, the adaptive policy increased encoded size from **47,468 nt** to **57,024 nt** while changing the deterministic result from failure to successful SHA-256-verified recovery. This is a **software simulation result**, not evidence about any physical synthesis or sequencing platform. Indel/dropout failures are intentionally retained as documented research gaps rather than hidden by claims.
+
+See [`docs/benchmarking.md`](docs/benchmarking.md) for interpretation rules.
 
 ## Tests and quality gates
 
 ```bash
-pytest
+pytest --cov=oligoark --cov-report=term-missing
 ruff check .
 mypy src/oligoark
 python -m build
+python -m compileall -q src tests examples benchmarks
 python examples/end_to_end.py
+python examples/noisy_recovery.py
+python examples/policy_learning.py
 ```
 
-GitHub Actions runs these checks across supported Python versions.
+The test suite includes unit, integration, API, CLI, reconstruction, ECC, policy-learning, archive-validation, and Hypothesis property-based tests. CI runs supported Python versions independently, enforces at least 80% coverage, builds the package and Docker image, and runs all examples. Tag pushes matching `v*` build installable release artifacts in a separate release workflow.
 
 ## Scientific assumptions and limitations
 
-- The base codec is a reversible 2-bit mapping wrapped in framed payloads; it is not claimed to be capacity-optimal.
-- GC/homopolymer scoring is a simple software heuristic used to compare reversible masks, not a biochemical synthesis model.
-- Reed-Solomon protects framed payload bytes; XOR parity provides single-erasure recovery per parity group.
-- The simulator models independent substitutions, insertions, deletions, dropout, and duplication. Real synthesis/sequencing channels can exhibit correlated and platform-specific errors that this baseline does not model.
-- The graph reconstruction module is presently a deterministic baseline and does not claim state-of-the-art sequence reconstruction.
-- `dna_future` in the tiering model is a scenario-analysis tier, not a recommendation to replace existing archival systems today.
+- The base codec is a reversible 2-bit mapping wrapped in protected frames; it is not claimed to be capacity-optimal.
+- GC/homopolymer scoring is a transparent mask-selection heuristic, not a biochemical synthesis model.
+- Reed–Solomon protects frame bytes; XOR parity currently supports one erasure per parity group.
+- The simulator uses independent substitution/insertion/deletion/dropout/duplication probabilities. Real channels can be correlated and platform-specific.
+- The graph baseline uses q-gram prefiltering, Levenshtein similarity, medoids, and same-length majority consensus. It is not an alignment-aware state-of-the-art decoder and currently remains weak on indels.
+- The `dna_future` storage tier is scenario analysis only. It is not a statement that DNA is presently cheaper, faster, or operationally superior to SSD/object/tape.
+- Economic defaults are neutral. Production decisions require externally sourced and time-appropriate cost, energy, durability, and retrieval assumptions.
+- The reference API is a research service, not a hardened multi-tenant production system.
 
 ## Research roadmap
 
-1. Pluggable synthesis/sequencing channel models calibrated to published datasets.
-2. Multiple sequence-constrained codecs and fountain/rateless baselines under one benchmark interface.
-3. True graph construction over noisy reads with learned edge scoring and PyTorch Geometric GNN experiments.
-4. Calibrated economic/energy models using user-supplied assumptions and sensitivity analysis.
-5. Rust extensions for codec, edit-distance, and large-read clustering hot paths.
-6. Optional physical-lab adapters isolated from the simulation-only core.
+1. Alignment-aware and graph-neural reconstruction for insertion/deletion-heavy channels.
+2. Candidate-policy search trained on reproducible simulation grids and eventually published physical datasets.
+3. Pluggable synthesis/sequencing channel models calibrated to specific published datasets.
+4. Additional constrained codecs and rateless/fountain baselines under one benchmark protocol.
+5. Sensitivity analysis for user-supplied cost/energy assumptions across 10/50/100/500-year horizons.
+6. Rust acceleration for codec, edit distance, q-gram indexing, and large-read clustering hot paths.
+7. Optional real synthesis/sequencing adapters isolated behind interfaces so simulation results cannot be confused with wet-lab evidence.
 
 ## Prior work and attribution
 
-OligoArk is independently implemented and does not vendor or copy another DNA-storage repository. It builds on ideas established by the DNA-storage literature, including:
+OligoArk is independently implemented and does not vendor or copy another DNA-storage repository. Relevant foundations include:
 
-- Church, Gao & Kosuri, **Science (2012)**, DOI `10.1126/science.1226355`.
-- Erlich & Zielinski, **Science (2017)**, DOI `10.1126/science.aaj2038`.
-- Organick et al., **Nature Biotechnology (2018)**, DOI `10.1038/nbt.4079`.
+- Church, Gao & Kosuri (2012), *Next-generation digital information storage in DNA*, **Science**. DOI: `10.1126/science.1226355`.
+- Goldman et al. (2013), *Towards practical, high-capacity, low-maintenance information storage in synthesized DNA*, **Nature**. DOI: `10.1038/nature11875`.
+- Grass et al. (2015), *Robust Chemical Preservation of Digital Information on DNA in Silica with Error-Correcting Codes*, **Angewandte Chemie International Edition**. DOI: `10.1002/anie.201411378`.
+- Erlich & Zielinski (2017), *DNA Fountain enables a robust and efficient storage architecture*, **Science**. DOI: `10.1126/science.aaj2038`.
+- Yazdi, Gabrys & Milenkovic (2017), *Portable and Error-Free DNA-Based Data Storage*, **Scientific Reports**. DOI: `10.1038/s41598-017-05188-1`.
+- Organick et al. (2018), *Random access in large-scale DNA data storage*, **Nature Biotechnology**. DOI: `10.1038/nbt.4079`.
 
-See [`docs/research.md`](docs/research.md) for research framing and caveats.
+See [`docs/research.md`](docs/research.md) for research framing and claim boundaries.
 
 ## Security
 
-OligoArk parses untrusted archive-like input. Do not treat it as a hardened storage service yet. See [`SECURITY.md`](SECURITY.md).
+OligoArk parses untrusted archive-like input and performs potentially expensive reconstruction. Do not expose the reference API directly to untrusted networks without authentication, rate limiting, request limits, and deployment hardening. See [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 
-Contributions are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md), especially the rules separating measured, simulated, and hypothesized results.
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md), especially the requirement to label results as **measured software result**, **simulation result**, **external published result**, or **hypothesis**.
 
 ## License
 
