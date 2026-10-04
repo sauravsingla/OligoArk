@@ -1,7 +1,14 @@
 FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir ".[api]"
+RUN pip install ".[api]" \
+    && useradd --create-home --uid 10001 oligoark
+
+USER oligoark
 EXPOSE 8000
 CMD ["uvicorn", "oligoark.api:app", "--host", "0.0.0.0", "--port", "8000"]
