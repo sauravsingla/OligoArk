@@ -44,7 +44,7 @@ def run() -> list[dict[str, object]]:
     for name, channel, duplicate_rate in regimes:
         adaptive = recommend_codec_policy(channel)
         policies = {
-            "fixed": ArchiveConfig(96, 8, 8, False),
+            "fixed": ArchiveConfig(\n                96, 8, 8, False,\n                min_gc_fraction=0.0,\n                max_gc_fraction=1.0,\n                max_homopolymer=100,\n                mask_search_limit=1,\n            ),
             "adaptive": ArchiveConfig(
                 adaptive.chunk_size,
                 adaptive.rs_nsym,
