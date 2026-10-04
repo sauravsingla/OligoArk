@@ -19,7 +19,19 @@ def test_cli_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     recovered_reads = tmp_path / "recovered-reads.bin"
     source.write_bytes(b"cli end to end")
 
-    _run_cli(["archive", str(source), "--output", str(archive)], monkeypatch)
+    _run_cli(
+        [
+            "archive",
+            str(source),
+            "--output",
+            str(archive),
+            "--redundancy-scheme",
+            "hybrid",
+            "--fountain-redundancy",
+            "0.5",
+        ],
+        monkeypatch,
+    )
     _run_cli(["inspect", str(archive)], monkeypatch)
     _run_cli(["recover", str(archive), "--output", str(recovered)], monkeypatch)
     _run_cli(["simulate", str(archive), "--output", str(reads), "--seed", "12"], monkeypatch)
@@ -37,7 +49,7 @@ def test_cli_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert recovered_reads.read_bytes() == source.read_bytes()
 
 
-def test_cli_recommend_policy_and_plan(
+def test_cli_recommend_policy_plan_and_optimizer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     economics = tmp_path / "economics.json"
@@ -47,6 +59,9 @@ def test_cli_recommend_policy_and_plan(
         '"object_archive":0.4,"tape":0.6,"dna_future":0.8}}',
         encoding="utf-8",
     )
+    payload = tmp_path / "optimizer.bin"
+    payload.write_bytes(b"cli optimizer payload")
+
     _run_cli(
         [
             "recommend",
@@ -69,6 +84,21 @@ def test_cli_recommend_policy_and_plan(
             "0.05",
             "--economics-json",
             str(economics),
+        ],
+        monkeypatch,
+    )
+    _run_cli(
+        [
+            "optimize-plan",
+            str(payload),
+            "--retention-years",
+            "100",
+            "--substitution",
+            "0.002",
+            "--max-candidates",
+            "4",
+            "--seeds",
+            "2026",
         ],
         monkeypatch,
     )
