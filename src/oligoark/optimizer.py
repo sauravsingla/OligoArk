@@ -418,6 +418,7 @@ def optimize_codec(
     seeds: tuple[int, ...] = (2026, 2027),
     lifecycle: LifecycleObjectiveInputs | None = None,
     duplicate_rate: float | None = None,
+    calibration_payloads: tuple[bytes, ...] | None = None,
 ) -> OptimizationResult:
     """Search candidates on calibration seeds only and return an explainable winner."""
     if not payload:
@@ -430,6 +431,11 @@ def optimize_codec(
         raise ValueError("calibration seeds must be unique")
     if duplicate_rate is not None and not 0 <= duplicate_rate <= 1:
         raise ValueError("duplicate_rate must be between 0 and 1")
+    payload_variants = calibration_payloads or (payload,)
+    if not payload_variants or any(not item for item in payload_variants):
+        raise ValueError("calibration payloads must contain non-empty byte strings")
+    if any(len(item) != len(payload) for item in payload_variants):
+        raise ValueError("calibration payload variants must match the primary payload length")
     space = search_space or CodecSearchSpace()
     resolved_weights = weights or OptimizationWeights()
     resolved_weights.validate()
@@ -445,10 +451,11 @@ def optimize_codec(
         runtimes: list[float] = []
         encoded_values: list[int] = []
         rejected: str | None = None
-        for seed in seeds:
+        for seed_index, seed in enumerate(seeds):
+            trial_payload = payload_variants[seed_index % len(payload_variants)]
             try:
                 success, encoded, elapsed, graph_used = _simulate_once(
-                    payload,
+                    trial_payload,
                     spec,
                     channel,
                     seed=seed,
@@ -668,6 +675,7 @@ def optimize_codec(
         ),
         f"search_seed={space.search_seed}",
         f"calibration_seeds={list(seeds)}",
+        f"calibration_payload_variants={len(payload_variants)}",
         (
             "balanced_robust penalizes alternating-fold recovery instability"
             if space.search_method == "balanced_robust"
