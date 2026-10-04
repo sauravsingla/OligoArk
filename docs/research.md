@@ -1,6 +1,6 @@
 # Research scope, novelty, validation, and claim boundaries
 
-OligoArk is a software research framework, not a wet-lab DNA-storage system. v0.5 focuses on **held-out validation** of constrained coding, redundancy selection, graph/alignment reconstruction, policy learning, and lifecycle-aware archival planning.
+OligoArk is a software research framework, not a wet-lab DNA-storage system. v0.6 focuses on **untouched held-out validation** of multi-trace indel reconstruction, robust codec optimisation, policy learning, and explicit-reference physical-read evaluation while preserving the v0.5 leakage controls.
 
 ## OligoArk system contributions
 
@@ -10,9 +10,9 @@ OligoArk is a software research framework, not a wet-lab DNA-storage system. v0.
 4. **Adaptive redundancy selection.** XOR, an independently implemented LT-style fountain baseline, and hybrid XOR+fountain strategies share the main archive/recovery path.
 5. **Hard constrained encoding.** Configured GC bounds and homopolymer limits are acceptance constraints. Deterministic mask search either finds a valid sequence or fails explicitly.
 6. **Explicit graph reconstruction.** Reads are nodes, qualifying similarities are weighted edges, and connected components define reconstruction clusters.
-7. **Alignment-aware consensus.** Each cluster uses a medoid-anchored global alignment so insertion/deletion evidence can affect consensus.
-8. **Controlled graph-rescue validation.** Dedicated experiments compare direct decoding, medoid graph consensus, and alignment graph consensus and require ordinary frame/ECC/CRC/SHA-256 recovery for success.
-9. **Transparent policy learning.** OligoArk includes inverse-distance empirical selection and deterministic ridge-regression utility learning, trained only from reproducible experiment records.
+7. **Layered indel consensus.** Medoid and single-pass medoid-anchored alignment remain as ablations; v0.6 adds iterative trace consensus that repeatedly realigns to the prior consensus.
+8. **Multi-threshold trace reconstruction.** The trace reconstructor builds explicit graphs at several thresholds and emits multiple independent candidate consensuses; normal frame CRC, ECC, and archive SHA-256 remain the acceptance gate.
+9. **Transparent policy learning.** OligoArk includes inverse-distance empirical selection, deterministic ridge-regression utility learning, and a dependency-free Gaussian RBF-kernel utility baseline, all trained only from reproducible experiment records.
 10. **Lifecycle-aware archival intelligence.** Caller-supplied cost, energy, and retrieval-latency inputs are decomposed by tier and can contribute to the measured codec objective. OligoArk supplies no fabricated physical price/energy defaults.
 11. **Paired ablation experiments.** Fixed, heuristic-adaptive, redundancy-enabled, graph-enabled, and combined systems are compared on identical held-out channel realizations with raw trial preservation and Wilson recovery intervals.
 
@@ -51,6 +51,20 @@ The controlled graph-rescue experiment independently establishes capability. Bot
 The policy-learning evaluation used disjoint seed and channel splits: training seeds 2026–2029 on clean, 0.1% substitution, 1% substitution and low-indel regimes; test seeds 2030–2033 on moderate-indel, 2% dropout, 10% dropout and mixed regimes. Across 48 held-out groups, the heuristic and ridge model each recovered 41.7% with mean regret 0.0520; empirical recovered 37.5% with regret 0.0740; measured search recovered 39.6% with regret 0.1630. The learned ridge baseline did not beat the heuristic.
 
 All of these are software/simulation results. Runtime values are specific to the recorded GitHub Actions environment and must not be interpreted as physical DNA-system latency.
+
+## v0.6 untouched evaluation design
+
+The v0.6 simulation study uses seed sets not used in the v0.5 publication study. Optimizer calibration uses seeds `9401–9406`; final evaluation uses `31001–31010`. Calibration rotates across three independently generated payload contents and uses up to 1024 bytes rather than the earlier 256-byte limit. `balanced_robust` retains deterministic, order-independent sampling but penalizes disagreement between alternating calibration-seed folds.
+
+The channel model now separates **coverage** from extra stochastic duplication. `copies_per_strand` produces a declared number of independently corrupted traces for every surviving strand, while `duplicate_rate` preserves the legacy probability of one additional trace. This is still a software model, but it allows graph/trace reconstruction to be tested on genuine multi-read clusters rather than one or two traces.
+
+The v0.6 publication profile contains three payload sizes, eight channel/coverage regimes, six strategies and ten untouched evaluation seeds. It includes both moderate-indel coverage levels so the effect of trace count can be measured rather than assumed.
+
+## Physical-data pathway
+
+The DNA-Aeon paper (DOI `10.1038/s41467-023-36297-3`) states that sequencing data are publicly deposited under BioProject `PRJNA855029` and lists SRA runs `SRR19954693` through `SRR19954697` (with the paper's listed ordering); its Data Availability statement says no data restrictions apply. OligoArk records those identifiers in `datasets/dna_aeon.json`.
+
+v0.6 does **not** claim an external physical archive decode. The public read accessions alone do not establish a machine-verifiable read-to-reference oligo mapping inside this repository. The physical adapter therefore requires the user to supply an explicit reference FASTA and reports medoid/alignment/iterative-trace **reference reconstruction** only. Any later end-to-end external dataset claim must document the exact reference source, preprocessing, read assignment and archive-format interpretation.
 
 ## Claim boundaries
 
@@ -98,4 +112,4 @@ These sources support the importance of constrained coding, fountain/rateless re
 
 ## Remaining physical-validation gap
 
-The v0.5 release remains simulation-first. The DNA-Aeon paper reports unrestricted sequence data in NCBI SRA BioProject `PRJNA855029`, which is a concrete candidate for future physical-data validation. v0.5 does not silently download or reinterpret that dataset: a defensible comparison still requires a documented adapter, read-to-reference provenance, preprocessing rules, and a method-equivalent evaluation protocol. Until that is implemented reproducibly, no OligoArk simulation result should be described as physical DNA-storage performance.
+The release remains simulation-first for end-to-end OligoArk archive recovery. v0.6 adds a reproducible external-read adapter and verified public DNA-Aeon provenance, but the exact external read-to-reference mapping remains an explicit required input. Until that mapping and method-equivalent archive protocol are documented, no OligoArk result should be described as an end-to-end physical DNA-storage decode.
