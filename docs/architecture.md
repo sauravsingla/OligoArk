@@ -3,69 +3,88 @@
 ```mermaid
 flowchart LR
     A[File / bytes] --> B[Chunker]
-    B --> C[Reed-Solomon]
-    C --> D[Adaptive reversible mask]
+    B --> C[Reed-Solomon inner protection]
+    C --> D[Deterministic hard-constraint mask search]
     D --> E[Self-describing DNA frame]
-    E --> F[Software DNA archive]
-    F --> G[Channel simulator]
-    G --> H[Direct frame decode]
-    H -->|missing verified chunks| I[Q-gram prefilter]
-    I --> J[Similarity graph]
-    J --> K[Medoid + consensus]
-    K --> L[Frame decode + XOR erasure recovery]
-    H -->|complete| L
-    L --> M[Archive SHA-256 verification]
+    E --> F{Redundancy}
+    F -->|XOR| G[XOR parity strands]
+    F -->|Fountain| H[Seeded LT-style symbols]
+    F -->|Hybrid| G
+    F -->|Hybrid| H
+    E --> I[Data strands]
+    I --> J[Software DNA archive]
+    G --> J
+    H --> J
 
-    N[Channel profile] --> O[Deterministic adaptive policy]
-    P[Prior experiment observations] --> Q[Empirical policy learner]
-    R[Workload profile] --> S[AI-Native Archival Intelligence]
-    T[Normalized economic assumptions] --> S
-    N --> S
-    O --> S
-    Q --> S
-    S --> U[Explainable tier + codec plan]
-    U --> B
+    J --> K[Channel simulator]
+    K --> L[Direct frame decode]
+    L -->|incomplete| M[Explicit weighted similarity graph]
+    M --> N[Connected components]
+    N --> O[Alignment-aware consensus]
+    O --> P[Frame decode]
+    L -->|decoded| P
+    P --> Q[XOR + fountain erasure recovery]
+    Q --> R[SHA-256 verification]
+
+    S[Workload profile] --> T[Lifecycle-aware tiering]
+    U[Caller cost / energy / latency] --> T
+    V[Channel profile] --> W[Measured candidate search]
+    X[Codec / redundancy / constraint space] --> W
+    W --> Y[Optimized codec plan]
+    T --> Z[Optimized archival plan]
+    Y --> Z
 ```
 
 ## Module boundaries
 
 | Module | Responsibility |
 | --- | --- |
-| `dna.py` | Reversible byte/base mapping and sequence-quality metrics |
-| `framing.py` | Versioned strand headers, CRC, masking, Reed–Solomon integration |
-| `ecc.py` | Pure-Python Reed–Solomon plus XOR erasure helpers |
-| `archive.py` | Archive creation, validation, statistics, recovery, graph-retry pipeline |
+| `dna.py` | Reversible byte/base mapping, sequence metrics, hard GC/homopolymer constraints |
+| `framing.py` | Versioned strand headers, CRC, Reed-Solomon integration and deterministic mask search |
+| `ecc.py` | Pure-Python Reed-Solomon plus XOR erasure helpers |
+| `fountain.py` | Seeded LT-style XOR symbols and peeling decode |
+| `archive.py` | Data/XOR/fountain/hybrid archive creation, validation, recovery and SHA-256 verification |
 | `simulator.py` | Seeded substitution/insertion/deletion/dropout/duplication channel |
-| `reconstruct.py` | Typed `EdgeScorer`/`ReadReconstructor` extension interfaces plus deterministic graph consensus |
-| `fountain.py` | Independent seeded XOR/peeling research baseline |
-| `policy.py` | Deterministic channel/objective-aware codec policy |
-| `learning.py` | Dependency-free empirical policy-learning baseline |
-| `intelligence.py` | Unified workload/channel/economics planning and policy orchestration |
-| `tiering.py` | Explainable heterogeneous storage scoring and economic assumptions |
-| `config.py` | Runtime configuration from JSON/environment |
-| `api.py` / `cli.py` | Service and command-line surfaces |
+| `reconstruct.py` | Explicit similarity graphs, connected components, global alignment and consensus |
+| `policy.py` | Lightweight deterministic heuristic policy for fast baseline use |
+| `optimizer.py` | Real candidate search based on measured simulated recovery/overhead/runtime |
+| `learning.py` | Instance-based and ridge-regression policy-learning baselines |
+| `tiering.py` | Explainable tier scoring and optional caller-supplied lifecycle estimates |
+| `intelligence.py` | Heuristic and measured archival-planning orchestration |
+| `experiments.py` | Multi-seed ablations, recovery confidence intervals and aggregation |
+| `api.py` / `cli.py` | REST and command-line surfaces |
 
 ## Design principles
 
-1. **Reproducible baseline first.** Core functionality is deterministic and does not require a trained model.
-2. **Integrity is a hard gate.** Recovery is successful only if archive-level SHA-256 matches.
-3. **Research modules remain separable.** Codec policy, empirical learning, reconstruction, tiering, and channel models can be replaced independently through typed boundaries.
-4. **Simulation is labeled as simulation.** No software benchmark is presented as synthesis or sequencing evidence.
-5. **No fabricated economics.** Economic defaults are neutral; users must supply real assumptions when making decisions.
-6. **Rust-ready hot paths.** `dna.py`, `ecc.py`, `framing.py`, and `reconstruct.py` expose narrow boundaries suitable for future native acceleration.
+1. **Integrity is the hard gate.** A recovery success requires exact bytes and archive SHA-256 verification.
+2. **Heuristic and optimizer are named separately.** `plan_archive()` is lightweight heuristic planning; `optimize_archive_plan()` actually evaluates candidate configurations.
+3. **Hard constraints are real.** New archives enforce configured GC bounds and homopolymer limits during deterministic re-encoding; failure is explicit if no candidate satisfies them.
+4. **Redundancy is composable.** XOR, fountain-style, and hybrid strategies share the same framed archive and recovery path.
+5. **Graph means graph.** Reads are explicit nodes, similarity relationships are weighted edges, and clusters are graph connected components rather than representative-only buckets.
+6. **Indel handling has an alignment baseline.** Consensus aligns reads globally to a medoid before voting over bases and insertion slots.
+7. **No fabricated physical economics.** Lifecycle cost, energy and latency estimates exist only when the caller supplies values.
+8. **Simulation is labeled as simulation.** Software experiments do not imply synthesis or sequencing performance.
+9. **ML remains optional.** Deterministic baselines work without PyTorch; typed interfaces remain available for learned scorers/reconstructors.
+10. **Rust-ready hot paths.** Codec, ECC, masking, edit distance and graph construction remain isolated enough for future native acceleration.
 
-## Archive format v1
+## Archive format and compatibility
 
-An archive is JSON with `metadata` plus a list of DNA strings. Each strand encodes a binary frame containing magic/version fields, a parity flag, logical index, total data-strand count, raw payload length, and CRC32. The protected payload is Reed–Solomon encoded, then one of four reversible XOR masks can be selected using a GC/homopolymer heuristic. Separate XOR parity strands provide one-erasure recovery within each parity group.
+The JSON archive remains `oligoark-archive-v1`. Existing v0.1-v0.3 configuration dictionaries remain readable because new v0.4 fields have backward-compatible defaults. Each strand contains a one-byte mask identifier plus a Reed-Solomon-protected frame with magic/version, flags, logical index, total data-strand count, payload length and CRC32.
 
-Archive metadata includes the original byte size, SHA-256, codec configuration, data/parity strand counts, and measured encoding statistics. Unknown archive formats and malformed mandatory metadata are rejected.
+Mask IDs 0-3 retain the earlier constant XOR masks. IDs 4-255 deterministically generate whitening streams, giving the encoder a larger search space for hard sequence constraints while remaining reversible. New flags distinguish XOR parity from fountain symbols. Fountain symbol seeds are stored in the existing 32-bit frame index and deterministically regenerate their source-chunk sets.
 
 ## Recovery pipeline
 
-`recover_from_reads()` first validates the archive and attempts normal frame decoding because valid Reed–Solomon-correctable reads need no expensive reconstruction. If verified recovery fails, it invokes a `ReadReconstructor`. The default `GraphConsensusReconstructor` clusters through a q-gram prefilter and normalized Levenshtein similarity, emits consensus candidates, and retries decoding. A custom reconstructor can be injected without changing the archive format. The result is accepted only after SHA-256 verification.
+`recover_bytes()` decodes valid frames, combines available data with XOR parity and fountain symbols, iterates erasure recovery, reassembles the original byte stream, and accepts it only if SHA-256 matches archive metadata.
 
-The default fallback is intentionally conservative. Its edge scorer is pluggable through `EdgeScorer`; a PyTorch/PyTorch-Geometric model can replace edge scoring or the whole reconstruction strategy. No learned model is bundled by default, and insertion/deletion-heavy channels remain an explicit research gap.
+`recover_from_reads()` first tries this direct path. If it fails, the default `GraphConsensusReconstructor` builds an explicit similarity graph, computes connected components, performs alignment-aware consensus per component, appends consensus candidates to the original reads, and retries verified recovery.
 
-## Archival intelligence layer
+## Optimisation pipeline
 
-`plan_archive()` composes `WorkloadProfile`, `ChannelProfile`, optional `EconomicAssumptions`, deterministic codec objectives, and an optional fitted `EmpiricalPolicyModel`. It always returns an explainable `ArchivalIntelligencePlan` containing the recommended storage tier, codec policy, policy source, confidence when empirical learning is used, and human-readable rationale. The deterministic path remains the default and requires no trained model.
+`optimize_codec()` enumerates a configurable candidate space containing chunk sizes, Reed-Solomon strengths, redundancy schemes, fountain ratios, hard sequence constraints and direct/graph reconstruction modes. Each candidate is actually encoded and passed through the configured software channel for deterministic seeds. The optimizer records SHA-256-verified recovery rate, encoded nucleotide overhead, runtime and graph use, then applies caller-visible objective weights.
+
+`optimize_archive_plan()` combines the measured codec winner with heterogeneous tiering and optional lifecycle estimates. Its output includes the selected redundancy scheme, reconstruction strategy and hard sequence constraints.
+
+## Experiment pipeline
+
+`run_experiments()` supports repeatable multi-seed/payload/scenario sweeps and the five core ablations: fixed, adaptive, adaptive+fountain/hybrid, adaptive+graph, and combined measured optimisation. Aggregation reports recovery rate with Wilson 95% intervals plus overhead, runtime and graph-use metrics.
