@@ -22,6 +22,7 @@ class ExperimentScenario:
     name: str
     channel: ChannelProfile
     duplicate_rate: float = 0.0
+    copies_per_strand: int = 1
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,11 @@ class ExperimentProfile:
             raise ValueError("payload sizes and scenarios must not be empty")
         if any(size <= 0 for size in self.payload_sizes):
             raise ValueError("payload sizes must be positive")
+        for scenario in self.scenarios:
+            if not 0 <= scenario.duplicate_rate <= 1:
+                raise ValueError("scenario duplicate_rate must be between 0 and 1")
+            if not 1 <= scenario.copies_per_strand <= 32:
+                raise ValueError("scenario copies_per_strand must be between 1 and 32")
         valid = {
             "fixed",
             "adaptive",
@@ -112,6 +118,7 @@ class ExperimentRecord:
     selection_search_method: str | None = None
     selection_calibration_recovery_rate: float | None = None
     reconstruction_mode: str = "direct"
+    copies_per_strand: int = 1
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -203,16 +210,25 @@ def smoke_profile() -> ExperimentProfile:
         calibration_seeds=(9601, 9602, 9603, 9604),
         payload_sizes=(256,),
         scenarios=(
-            ExperimentScenario("clean", ChannelProfile()),
+            ExperimentScenario("clean", ChannelProfile(), copies_per_strand=1),
             ExperimentScenario(
-                "substitution", ChannelProfile(substitution_rate=0.01), duplicate_rate=0.20
+                "substitution",
+                ChannelProfile(substitution_rate=0.01),
+                duplicate_rate=0.20,
+                copies_per_strand=2,
             ),
             ExperimentScenario(
                 "indel",
                 ChannelProfile(insertion_rate=0.001, deletion_rate=0.001),
                 duplicate_rate=0.35,
+                copies_per_strand=4,
             ),
-            ExperimentScenario("dropout", ChannelProfile(dropout_rate=0.05), duplicate_rate=0.10),
+            ExperimentScenario(
+                "dropout",
+                ChannelProfile(dropout_rate=0.05),
+                duplicate_rate=0.10,
+                copies_per_strand=2,
+            ),
         ),
         strategies=(
             "fixed",
@@ -235,36 +251,42 @@ def publication_profile() -> ExperimentProfile:
         calibration_seeds=(9401, 9402, 9403, 9404, 9405, 9406),
         payload_sizes=(512, 2048, 8192),
         scenarios=(
-            ExperimentScenario("clean", ChannelProfile()),
+            ExperimentScenario("clean", ChannelProfile(), copies_per_strand=1),
             ExperimentScenario(
                 "substitution-1pct",
                 ChannelProfile(substitution_rate=0.01),
                 duplicate_rate=0.30,
+                copies_per_strand=2,
             ),
             ExperimentScenario(
                 "indel-low",
                 ChannelProfile(insertion_rate=0.0005, deletion_rate=0.0005),
                 duplicate_rate=0.50,
+                copies_per_strand=3,
             ),
             ExperimentScenario(
                 "indel-moderate",
                 ChannelProfile(insertion_rate=0.0015, deletion_rate=0.0015),
                 duplicate_rate=0.60,
+                copies_per_strand=5,
             ),
             ExperimentScenario(
                 "indel-moderate-highcoverage",
                 ChannelProfile(insertion_rate=0.0015, deletion_rate=0.0015),
                 duplicate_rate=0.90,
+                copies_per_strand=8,
             ),
             ExperimentScenario(
                 "dropout-2pct",
                 ChannelProfile(dropout_rate=0.02),
                 duplicate_rate=0.15,
+                copies_per_strand=2,
             ),
             ExperimentScenario(
                 "dropout-10pct",
                 ChannelProfile(dropout_rate=0.10),
                 duplicate_rate=0.30,
+                copies_per_strand=2,
             ),
             ExperimentScenario(
                 "mixed",
@@ -275,6 +297,7 @@ def publication_profile() -> ExperimentProfile:
                     dropout_rate=0.02,
                 ),
                 duplicate_rate=0.50,
+                copies_per_strand=4,
             ),
         ),
         strategies=(
@@ -354,6 +377,7 @@ def _calibrate_combined(
         seeds=profile.calibration_seeds,
         duplicate_rate=scenario.duplicate_rate,
         calibration_payloads=variants,
+        copies_per_strand=scenario.copies_per_strand,
     )
 
 
@@ -462,6 +486,7 @@ def _run_one(
             dropout_rate=scenario.channel.dropout_rate,
             duplicate_rate=scenario.duplicate_rate,
             seed=seed,
+            copies_per_strand=scenario.copies_per_strand,
         ),
     )
     recovered = False
@@ -514,6 +539,7 @@ def _run_one(
         selection_search_method=selection_search_method,
         selection_calibration_recovery_rate=selection_calibration_recovery_rate,
         reconstruction_mode=reconstruction_mode,
+        copies_per_strand=scenario.copies_per_strand,
     )
 
 
