@@ -46,10 +46,15 @@ class EmpiricalPolicyModel:
             + abs(left.dropout_rate - right.dropout_rate)
         )
 
-    def recommend(self, channel: ChannelProfile) -> LearnedPolicyRecommendation:
+    def recommend(
+        self,
+        channel: ChannelProfile,
+        candidates: list[CodecPolicy] | None = None,
+    ) -> LearnedPolicyRecommendation:
         if not self._observations:
             raise ValueError("Model must be fit before recommendation")
 
+        allowed = {_policy_key(policy) for policy in candidates} if candidates else None
         max_nucleotides = max(obs.encoded_nucleotides for obs in self._observations)
         max_runtime = max(obs.runtime_seconds for obs in self._observations) or 1.0
         scores: dict[tuple[int, int, int, bool], float] = {}
@@ -58,6 +63,8 @@ class EmpiricalPolicyModel:
 
         for obs in self._observations:
             key = _policy_key(obs.policy)
+            if allowed is not None and key not in allowed:
+                continue
             distance = self._distance(channel, obs.channel)
             weight = 1.0 / (0.001 + distance)
             recovery_score = 1.0 if obs.recovered else -1.0
@@ -68,6 +75,8 @@ class EmpiricalPolicyModel:
             counts[key] = counts.get(key, 0) + 1
             policies[key] = obs.policy
 
+        if not scores:
+            raise ValueError("No fitted observations match the supplied candidate policies")
         winner = max(scores, key=lambda policy_key: scores[policy_key])
         total_magnitude = sum(abs(value) for value in scores.values()) or 1.0
         confidence = min(1.0, abs(scores[winner]) / total_magnitude)
