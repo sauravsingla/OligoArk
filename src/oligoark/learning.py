@@ -1,12 +1,8 @@
-"""Deterministic empirical policy-learning baseline.
-
-The model is intentionally dependency-free and transparent. It learns from observed
-(simulated or measured) policy outcomes using inverse-distance weighting over channel profiles.
-It is a research baseline, not a claim of optimality.
-"""
+"""Transparent deterministic policy-learning baselines for OligoArk."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from .policy import ChannelProfile, CodecPolicy
@@ -30,7 +26,7 @@ class LearnedPolicyRecommendation:
 
 
 class EmpiricalPolicyModel:
-    """Instance-based policy ranker learned from prior observations."""
+    """Instance-based policy ranker learned from prior reproducible observations."""
 
     def __init__(self) -> None:
         self._observations: list[PolicyObservation] = []
@@ -61,12 +57,7 @@ class EmpiricalPolicyModel:
         policies: dict[tuple[int, int, int, bool], CodecPolicy] = {}
 
         for obs in self._observations:
-            key = (
-                obs.policy.chunk_size,
-                obs.policy.rs_nsym,
-                obs.policy.parity_group_size,
-                obs.policy.adaptive_masks,
-            )
+            key = _policy_key(obs.policy)
             distance = self._distance(channel, obs.channel)
             weight = 1.0 / (0.001 + distance)
             recovery_score = 1.0 if obs.recovered else -1.0
@@ -90,4 +81,178 @@ class EmpiricalPolicyModel:
             confidence=round(confidence, 4),
             supporting_observations=counts[winner],
             rationale=rationale,
+        )
+
+
+@dataclass(frozen=True)
+class LinearPolicyRecommendation:
+    policy: CodecPolicy
+    predicted_utility: float
+    margin: float
+    candidate_count: int
+    rationale: tuple[str, ...]
+
+
+def _policy_key(policy: CodecPolicy) -> tuple[int, int, int, bool]:
+    return (
+        policy.chunk_size,
+        policy.rs_nsym,
+        policy.parity_group_size,
+        policy.adaptive_masks,
+    )
+
+
+def _features(channel: ChannelProfile, policy: CodecPolicy) -> list[float]:
+    substitution = channel.substitution_rate
+    insertion = channel.insertion_rate
+    deletion = channel.deletion_rate
+    dropout = channel.dropout_rate
+    chunk = policy.chunk_size / 128.0
+    rs = policy.rs_nsym / 64.0
+    parity = policy.parity_group_size / 16.0
+    masks = 1.0 if policy.adaptive_masks else 0.0
+    return [
+        1.0,
+        substitution,
+        insertion,
+        deletion,
+        dropout,
+        chunk,
+        rs,
+        parity,
+        masks,
+        substitution * rs,
+        (insertion + deletion) * chunk,
+        dropout / max(0.0625, parity),
+        (substitution + insertion + deletion) * masks,
+    ]
+
+
+def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list[float]:
+    size = len(vector)
+    augmented = [row[:] + [vector[index]] for index, row in enumerate(matrix)]
+    for column in range(size):
+        pivot = max(range(column, size), key=lambda row: abs(augmented[row][column]))
+        if abs(augmented[pivot][column]) < 1e-12:
+            raise ValueError("policy-learning linear system is singular")
+        augmented[column], augmented[pivot] = augmented[pivot], augmented[column]
+        divisor = augmented[column][column]
+        augmented[column] = [value / divisor for value in augmented[column]]
+        for row in range(size):
+            if row == column:
+                continue
+            factor = augmented[row][column]
+            if factor == 0:
+                continue
+            augmented[row] = [
+                value - factor * pivot_value
+                for value, pivot_value in zip(
+                    augmented[row],
+                    augmented[column],
+                    strict=True,
+                )
+            ]
+    return [augmented[row][-1] for row in range(size)]
+
+
+class LinearUtilityPolicyModel:
+    """Ridge-regression utility model trained only from caller-supplied observations.
+
+    This is a stronger parametric baseline than nearest-neighbor ranking while remaining
+    deterministic, dependency-free, inspectable, and intentionally modest in scope.
+    """
+
+    def __init__(self, ridge: float = 1e-3) -> None:
+        if ridge < 0:
+            raise ValueError("ridge must be non-negative")
+        self.ridge = ridge
+        self._coefficients: list[float] = []
+        self._policies: dict[tuple[int, int, int, bool], CodecPolicy] = {}
+        self._max_nucleotides = 1.0
+        self._max_runtime = 1.0
+
+    def fit(self, observations: list[PolicyObservation]) -> LinearUtilityPolicyModel:
+        if len(observations) < 2:
+            raise ValueError("LinearUtilityPolicyModel requires at least two observations")
+        self._max_nucleotides = float(
+            max(max(1, observation.encoded_nucleotides) for observation in observations)
+        )
+        self._max_runtime = max(
+            1e-9,
+            max(observation.runtime_seconds for observation in observations),
+        )
+        rows: list[list[float]] = []
+        targets: list[float] = []
+        for observation in observations:
+            observation.channel.validate()
+            rows.append(_features(observation.channel, observation.policy))
+            recovery = 1.0 if observation.recovered else 0.0
+            overhead = observation.encoded_nucleotides / self._max_nucleotides
+            runtime = observation.runtime_seconds / self._max_runtime
+            targets.append(recovery - 0.20 * overhead - 0.05 * runtime)
+            self._policies[_policy_key(observation.policy)] = observation.policy
+
+        dimension = len(rows[0])
+        xtx = [[0.0] * dimension for _ in range(dimension)]
+        xty = [0.0] * dimension
+        for row, target in zip(rows, targets, strict=True):
+            for i in range(dimension):
+                xty[i] += row[i] * target
+                for j in range(dimension):
+                    xtx[i][j] += row[i] * row[j]
+        for index in range(dimension):
+            xtx[index][index] += self.ridge
+        self._coefficients = _solve_linear_system(xtx, xty)
+        return self
+
+    def predict_utility(self, channel: ChannelProfile, policy: CodecPolicy) -> float:
+        if not self._coefficients:
+            raise ValueError("Model must be fit before prediction")
+        channel.validate()
+        features = _features(channel, policy)
+        return sum(
+            coefficient * feature
+            for coefficient, feature in zip(
+                self._coefficients,
+                features,
+                strict=True,
+            )
+        )
+
+    def recommend(
+        self,
+        channel: ChannelProfile,
+        candidates: list[CodecPolicy] | None = None,
+    ) -> LinearPolicyRecommendation:
+        if not self._coefficients:
+            raise ValueError("Model must be fit before recommendation")
+        resolved = candidates or list(self._policies.values())
+        if not resolved:
+            raise ValueError("At least one candidate policy is required")
+        scored = sorted(
+            (
+                (self.predict_utility(channel, policy), policy)
+                for policy in resolved
+            ),
+            key=lambda item: (
+                item[0],
+                item[1].rs_nsym,
+                -item[1].chunk_size,
+            ),
+            reverse=True,
+        )
+        best_score, best_policy = scored[0]
+        second_score = scored[1][0] if len(scored) > 1 else best_score
+        margin = max(0.0, best_score - second_score)
+        bounded_margin = 1.0 - math.exp(-margin)
+        return LinearPolicyRecommendation(
+            policy=best_policy,
+            predicted_utility=round(best_score, 6),
+            margin=round(bounded_margin, 6),
+            candidate_count=len(resolved),
+            rationale=(
+                "deterministic ridge regression trained only from supplied observations",
+                "target utility rewards verified recovery and penalizes overhead/runtime",
+                "margin is a relative separation score, not a calibrated probability",
+            ),
         )
