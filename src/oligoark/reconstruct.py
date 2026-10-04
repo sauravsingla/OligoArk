@@ -190,7 +190,6 @@ def build_similarity_graph(
     resolved_scorer = scorer or LevenshteinEdgeScorer()
     nodes = tuple(reads)
     signatures = [_qgrams(read, qgram_width) for read in nodes]
-    prefilter_threshold = max(0.02, threshold - 0.60)
     edges: list[GraphEdge] = []
 
     if use_qgram_prefilter:
@@ -216,11 +215,8 @@ def build_similarity_graph(
         length_similarity = 1.0 - abs(len(nodes[left]) - len(nodes[right])) / max_length
         if length_similarity < threshold:
             continue
-        if (
-            use_qgram_prefilter
-            and _jaccard(signatures[left], signatures[right]) < prefilter_threshold
-        ):
-            continue
+        # Shared q-gram postings are only a conservative candidate index.
+        # Exact Levenshtein scoring remains the edge acceptance criterion.
         weight = resolved_scorer.score(nodes[left], nodes[right])
         if weight >= threshold:
             edges.append(GraphEdge(left, right, weight))
