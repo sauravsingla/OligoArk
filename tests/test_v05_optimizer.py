@@ -82,6 +82,7 @@ def test_objective_breakdown_reproduces_score_and_lifecycle_is_explicit() -> Non
     )
     assert winner.score == pytest.approx(winner.objective.total)
     assert winner.objective.lifecycle_storage_cost_penalty >= 0
+    assert winner.redundancy_ratio > 0
     assert result.total_possible_candidates >= result.evaluated_candidates
     assert result.search_method == "balanced"
 
