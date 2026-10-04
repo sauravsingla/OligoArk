@@ -28,6 +28,8 @@ class LearningMethodSummary:
 class LearningEvaluationResult:
     training_seeds: tuple[int, ...]
     test_seeds: tuple[int, ...]
+    training_scenarios: tuple[str, ...]
+    test_scenarios: tuple[str, ...]
     training_observations: int
     test_groups: int
     summaries: tuple[LearningMethodSummary, ...]
@@ -119,17 +121,38 @@ def evaluate_learning_from_records(
     *,
     training_seeds: tuple[int, ...],
     test_seeds: tuple[int, ...],
+    training_scenarios: tuple[str, ...] | None = None,
+    test_scenarios: tuple[str, ...] | None = None,
 ) -> LearningEvaluationResult:
-    """Train on one seed set and compare heuristic/learned/search policies on disjoint seeds."""
+    """Evaluate policy learning on disjoint seeds and, optionally, disjoint channels."""
     if not training_seeds or not test_seeds:
         raise ValueError("training and test seeds must not be empty")
     if set(training_seeds) & set(test_seeds):
         raise ValueError("training and test seeds must be disjoint")
 
-    training_records = [record for record in records if record.seed in training_seeds]
-    test_records = [record for record in records if record.seed in test_seeds]
+    all_scenarios = tuple(sorted({record.scenario for record in records}))
+    resolved_training_scenarios = training_scenarios or all_scenarios
+    resolved_test_scenarios = test_scenarios or all_scenarios
+    if training_scenarios is not None and test_scenarios is not None:
+        if set(resolved_training_scenarios) & set(resolved_test_scenarios):
+            raise ValueError("training and test scenarios must be disjoint")
+
+    training_records = [
+        record
+        for record in records
+        if record.seed in training_seeds
+        and record.scenario in resolved_training_scenarios
+    ]
+    test_records = [
+        record
+        for record in records
+        if record.seed in test_seeds
+        and record.scenario in resolved_test_scenarios
+    ]
     if not training_records or not test_records:
-        raise ValueError("records do not cover both requested training and test seeds")
+        raise ValueError(
+            "records do not cover both requested training and test seed/scenario sets"
+        )
 
     observations = policy_observations_from_records(training_records)
     empirical = EmpiricalPolicyModel().fit(observations)
@@ -245,6 +268,8 @@ def evaluate_learning_from_records(
     return LearningEvaluationResult(
         training_seeds=tuple(training_seeds),
         test_seeds=tuple(test_seeds),
+        training_scenarios=tuple(resolved_training_scenarios),
+        test_scenarios=tuple(resolved_test_scenarios),
         training_observations=len(observations),
         test_groups=len(metrics["linear"]),
         summaries=tuple(summaries),
