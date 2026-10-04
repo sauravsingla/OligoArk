@@ -10,12 +10,16 @@ client = TestClient(app)
 def test_api_encode_recover_and_health() -> None:
     health = client.get("/health").json()
     assert health["status"] == "ok"
-    assert health["version"] == "0.3.0"
+    assert health["version"] == "0.4.0"
 
     payload = b"api-roundtrip"
     encoded = client.post(
         "/encode",
-        json={"data_b64": base64.b64encode(payload).decode("ascii")},
+        json={
+            "data_b64": base64.b64encode(payload).decode("ascii"),
+            "redundancy_scheme": "hybrid",
+            "fountain_redundancy": 0.5,
+        },
     )
     assert encoded.status_code == 200
     archive = encoded.json()
@@ -42,6 +46,7 @@ def test_api_simulate_policy_tiering_and_plan() -> None:
         "retrieval_urgency": 0.1,
         "durability_priority": 1,
         "energy_priority": 0.8,
+        "data_size_gb": 0.1,
         "economics": {
             "storage_cost_index": {
                 "ssd": 0.8,
@@ -71,6 +76,24 @@ def test_api_simulate_policy_tiering_and_plan() -> None:
     )
     assert plan.status_code == 200
     result = plan.json()
-    assert result["policy_source"] == "deterministic"
+    assert result["policy_source"] == "deterministic-heuristic"
     assert result["tier"]["recommended_tier"] in result["tier"]["scores"]
     assert result["codec_policy"]["rs_nsym"] >= 16
+
+
+def test_api_measured_optimizer_endpoint() -> None:
+    payload = base64.b64encode(b"optimizer api payload").decode("ascii")
+    response = client.post(
+        "/optimize-plan",
+        json={
+            "data_b64": payload,
+            "retention_years": 100,
+            "substitution_rate": 0.002,
+            "max_candidates": 4,
+            "seeds": [2026],
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert result["optimization"]["evaluations"]
+    assert result["selected_redundancy_scheme"] in {"xor", "fountain", "hybrid"}
