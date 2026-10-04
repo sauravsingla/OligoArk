@@ -4,6 +4,7 @@ from oligoark.archive import ArchiveConfig, archive_bytes, recover_bytes
 from oligoark.dna import bytes_to_dna, dna_to_bytes
 from oligoark.ecc import rs_decode, rs_encode
 from oligoark.optimizer import CodecSearchSpace, select_candidate_specs
+from oligoark.reconstruct import build_similarity_graph
 
 hypothesis = pytest.importorskip("hypothesis")
 st = pytest.importorskip("hypothesis.strategies")
@@ -67,3 +68,27 @@ def test_balanced_search_subset_is_property_order_invariant(
     assert [item.key() for item in select_candidate_specs(baseline)] == [
         item.key() for item in select_candidate_specs(permuted)
     ]
+
+
+@given(st.text(alphabet="ACGT", min_size=24, max_size=80))
+@settings(max_examples=30, deadline=None)
+def test_qgram_prefilter_preserves_exact_qualifying_edges(sequence: str) -> None:
+    position = len(sequence) // 2
+    replacement = {"A": "C", "C": "G", "G": "T", "T": "A"}[sequence[position]]
+    mutated = sequence[:position] + replacement + sequence[position + 1 :]
+    reads = [sequence, mutated, sequence[::-1]]
+    indexed = build_similarity_graph(
+        reads,
+        threshold=0.86,
+        qgram_width=5,
+        use_qgram_prefilter=True,
+    )
+    exhaustive = build_similarity_graph(
+        reads,
+        threshold=0.86,
+        qgram_width=5,
+        use_qgram_prefilter=False,
+    )
+    assert {(edge.left, edge.right) for edge in indexed.edges} == {
+        (edge.left, edge.right) for edge in exhaustive.edges
+    }
