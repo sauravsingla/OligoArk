@@ -40,7 +40,7 @@ def _archive(payload: bytes):
 def substitution_case() -> dict[str, object]:
     archive = _archive(b"controlled substitution graph rescue evidence")
     original = archive.strands[0]
-    positions = (84, 96, 108, 120, 132, 144, 156)
+    positions = (72, 84, 96, 108, 120, 132, 144)
     reads = [_substitute(original, position) for position in positions]
     comparison = compare_reconstruction_modes(archive, reads, threshold=0.96)
     return {
