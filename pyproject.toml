@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oligoark"
-version = "0.5.0"
-description = "AI-native DNA archival storage research framework for held-out adaptive optimisation, graph-rescue validation, policy learning, and explainable lifecycle intelligence."
+version = "0.6.0"
+description = "AI-native DNA archival storage research framework for robust held-out optimisation, multi-trace indel reconstruction, policy learning, physical-read adapters, and explainable lifecycle intelligence."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
