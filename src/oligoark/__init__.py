@@ -16,7 +16,9 @@ from .experiments import (
     ExperimentRecord,
     ExperimentScenario,
     ExperimentSummary,
+    StrategyEffectSummary,
     aggregate_experiments,
+    paired_strategy_effects,
     publication_profile,
     run_experiments,
     smoke_profile,
@@ -24,23 +26,38 @@ from .experiments import (
 )
 from .intelligence import (
     ArchivalIntelligencePlan,
+    HeldOutOptimizedPlan,
+    HeldOutTrial,
     OptimizedArchivalPlan,
+    evaluate_optimized_archive_plan,
     objective_from_workload,
     optimize_archive_plan,
     plan_archive,
 )
 from .learning import (
     EmpiricalPolicyModel,
+    LearnedPolicyRecommendation,
     LinearPolicyRecommendation,
     LinearUtilityPolicyModel,
     PolicyObservation,
 )
+from .learning_eval import (
+    LearningEvaluationResult,
+    LearningMethodSummary,
+    evaluate_learning_from_records,
+    policy_observations_from_records,
+)
 from .optimizer import (
     CandidateEvaluation,
+    CandidateSpec,
     CodecSearchSpace,
+    LifecycleObjectiveInputs,
+    ObjectiveBreakdown,
     OptimizationResult,
     OptimizationWeights,
+    enumerate_candidate_specs,
     optimize_codec,
+    select_candidate_specs,
 )
 from .policy import ChannelProfile, CodecPolicy, PolicyObjective, recommend_codec_policy
 from .reconstruct import (
@@ -61,8 +78,14 @@ from .tiering import (
     LifecycleEstimate,
     TierLifecycleAssumption,
     TierRecommendation,
+    TierScoreBreakdown,
     WorkloadProfile,
     recommend_storage_tier,
+)
+from .validation import (
+    GraphRescueComparison,
+    RescueModeResult,
+    compare_reconstruction_modes,
 )
 
 __all__ = [
@@ -70,6 +93,7 @@ __all__ = [
     "ArchiveStatistics",
     "ArchivalIntelligencePlan",
     "CandidateEvaluation",
+    "CandidateSpec",
     "ChannelProfile",
     "CodecPolicy",
     "CodecSearchSpace",
@@ -83,11 +107,19 @@ __all__ = [
     "ExperimentSummary",
     "GraphConsensusReconstructor",
     "GraphEdge",
+    "GraphRescueComparison",
+    "HeldOutOptimizedPlan",
+    "HeldOutTrial",
+    "LearnedPolicyRecommendation",
+    "LearningEvaluationResult",
+    "LearningMethodSummary",
     "LevenshteinEdgeScorer",
     "LifecycleAssumptions",
     "LifecycleEstimate",
+    "LifecycleObjectiveInputs",
     "LinearPolicyRecommendation",
     "LinearUtilityPolicyModel",
+    "ObjectiveBreakdown",
     "OptimizationResult",
     "OptimizationWeights",
     "OptimizedArchivalPlan",
@@ -96,30 +128,40 @@ __all__ = [
     "ReadReconstructor",
     "ReconstructionResult",
     "RecoveryReport",
+    "RescueModeResult",
     "SequenceConstraintError",
     "SequenceConstraints",
     "SimilarityGraph",
+    "StrategyEffectSummary",
     "TierLifecycleAssumption",
     "TierRecommendation",
+    "TierScoreBreakdown",
     "WorkloadProfile",
     "aggregate_experiments",
     "alignment_consensus",
     "archive_bytes",
     "archive_statistics",
     "build_similarity_graph",
+    "compare_reconstruction_modes",
+    "enumerate_candidate_specs",
+    "evaluate_learning_from_records",
+    "evaluate_optimized_archive_plan",
     "global_align",
     "objective_from_workload",
     "optimize_archive_plan",
     "optimize_codec",
+    "paired_strategy_effects",
     "plan_archive",
+    "policy_observations_from_records",
     "publication_profile",
     "recover_bytes",
     "recover_from_reads",
     "recommend_codec_policy",
     "recommend_storage_tier",
     "run_experiments",
+    "select_candidate_specs",
     "smoke_profile",
     "wilson_interval",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
