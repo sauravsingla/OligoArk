@@ -363,6 +363,7 @@ def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
             lifecycle=lifecycle,
             search_space=search,
             weights=weights,
+            duplicate_rate=req.duplicate_rate,
         ).to_dict()
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
