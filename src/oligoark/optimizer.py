@@ -516,13 +516,14 @@ def optimize_codec(
 
     active_weight_names = [
         "recovery",
-        "instability",
         "overhead",
         "redundancy",
         "runtime",
         "retrieval",
         "durability",
     ]
+    if space.search_method == "balanced_robust":
+        active_weight_names.append("instability")
     if lifecycle is not None:
         active_weight_names.extend(
             [
