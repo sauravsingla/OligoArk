@@ -200,7 +200,7 @@ class DNAArchive:
         original_size = cast(int, self.metadata["original_size"])
         data_strands = cast(int, self.metadata["data_strands"])
         parity_strands = cast(int, self.metadata["parity_strands"])
-        fountain_strands = cast(int, fountain_value)
+        fountain_strands = fountain_value
         if original_size < 0:
             raise ValueError("original_size must be non-negative")
         if data_strands <= 0 or parity_strands < 0 or fountain_strands < 0:
