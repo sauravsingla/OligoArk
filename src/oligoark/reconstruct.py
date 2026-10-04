@@ -1,15 +1,42 @@
-"""Graph-inspired read clustering and consensus reconstruction baselines."""
+"""Extensible read-reconstruction interfaces and deterministic graph baselines."""
 
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
 class ReconstructionResult:
+    """Consensus reads plus diagnostic cluster sizes."""
+
     consensus_reads: list[str]
     cluster_sizes: list[int]
+
+
+@runtime_checkable
+class EdgeScorer(Protocol):
+    """Score how likely two reads are to represent the same underlying strand."""
+
+    def score(self, left: str, right: str) -> float:
+        """Return a similarity score, conventionally in the inclusive range [0, 1]."""
+
+
+@runtime_checkable
+class ReadReconstructor(Protocol):
+    """Convert noisy/duplicated reads into candidate consensus reads."""
+
+    def reconstruct(self, reads: list[str]) -> ReconstructionResult:
+        """Return candidate consensus reads and reconstruction diagnostics."""
+
+
+@dataclass(frozen=True)
+class LevenshteinEdgeScorer:
+    """Deterministic normalized-Levenshtein baseline edge scorer."""
+
+    def score(self, left: str, right: str) -> float:
+        return normalized_similarity(left, right)
 
 
 def edit_distance(a: str, b: str) -> int:
@@ -32,10 +59,13 @@ def edit_distance(a: str, b: str) -> int:
 
 
 def normalized_similarity(a: str, b: str) -> float:
+    """Return normalized Levenshtein similarity in [0, 1]."""
     return 1.0 - edit_distance(a, b) / max(1, len(a), len(b))
 
 
 def _qgrams(sequence: str, width: int = 5) -> frozenset[str]:
+    if width < 1:
+        raise ValueError("qgram width must be positive")
     if len(sequence) < width:
         return frozenset({sequence})
     return frozenset(sequence[index : index + width] for index in range(len(sequence) - width + 1))
@@ -49,7 +79,7 @@ def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
 
 
 def _consensus(cluster: list[str]) -> str:
-    """Use a medoid plus same-length majority voting as an indel-aware baseline."""
+    """Use a medoid plus same-length majority voting as a deterministic baseline."""
     if len(cluster) == 1:
         return cluster[0]
     medoid = min(
@@ -66,43 +96,79 @@ def _consensus(cluster: list[str]) -> str:
     return "".join(chars)
 
 
-def graph_cluster_consensus(reads: list[str], threshold: float = 0.90) -> ReconstructionResult:
-    """Cluster an implicit similarity graph and return deterministic consensus reads.
+@dataclass(frozen=True)
+class GraphConsensusReconstructor:
+    """Implicit similarity-graph clustering with a pluggable edge scorer.
 
-    A q-gram Jaccard prefilter avoids quadratic edit-distance work for unrelated strands while
-    preserving full Levenshtein scoring for plausible neighbors. This remains a deterministic
-    non-ML baseline; a future GNN can replace edge scoring without changing the archive codec.
+    The default scorer is deterministic normalized Levenshtein similarity. A future GNN can
+    implement EdgeScorer and set use_qgram_prefilter=False if the learned scorer should evaluate
+    all candidate pairs.
     """
-    if not 0 <= threshold <= 1:
-        raise ValueError("threshold must be between 0 and 1")
 
-    clusters: list[list[str]] = []
-    representatives: list[str] = []
-    signatures: list[frozenset[str]] = []
-    prefilter_threshold = max(0.10, threshold - 0.35)
+    threshold: float = 0.90
+    scorer: EdgeScorer = field(default_factory=LevenshteinEdgeScorer)
+    qgram_width: int = 5
+    use_qgram_prefilter: bool = True
 
-    for read in sorted(reads, key=lambda value: (len(value), value)):
-        read_signature = _qgrams(read)
-        best_index = -1
-        best_score = threshold
-        for index, representative in enumerate(representatives):
-            max_length = max(1, len(read), len(representative))
-            length_similarity = 1.0 - abs(len(read) - len(representative)) / max_length
-            if length_similarity < threshold:
-                continue
-            if _jaccard(read_signature, signatures[index]) < prefilter_threshold:
-                continue
-            score = normalized_similarity(read, representative)
-            if score >= best_score:
-                best_index, best_score = index, score
-        if best_index < 0:
-            clusters.append([read])
-            representatives.append(read)
-            signatures.append(read_signature)
-        else:
-            clusters[best_index].append(read)
+    def _validate(self) -> None:
+        if not 0 <= self.threshold <= 1:
+            raise ValueError("threshold must be between 0 and 1")
+        if self.qgram_width < 1:
+            raise ValueError("qgram_width must be positive")
 
-    return ReconstructionResult(
-        consensus_reads=[_consensus(cluster) for cluster in clusters],
-        cluster_sizes=[len(cluster) for cluster in clusters],
+    def reconstruct(self, reads: list[str]) -> ReconstructionResult:
+        self._validate()
+        if not reads:
+            return ReconstructionResult([], [])
+
+        clusters: list[list[str]] = []
+        representatives: list[str] = []
+        signatures: list[frozenset[str]] = []
+        prefilter_threshold = max(0.10, self.threshold - 0.35)
+
+        for read in sorted(reads, key=lambda value: (len(value), value)):
+            read_signature = _qgrams(read, self.qgram_width)
+            best_index = -1
+            best_score = self.threshold
+            for index, representative in enumerate(representatives):
+                max_length = max(1, len(read), len(representative))
+                length_similarity = 1.0 - abs(len(read) - len(representative)) / max_length
+                if length_similarity < self.threshold:
+                    continue
+                if (
+                    self.use_qgram_prefilter
+                    and _jaccard(read_signature, signatures[index]) < prefilter_threshold
+                ):
+                    continue
+                score = self.scorer.score(read, representative)
+                if score >= best_score:
+                    best_index, best_score = index, score
+            if best_index < 0:
+                clusters.append([read])
+                representatives.append(read)
+                signatures.append(read_signature)
+            else:
+                clusters[best_index].append(read)
+
+        return ReconstructionResult(
+            consensus_reads=[_consensus(cluster) for cluster in clusters],
+            cluster_sizes=[len(cluster) for cluster in clusters],
+        )
+
+
+def graph_cluster_consensus(
+    reads: list[str],
+    threshold: float = 0.90,
+    *,
+    scorer: EdgeScorer | None = None,
+    qgram_width: int = 5,
+    use_qgram_prefilter: bool = True,
+) -> ReconstructionResult:
+    """Compatibility wrapper around GraphConsensusReconstructor."""
+    reconstructor = GraphConsensusReconstructor(
+        threshold=threshold,
+        scorer=scorer or LevenshteinEdgeScorer(),
+        qgram_width=qgram_width,
+        use_qgram_prefilter=use_qgram_prefilter,
     )
+    return reconstructor.reconstruct(reads)
