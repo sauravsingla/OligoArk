@@ -7,7 +7,7 @@ import math
 import random
 import statistics
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
 from .optimizer import CodecSearchSpace, optimize_codec
