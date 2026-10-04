@@ -1,6 +1,6 @@
 # Configuration
 
-OligoArk keeps archive-format configuration separate from runtime/service and lifecycle assumptions.
+OligoArk keeps archive-format configuration separate from runtime/service settings, optimization preferences, and caller-supplied lifecycle assumptions.
 
 ## Archive configuration
 
@@ -15,28 +15,13 @@ OligoArk keeps archive-format configuration separate from runtime/service and li
 - `min_gc_fraction`, `max_gc_fraction`, `max_homopolymer`
 - `mask_search_limit`
 
-The GC and homopolymer settings are hard software constraints. With adaptive masking enabled, OligoArk deterministically searches reversible mask candidates. If no candidate satisfies the configured bounds, encoding fails explicitly rather than silently emitting a nonconforming strand.
+GC and homopolymer values are hard software constraints. Adaptive masking deterministically searches reversible candidates; if none satisfy the configured bounds, encoding fails explicitly.
 
-Example:
-
-```python
-from oligoark import ArchiveConfig
-
-config = ArchiveConfig(
-    chunk_size=64,
-    rs_nsym=16,
-    redundancy_scheme="hybrid",
-    fountain_redundancy=0.4,
-    min_gc_fraction=0.40,
-    max_gc_fraction=0.60,
-    max_homopolymer=4,
-    mask_search_limit=128,
-)
-```
+Older v0.1-v0.4 configuration mappings remain readable. Missing later fields receive the same documented defaults; the archive format remains `oligoark-archive-v1`.
 
 ## Runtime configuration
 
-`RuntimeConfig` controls operational behavior and can be loaded from JSON or environment variables:
+`RuntimeConfig` controls service behavior:
 
 | Environment variable | Default | Meaning |
 | --- | ---: | --- |
@@ -51,7 +36,7 @@ export OLIGOARK_MAX_API_PAYLOAD_BYTES=5242880
 uvicorn oligoark.api:app
 ```
 
-The payload setting is a research-service guard, not a substitute for reverse-proxy limits, authentication, rate limiting, or production hardening.
+The payload setting is a research-service guard, not a substitute for authentication, rate limiting, reverse-proxy limits, quotas or deployment hardening.
 
 ## Normalized economic assumptions
 
@@ -74,11 +59,11 @@ Storage-tier normalized economics are deliberately not built in as current price
 }
 ```
 
-Use with `--economics-json` or the equivalent REST/Python API object. These are user assumptions, not prices asserted by OligoArk.
+These values are user assumptions, not vendor prices asserted by OligoArk.
 
 ## Explicit lifecycle assumptions
 
-For lifecycle estimates, provide all five values for every tier. Units are explicit and values must come from the researcher:
+For lifecycle estimates, provide all five fields for every tier:
 
 ```json
 {
@@ -115,14 +100,68 @@ For lifecycle estimates, provide all five values for every tier. Units are expli
 }
 ```
 
-The numbers above are **illustrative schema values only**, not vendor quotes or OligoArk estimates. Replace every value with sourced, dated assumptions before interpreting lifecycle output.
+These are **illustrative schema values only**, not vendor quotes or OligoArk estimates. Replace every value with a sourced, dated assumption before interpreting lifecycle output.
 
-CLI usage:
-
-```bash
-oligoark recommend --retention-years 100 --data-size-gb 100 --lifecycle-json lifecycle.json
-```
+Each tier response includes a `score_breakdowns` entry whose contributions reproduce that tier's final score. When lifecycle assumptions exist, the selected tier's lifecycle totals can also enter the codec optimizer. Without lifecycle inputs, physical lifecycle objective terms are omitted.
 
 ## Search-based optimization
 
-`oligoark optimize-plan` runs actual encode/simulate/recover/verify trials over a candidate grid. `--max-candidates` bounds search cost and `--seeds` controls deterministic trials. The Python API exposes `CodecSearchSpace` and `OptimizationWeights` for full control.
+`oligoark optimize-plan` performs real encode/simulate/recover/SHA-256-verify trials. The v0.5 search controls are:
+
+- `--max-candidates` — evaluation budget;
+- `--search-method balanced|full_grid`;
+- `--search-seed` — deterministic balanced-sampling seed;
+- `--seeds` — backward-compatible alias for calibration seeds;
+- `--calibration-seeds` — explicit optimizer calibration/training realizations;
+- `--evaluation-seeds` — optional disjoint held-out realizations;
+- `--duplicate` — duplicate-read probability used by held-out evaluation;
+- `--weights-json` — objective-weight override.
+
+Example:
+
+```bash
+oligoark optimize-plan payload.bin \
+  --retention-years 100 \
+  --substitution 0.005 \
+  --dropout 0.02 \
+  --calibration-seeds 9201,9202,9203,9204 \
+  --evaluation-seeds 2026,2027,2028,2029 \
+  --search-method balanced \
+  --search-seed 5050 \
+  --max-candidates 24
+```
+
+Calibration and evaluation sets must be disjoint.
+
+## Optimization weights
+
+A JSON file can override any `OptimizationWeights` field:
+
+```json
+{
+  "recovery": 0.40,
+  "overhead": 0.15,
+  "redundancy": 0.10,
+  "runtime": 0.08,
+  "retrieval": 0.07,
+  "durability": 0.10,
+  "lifecycle_storage_cost": 0.04,
+  "lifecycle_retrieval_cost": 0.02,
+  "lifecycle_energy": 0.02,
+  "lifecycle_latency": 0.02
+}
+```
+
+Weights are software research preferences, not physical measurements. Recovery/overhead/redundancy/runtime/retrieval/durability terms use normalized software quantities. Lifecycle terms are activated only when caller lifecycle assumptions supply the corresponding physical quantities.
+
+## Reconstruction diagnostics
+
+To compare direct recovery, graph+medoid consensus and graph+alignment consensus on the same reads:
+
+```bash
+oligoark diagnose-reconstruction \
+  archive.oligoark.json reads.txt \
+  --similarity-threshold 0.90
+```
+
+The response includes graph node/pair/edge/component counts, cluster sizes, consensus lengths, runtime, verification result, and whether alignment reconstruction rescued a direct failure.
