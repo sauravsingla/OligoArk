@@ -26,7 +26,7 @@ def test_substitution_reads_prove_direct_failure_then_graph_rescue() -> None:
     strand = archive.strands[0]
     reads = [
         _substitute(strand, position)
-        for position in (82, 94, 106, 118, 130, 142, 154)
+        for position in (72, 84, 96, 108, 120, 132, 144)
     ]
     comparison = compare_reconstruction_modes(archive, reads, threshold=0.96)
     assert comparison.direct_recovered is False
