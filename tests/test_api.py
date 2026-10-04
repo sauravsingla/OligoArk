@@ -97,3 +97,58 @@ def test_api_measured_optimizer_endpoint() -> None:
     result = response.json()
     assert result["optimization"]["evaluations"]
     assert result["selected_redundancy_scheme"] in {"xor", "fountain", "hybrid"}
+
+
+def test_api_held_out_optimizer_and_reconstruction_diagnostics() -> None:
+    payload = b"api held-out validation"
+    response = client.post(
+        "/optimize-plan",
+        json={
+            "data_b64": base64.b64encode(payload).decode("ascii"),
+            "retention_years": 50,
+            "substitution_rate": 0.001,
+            "max_candidates": 4,
+            "calibration_seeds": [9001],
+            "evaluation_seeds": [2026],
+            "search_method": "balanced",
+            "search_seed": 77,
+            "weights": {"recovery": 1.0, "overhead": 0.1},
+        },
+    )
+    assert response.status_code == 200
+    held_out = response.json()
+    assert held_out["calibration_seeds"] == [9001]
+    assert held_out["evaluation_seeds"] == [2026]
+    assert len(held_out["trials"]) == 1
+    assert held_out["plan"]["optimization"]["search_method"] == "balanced"
+
+    encoded = client.post(
+        "/encode",
+        json={
+            "data_b64": base64.b64encode(b"diagnostic rescue").decode("ascii"),
+            "rs_nsym": 0,
+            "redundancy_scheme": "none",
+            "mask_search_limit": 128,
+        },
+    ).json()
+    strand = encoded["strands"][0]
+    reads = []
+    for position in (64, 76, 88, 100, 112):
+        if position >= len(strand):
+            continue
+        current = strand[position]
+        replacement = next(base for base in "ACGT" if base != current)
+        reads.append(strand[:position] + replacement + strand[position + 1 :])
+    diagnostic = client.post(
+        "/reconstruction-diagnostics",
+        json={
+            "archive": encoded,
+            "reads": reads,
+            "similarity_threshold": 0.96,
+        },
+    )
+    assert diagnostic.status_code == 200
+    result = diagnostic.json()
+    assert result["direct_recovered"] is False
+    assert result["alignment"]["verified_sha256"] is True
+    assert result["alignment"]["node_count"] == len(reads)
