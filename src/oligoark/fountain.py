@@ -1,7 +1,8 @@
-"""Small deterministic fountain-style XOR redundancy baseline.
+"""Deterministic fountain-style XOR redundancy baseline.
 
-This is not an implementation of DNA Fountain. It is an independently implemented LT-style
-research baseline used to compare fixed parity groups with seeded, overlapping XOR symbols.
+This is not the published DNA Fountain algorithm. It is an independently implemented
+LT-style research baseline used to compare fixed parity groups with seeded, overlapping
+XOR symbols inside OligoArk's real archive/recovery pipeline.
 """
 
 from __future__ import annotations
@@ -19,9 +20,12 @@ class FountainSymbol:
     payload: bytes
 
 
-def _choose_indexes(total: int, seed: int, max_degree: int = 4) -> tuple[int, ...]:
+def indexes_for_seed(total: int, seed: int, max_degree: int = 4) -> tuple[int, ...]:
+    """Return the deterministic source-chunk set represented by one fountain seed."""
     if total <= 0:
         raise ValueError("total must be positive")
+    if max_degree < 1:
+        raise ValueError("max_degree must be positive")
     rng = random.Random(seed)
     degree = min(total, 1 + rng.randrange(max(1, min(max_degree, total))))
     return tuple(sorted(rng.sample(range(total), degree)))
@@ -32,15 +36,24 @@ def make_symbols(
     count: int,
     width: int,
     seed: int = 1,
+    max_degree: int = 4,
 ) -> list[FountainSymbol]:
+    if not chunks:
+        raise ValueError("chunks must not be empty")
     if count < 0:
         raise ValueError("count must be non-negative")
+    if width <= 0:
+        raise ValueError("width must be positive")
     symbols: list[FountainSymbol] = []
     for offset in range(count):
         symbol_seed = seed + offset
-        indexes = _choose_indexes(len(chunks), symbol_seed)
+        indexes = indexes_for_seed(len(chunks), symbol_seed, max_degree=max_degree)
         symbols.append(
-            FountainSymbol(symbol_seed, indexes, xor_bytes([chunks[i] for i in indexes], width))
+            FountainSymbol(
+                symbol_seed,
+                indexes,
+                xor_bytes([chunks[index] for index in indexes], width),
+            )
         )
     return symbols
 
@@ -52,6 +65,8 @@ def peel_decode(
     width: int,
 ) -> dict[int, bytes]:
     """Iteratively solve degree-one XOR equations against already-known chunks."""
+    if total <= 0 or width <= 0:
+        raise ValueError("total and width must be positive")
     recovered = dict(known)
     pending = [(set(symbol.indexes), symbol.payload) for symbol in symbols]
     changed = True
@@ -74,4 +89,4 @@ def peel_decode(
             elif unknown:
                 next_pending.append((unknown, residual))
         pending = next_pending
-    return {i: recovered[i] for i in range(total) if i in recovered}
+    return {index: recovered[index] for index in range(total) if index in recovered}
