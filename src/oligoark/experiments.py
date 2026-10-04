@@ -286,6 +286,7 @@ def _calibrate_combined(
         _workload(len(payload)),
         search_space=_optimizer_search(profile),
         seeds=profile.calibration_seeds,
+        duplicate_rate=scenario.duplicate_rate,
     )
 
 
