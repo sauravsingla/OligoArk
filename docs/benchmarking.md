@@ -23,15 +23,17 @@ The smoke profile is deliberately small and is a regression gate, **not** a basi
 
 ## Publication experiment
 
-The publication profile is defined in `oligoark.experiments.publication_profile()`. v0.5 uses:
+The publication profile is defined in `oligoark.experiments.publication_profile()`. v0.6 deliberately uses seed sets untouched by the v0.5 study:
 
-- calibration seeds `9201,9202,9203,9204`;
-- disjoint held-out evaluation seeds `2026..2033`;
+- calibration seeds `9401..9406`;
+- disjoint untouched evaluation seeds `31001..31010`;
+- three independent calibration payload contents, up to 1024 bytes;
 - payload sizes `512, 2048, 8192` bytes;
-- clean, two substitution, two indel, two dropout, and one mixed regime;
-- fixed, heuristic adaptive, adaptive+hybrid redundancy, adaptive+graph/alignment, and combined measured-search strategies.
+- clean, 1% substitution, low indel, moderate indel at two coverage levels, two dropout regimes, and mixed noise;
+- fixed, heuristic adaptive, adaptive+hybrid redundancy, adaptive+graph/alignment, adaptive+iterative-trace, and combined robust-search strategies;
+- explicit per-strand read coverage from 1 to 8 traces depending on regime.
 
-The combined optimizer is calibrated **only** on calibration seeds, frozen, and then evaluated on unseen evaluation seeds. Its budgeted candidate search is deterministic and order-independent. `balanced` search distributes coverage across redundancy/reconstruction groups; `full_grid` evaluates the complete valid grid when practical.
+The combined optimizer is calibrated **only** on calibration seeds, frozen, and then evaluated on untouched evaluation seeds. Its budgeted candidate search is deterministic and order-independent. `balanced_robust` distributes coverage across redundancy/reconstruction groups and subtracts a cross-seed fold-instability penalty; `full_grid` evaluates the complete valid grid when practical.
 
 A local publication run is:
 
@@ -41,7 +43,7 @@ python benchmarks/run_experiments.py \
   --output-dir publication-results
 ```
 
-GitHub Actions uses deterministic payload-size shards. Each shard runs the same seed/scenario/strategy design for one payload size, uploads its raw artifact, and the aggregation job combines all trials without dropping failures:
+GitHub Actions uses deterministic payload-size × scenario shards so trace-heavy regimes remain bounded. Each shard runs the same seed/scenario/strategy design for one payload size, uploads its raw artifact, and the aggregation job combines all trials without dropping failures:
 
 ```text
 512 B shard  ─┐
@@ -100,7 +102,8 @@ This intentionally starts from multiple noisy observations of a real OligoArk st
 
 1. direct normal archive recovery;
 2. explicit graph clustering with medoid/non-alignment consensus;
-3. explicit graph clustering with alignment-aware consensus.
+3. explicit graph clustering with alignment-aware consensus;
+4. multi-threshold graph clustering with iterative trace consensus.
 
 A rescue is counted only when direct recovery fails, reconstruction creates consensus candidate(s), and ordinary frame/ECC/CRC/SHA-256 recovery succeeds. Diagnostics include node count, candidate-pair count, retained edges, connected components, cluster sizes, consensus lengths, reconstruction runtime, and whether reconstruction changed the final result.
 
@@ -114,7 +117,7 @@ python benchmarks/run_learning_evaluation.py \
   --output-dir learning-results
 ```
 
-The learning pipeline converts reproducible experiment records into `PolicyObservation` data, splits evaluation seeds into disjoint training/test sets **and** holds out a disjoint subset of channel scenarios, fits both the instance-based empirical model and the deterministic ridge-regression utility model, and compares them with the deterministic heuristic and the measured combined-search result.
+The learning pipeline converts reproducible experiment records into `PolicyObservation` data, splits evaluation seeds into disjoint training/test sets **and** holds out a disjoint subset of channel scenarios, fits instance-based empirical, deterministic ridge-regression and deterministic RBF-kernel utility models, and compares them with the heuristic, adaptive+fountain baseline and measured combined-search result.
 
 Reported metrics include:
 
@@ -156,3 +159,18 @@ Normalized software quantities and physical/user-supplied lifecycle quantities r
 - Do not discard failed recoveries.
 - Do not call smoke-test differences statistically significant.
 - Preserve negative learned-policy, optimizer, and graph-reconstruction results.
+
+
+## Physical-read adapter
+
+For an external physical dataset with an explicit reference oligo FASTA:
+
+```bash
+python benchmarks/run_physical_dataset.py \
+  --manifest datasets/dna_aeon.json \
+  --reads reads.fastq.gz \
+  --references references.fasta \
+  --output physical-reconstruction-results.json
+```
+
+The checked DNA-Aeon manifest records public SRA provenance only. The evaluator does not infer another project's archive format and does not turn reference-reconstruction accuracy into an OligoArk end-to-end decoding claim.
