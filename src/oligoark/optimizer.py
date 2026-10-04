@@ -234,8 +234,8 @@ def optimize_codec(
                     "successes": 0,
                     "rate": 0.0,
                     "encoded": 0,
-                    "overhead": math.inf,
-                    "runtime": math.inf,
+                    "overhead": 0.0,
+                    "runtime": 0.0,
                     "graph_count": 0,
                     "rejected": rejected_reason,
                 }
@@ -277,10 +277,10 @@ def optimize_codec(
                     verified_successes=0,
                     recovery_rate=0.0,
                     encoded_nucleotides=0,
-                    overhead_ratio=math.inf,
-                    mean_runtime_seconds=math.inf,
+                    overhead_ratio=0.0,
+                    mean_runtime_seconds=0.0,
                     graph_recovery_count=0,
-                    score=-math.inf,
+                    score=-1_000_000_000.0,
                     rejected_reason=str(rejected),
                 )
             )
@@ -313,7 +313,7 @@ def optimize_codec(
             )
         )
 
-    valid_evaluations = [evaluation for evaluation in evaluations if math.isfinite(evaluation.score)]
+    valid_evaluations = [evaluation for evaluation in evaluations if evaluation.rejected_reason is None]
     winner = max(
         valid_evaluations,
         key=lambda evaluation: (
