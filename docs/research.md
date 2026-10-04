@@ -72,4 +72,4 @@ These sources support the importance of constrained coding, fountain/rateless re
 
 ## Remaining physical-validation gap
 
-The v0.5 release remains simulation-first. Public wet-lab/NGS datasets should be added only when licensing, provenance, preprocessing, and exact evaluation protocol can be documented reproducibly. Until then, no simulation result should be described as physical DNA-storage performance.
+The v0.5 release remains simulation-first. The DNA-Aeon paper reports unrestricted sequence data in NCBI SRA BioProject `PRJNA855029`, which is a concrete candidate for future physical-data validation. v0.5 does not silently download or reinterpret that dataset: a defensible comparison still requires a documented adapter, read-to-reference provenance, preprocessing rules, and a method-equivalent evaluation protocol. Until that is implemented reproducibly, no OligoArk simulation result should be described as physical DNA-storage performance.
