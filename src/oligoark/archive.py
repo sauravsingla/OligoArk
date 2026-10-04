@@ -153,6 +153,14 @@ class RecoveryReport:
     cluster_count: int
     verified_sha256: bool
     reconstruction_strategy: str | None = None
+    graph_nodes: int = 0
+    candidate_pairs: int = 0
+    edge_count: int = 0
+    component_count: int = 0
+    cluster_sizes: tuple[int, ...] = ()
+    consensus_lengths: tuple[int, ...] = ()
+    reconstruction_runtime_seconds: float = 0.0
+    rescue_changed_result: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -463,6 +471,7 @@ def recover_from_reads(
             cluster_count=0,
             verified_sha256=True,
             reconstruction_strategy=None,
+            rescue_changed_result=False,
         )
     except ValueError:
         resolved = reconstructor or GraphConsensusReconstructor(
@@ -488,5 +497,13 @@ def recover_from_reads(
             cluster_count=len(reconstruction.cluster_sizes),
             verified_sha256=True,
             reconstruction_strategy=strategy,
+            graph_nodes=reconstruction.node_count,
+            candidate_pairs=reconstruction.candidate_pairs,
+            edge_count=reconstruction.edge_count,
+            component_count=reconstruction.component_count,
+            cluster_sizes=tuple(reconstruction.cluster_sizes),
+            consensus_lengths=reconstruction.consensus_lengths,
+            reconstruction_runtime_seconds=reconstruction.runtime_seconds,
+            rescue_changed_result=True,
         )
         return raw, report
