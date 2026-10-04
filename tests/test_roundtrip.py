@@ -2,8 +2,22 @@ import os
 
 import pytest
 
-from oligoark.archive import ArchiveConfig, archive_bytes, recover_bytes
+from oligoark.archive import (
+    ArchiveConfig,
+    archive_bytes,
+    recover_bytes,
+    recover_from_reads,
+)
 from oligoark.dna import bytes_to_dna, dna_to_bytes, sequence_metrics
+from oligoark.reconstruct import ReconstructionResult
+
+
+class StaticReconstructor:
+    def __init__(self, consensus: str) -> None:
+        self.consensus = consensus
+
+    def reconstruct(self, reads: list[str]) -> ReconstructionResult:
+        return ReconstructionResult([self.consensus], [len(reads)])
 
 
 def test_binary_dna_roundtrip() -> None:
@@ -35,14 +49,12 @@ def test_unrecoverable_dropout_raises() -> None:
 
 
 def test_sequence_metrics() -> None:
-    m = sequence_metrics("AACCGGTTTT")
-    assert m.gc_fraction == pytest.approx(0.4)
-    assert m.max_homopolymer == 4
+    metrics = sequence_metrics("AACCGGTTTT")
+    assert metrics.gc_fraction == pytest.approx(0.4)
+    assert metrics.max_homopolymer == 4
 
 
 def test_graph_reconstruction_is_used_when_direct_decode_fails() -> None:
-    from oligoark.archive import recover_from_reads
-
     raw = b"graph reconstruction baseline"
     archive = archive_bytes(raw, ArchiveConfig(chunk_size=64, rs_nsym=0, parity_group_size=8))
     original = archive.strands[0]
@@ -55,7 +67,23 @@ def test_graph_reconstruction_is_used_when_direct_decode_fails() -> None:
     recovered, report = recover_from_reads(archive, corrupted_reads, similarity_threshold=0.95)
     assert recovered == raw
     assert report.graph_reconstruction_used is True
+    assert report.reconstruction_strategy == "GraphConsensusReconstructor"
     assert report.verified_sha256 is True
+
+
+def test_custom_reconstructor_can_be_injected() -> None:
+    raw = b"pluggable reconstruction"
+    archive = archive_bytes(raw, ArchiveConfig(chunk_size=64, rs_nsym=0, parity_group_size=8))
+    original = archive.strands[0]
+    broken = original[:-4]
+    recovered, report = recover_from_reads(
+        archive,
+        [broken],
+        reconstructor=StaticReconstructor(original),
+    )
+    assert recovered == raw
+    assert report.graph_reconstruction_used is False
+    assert report.reconstruction_strategy == "StaticReconstructor"
 
 
 def test_archive_validation_rejects_invalid_metadata_types() -> None:
