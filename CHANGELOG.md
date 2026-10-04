@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0 - 2026-10-04
+
+### Added
+- Search-based codec optimisation that actually encodes, simulates, recovers, SHA-256 verifies, measures, and ranks candidate configurations.
+- Adaptive redundancy selection across XOR, LT-style fountain, and hybrid archive strategies.
+- Fountain symbols integrated into the main archive/recovery path.
+- Hard GC-content and homopolymer constraints with deterministic mask search and explicit failure when constraints cannot be satisfied.
+- Explicit weighted similarity graphs, connected-component clustering, and medoid-anchored global-alignment consensus.
+- Caller-supplied lifecycle storage/retrieval cost, energy, and latency estimates.
+- Dependency-free ridge-regression utility policy model alongside the existing empirical baseline.
+- Multi-seed/multi-payload ablation experiments with Wilson 95% recovery intervals.
+- CI smoke ablations, a verified adaptive corruption/recovery demo, and a manual publication experiment workflow.
+- Bandit, pip-audit, and CodeQL security gates.
+- CLI/API support for redundancy, hard constraints, lifecycle inputs, and measured optimisation.
+
+### Changed
+- Version advanced to 0.4.0.
+- `plan_archive()` is explicitly documented as heuristic; `optimize_archive_plan()` is the measured optimizer.
+- Graph reconstruction now builds real node/edge graphs instead of representative-only clusters.
+- The continuity benchmark's fixed baseline explicitly disables hard sequence constraints for a fair historical comparison.
+
 ## 0.3.0 - 2026-10-04
 
 ### Added
