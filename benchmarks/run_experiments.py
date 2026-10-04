@@ -237,6 +237,7 @@ def main() -> None:
     parser.add_argument("--profile", choices=("smoke", "publication"), default="smoke")
     parser.add_argument("--output-dir", default="experiment-results")
     parser.add_argument("--payload-size", type=int)
+    parser.add_argument("--scenario")
     args = parser.parse_args()
 
     profile = smoke_profile() if args.profile == "smoke" else publication_profile()
@@ -244,6 +245,13 @@ def main() -> None:
         if args.payload_size not in profile.payload_sizes:
             raise ValueError("requested payload size is not part of the selected profile")
         profile = replace(profile, payload_sizes=(args.payload_size,))
+    if args.scenario is not None:
+        selected = tuple(
+            scenario for scenario in profile.scenarios if scenario.name == args.scenario
+        )
+        if not selected:
+            raise ValueError("requested scenario is not part of the selected profile")
+        profile = replace(profile, scenarios=selected)
     bundle = run_experiment_bundle(profile)
     records = list(bundle.records)
     calibrations = list(bundle.calibrations)
