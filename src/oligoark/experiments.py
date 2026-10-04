@@ -139,6 +139,34 @@ class StrategyEffectSummary:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class CalibrationRecord:
+    scenario: str
+    payload_size: int
+    calibration_payload_size: int
+    optimization: OptimizationResult
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "scenario": self.scenario,
+            "payload_size": self.payload_size,
+            "calibration_payload_size": self.calibration_payload_size,
+            "optimization": self.optimization.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class ExperimentBundle:
+    records: tuple[ExperimentRecord, ...]
+    calibrations: tuple[CalibrationRecord, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "records": [record.to_dict() for record in self.records],
+            "calibrations": [record.to_dict() for record in self.calibrations],
+        }
+
+
 def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
     if trials <= 0:
         raise ValueError("trials must be positive")
@@ -404,16 +432,26 @@ def _run_one(
     )
 
 
-def run_experiments(profile: ExperimentProfile) -> list[ExperimentRecord]:
+def run_experiment_bundle(profile: ExperimentProfile) -> ExperimentBundle:
+    """Run held-out trials and retain full optimizer calibration evidence."""
     profile.validate()
     records: list[ExperimentRecord] = []
+    calibrations: list[CalibrationRecord] = []
     for payload_size in profile.payload_sizes:
         calibration_payload = _payload(payload_size, profile.calibration_seeds[0])
-        combined_by_scenario = {
-            scenario.name: _calibrate_combined(calibration_payload, scenario, profile)
-            for scenario in profile.scenarios
-            if "combined" in profile.strategies
-        }
+        combined_by_scenario: dict[str, OptimizationResult] = {}
+        if "combined" in profile.strategies:
+            for scenario in profile.scenarios:
+                result = _calibrate_combined(calibration_payload, scenario, profile)
+                combined_by_scenario[scenario.name] = result
+                calibrations.append(
+                    CalibrationRecord(
+                        scenario=scenario.name,
+                        payload_size=payload_size,
+                        calibration_payload_size=min(256, len(calibration_payload)),
+                        optimization=result,
+                    )
+                )
         for seed in profile.evaluation_seeds:
             payload = _payload(payload_size, seed)
             for scenario in profile.scenarios:
@@ -435,7 +473,12 @@ def run_experiments(profile: ExperimentProfile) -> list[ExperimentRecord]:
                             selection_search_method=method,
                         )
                     )
-    return records
+    return ExperimentBundle(tuple(records), tuple(calibrations))
+
+
+def run_experiments(profile: ExperimentProfile) -> list[ExperimentRecord]:
+    """Backward-compatible convenience wrapper returning only held-out trial records."""
+    return list(run_experiment_bundle(profile).records)
 
 
 def aggregate_experiments(records: list[ExperimentRecord]) -> list[ExperimentSummary]:
