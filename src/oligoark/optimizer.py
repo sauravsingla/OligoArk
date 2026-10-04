@@ -37,7 +37,7 @@ class OptimizationWeights:
             raise ValueError("at least one optimization weight must be positive")
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, object]) -> "OptimizationWeights":
+    def from_mapping(cls, values: Mapping[str, object]) -> OptimizationWeights:
         defaults = cls()
         allowed = set(vars(defaults))
         unknown = sorted(set(values) - allowed)
@@ -597,7 +597,7 @@ def optimize_codec(
         ),
     )
     rationale = (
-        f"evaluated {len(evaluations)} of {len(all_specs)} candidates using search_method={space.search_method}",
+        (\n            f"evaluated {len(evaluations)} of {len(all_specs)} candidates "\n            f"using search_method={space.search_method}"\n        ),
         f"search_seed={space.search_seed}",
         f"calibration_seeds={list(seeds)}",
         "success requires normal recovery and original SHA-256 verification",
