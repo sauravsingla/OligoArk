@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import time
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -18,6 +19,7 @@ class GraphEdge:
 class SimilarityGraph:
     nodes: tuple[str, ...]
     edges: tuple[GraphEdge, ...]
+    candidate_pairs: int = 0
 
     def connected_components(self) -> tuple[tuple[int, ...], ...]:
         adjacency: list[list[int]] = [[] for _ in self.nodes]
@@ -49,6 +51,10 @@ class ReconstructionResult:
     cluster_sizes: list[int]
     edge_count: int = 0
     component_count: int = 0
+    node_count: int = 0
+    candidate_pairs: int = 0
+    consensus_lengths: tuple[int, ...] = ()
+    runtime_seconds: float = 0.0
 
 
 @runtime_checkable
@@ -186,9 +192,11 @@ def build_similarity_graph(
     signatures = [_qgrams(read, qgram_width) for read in nodes]
     prefilter_threshold = max(0.05, threshold - 0.45)
     edges: list[GraphEdge] = []
+    candidate_pairs = 0
 
     for left in range(len(nodes)):
         for right in range(left + 1, len(nodes)):
+            candidate_pairs += 1
             max_length = max(1, len(nodes[left]), len(nodes[right]))
             length_similarity = 1.0 - abs(len(nodes[left]) - len(nodes[right])) / max_length
             if length_similarity < threshold:
@@ -201,7 +209,11 @@ def build_similarity_graph(
             weight = resolved_scorer.score(nodes[left], nodes[right])
             if weight >= threshold:
                 edges.append(GraphEdge(left, right, weight))
-    return SimilarityGraph(nodes=nodes, edges=tuple(edges))
+    return SimilarityGraph(
+        nodes=nodes,
+        edges=tuple(edges),
+        candidate_pairs=candidate_pairs,
+    )
 
 
 def _winner(counter: Counter[str], preferred: str = "") -> str:
@@ -305,6 +317,7 @@ class GraphConsensusReconstructor:
 
     def reconstruct(self, reads: list[str]) -> ReconstructionResult:
         self._validate()
+        started = time.perf_counter()
         graph = build_similarity_graph(
             reads,
             threshold=self.threshold,
@@ -317,11 +330,16 @@ class GraphConsensusReconstructor:
             alignment_consensus if self.consensus_mode == "alignment" else medoid_consensus
         )
         clusters = [[graph.nodes[index] for index in component] for component in components]
+        consensus_reads = [consensus_function(cluster) for cluster in clusters]
         return ReconstructionResult(
-            consensus_reads=[consensus_function(cluster) for cluster in clusters],
+            consensus_reads=consensus_reads,
             cluster_sizes=[len(cluster) for cluster in clusters],
             edge_count=len(graph.edges),
             component_count=len(components),
+            node_count=len(graph.nodes),
+            candidate_pairs=graph.candidate_pairs,
+            consensus_lengths=tuple(len(read) for read in consensus_reads),
+            runtime_seconds=round(time.perf_counter() - started, 8),
         )
 
 
