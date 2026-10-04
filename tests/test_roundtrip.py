@@ -96,3 +96,22 @@ def test_archive_validation_rejects_invalid_metadata_types() -> None:
 def test_archive_config_rejects_string_boolean() -> None:
     with pytest.raises(ValueError, match="adaptive_masks must be a boolean"):
         ArchiveConfig.from_mapping({"adaptive_masks": "false"})
+
+
+def test_legacy_v01_to_v04_archive_config_defaults_remain_readable() -> None:
+    legacy = {
+        "chunk_size": 64,
+        "rs_nsym": 8,
+        "parity_group_size": 4,
+        "adaptive_masks": True,
+    }
+    config = ArchiveConfig.from_mapping(legacy)
+    assert config.chunk_size == 64
+    assert config.rs_nsym == 8
+    assert config.parity_group_size == 4
+    assert config.redundancy_scheme == "xor"
+    assert config.fountain_redundancy == pytest.approx(0.25)
+    assert config.min_gc_fraction == pytest.approx(0.35)
+    assert config.max_gc_fraction == pytest.approx(0.65)
+    assert config.max_homopolymer == 4
+    assert config.mask_search_limit == 64
