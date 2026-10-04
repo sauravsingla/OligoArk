@@ -241,6 +241,7 @@ def _optimize_plan(args: argparse.Namespace) -> None:
         lifecycle=lifecycle,
         search_space=search_space,
         weights=weights,
+        duplicate_rate=args.duplicate,
     )
     print(json.dumps(optimized.to_dict(), indent=2))
 
