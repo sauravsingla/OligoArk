@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
 from .dna import SequenceConstraintError, SequenceConstraints
 from .policy import ChannelProfile
+from .reconstruct import TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import WorkloadProfile
 
@@ -19,8 +20,9 @@ from .tiering import WorkloadProfile
 class OptimizationWeights:
     """Explicit objective weights. Physical terms are used only when supplied."""
 
-    recovery: float = 0.40
-    overhead: float = 0.15
+    recovery: float = 0.36
+    instability: float = 0.10
+    overhead: float = 0.13
     redundancy: float = 0.10
     runtime: float = 0.08
     retrieval: float = 0.07
@@ -52,6 +54,7 @@ class OptimizationWeights:
 
         result = cls(
             recovery=number("recovery"),
+            instability=number("instability"),
             overhead=number("overhead"),
             redundancy=number("redundancy"),
             runtime=number("runtime"),
@@ -111,10 +114,12 @@ class CodecSearchSpace:
             raise ValueError("search space constraint/reconstruction dimensions must not be empty")
         if self.max_candidates < 1:
             raise ValueError("max_candidates must be positive")
-        if self.search_method not in {"balanced", "full_grid"}:
-            raise ValueError("search_method must be 'balanced' or 'full_grid'")
-        if any(mode not in {"direct", "graph"} for mode in self.reconstruction_modes):
-            raise ValueError("reconstruction modes must be direct and/or graph")
+        if self.search_method not in {"balanced", "balanced_robust", "full_grid"}:
+            raise ValueError(
+                "search_method must be 'balanced', 'balanced_robust', or 'full_grid'"
+            )
+        if any(mode not in {"direct", "graph", "trace"} for mode in self.reconstruction_modes):
+            raise ValueError("reconstruction modes must be direct, graph, and/or trace")
         for constraints in self.constraints:
             constraints.validate()
 
@@ -141,6 +146,7 @@ class CandidateSpec:
 @dataclass(frozen=True)
 class ObjectiveBreakdown:
     recovery_reward: float
+    instability_penalty: float
     overhead_penalty: float
     redundancy_penalty: float
     runtime_penalty: float
@@ -155,6 +161,7 @@ class ObjectiveBreakdown:
     def total(self) -> float:
         return round(
             self.recovery_reward
+            - self.instability_penalty
             - self.overhead_penalty
             - self.redundancy_penalty
             - self.runtime_penalty
@@ -175,6 +182,8 @@ class CandidateEvaluation:
     trials: int
     verified_successes: int
     recovery_rate: float
+    fold_recovery_rates: tuple[float, ...]
+    recovery_instability: float
     encoded_nucleotides: int
     overhead_ratio: float
     redundancy_ratio: float
@@ -209,7 +218,7 @@ class OptimizationResult:
 @dataclass(frozen=True)
 class _RawEvaluation:
     spec: CandidateSpec
-    successes: int
+    outcomes: tuple[bool, ...]
     encoded: int
     overhead: float
     redundancy: float
@@ -361,6 +370,13 @@ def _simulate_once(
         if spec.reconstruction_mode == "graph":
             decoded, report = recover_from_reads(archive, reads)
             graph_used = report.graph_reconstruction_used
+        elif spec.reconstruction_mode == "trace":
+            decoded, report = recover_from_reads(
+                archive,
+                reads,
+                reconstructor=TraceConsensusReconstructor(),
+            )
+            graph_used = report.graph_reconstruction_used
         else:
             decoded = recover_bytes(archive, reads)
         recovered = decoded == payload
@@ -424,7 +440,7 @@ def optimize_codec(
     specs = select_candidate_specs(space)
     raw: list[_RawEvaluation] = []
     for spec in specs:
-        successes = 0
+        outcomes: list[bool] = []
         graph_count = 0
         runtimes: list[float] = []
         encoded_values: list[int] = []
@@ -441,19 +457,19 @@ def optimize_codec(
             except (SequenceConstraintError, ValueError) as exc:
                 rejected = str(exc)
                 break
-            successes += int(success)
+            outcomes.append(success)
             graph_count += int(graph_used)
             runtimes.append(elapsed)
             encoded_values.append(encoded)
         if rejected is not None:
-            raw.append(_RawEvaluation(spec, 0, 0, 0.0, 0.0, 0.0, 0, rejected))
+            raw.append(_RawEvaluation(spec, (), 0, 0.0, 0.0, 0.0, 0, rejected))
             continue
         encoded = max(encoded_values)
         ideal = max(1, len(payload) * 4)
         raw.append(
             _RawEvaluation(
                 spec,
-                successes,
+                tuple(outcomes),
                 encoded,
                 encoded / ideal,
                 _redundancy_ratio(spec.config),
@@ -487,6 +503,7 @@ def optimize_codec(
 
     active_weight_names = [
         "recovery",
+        "instability",
         "overhead",
         "redundancy",
         "runtime",
@@ -507,13 +524,23 @@ def optimize_codec(
     evaluations: list[CandidateEvaluation] = []
     for item in raw:
         if item.rejected is not None:
-            empty = ObjectiveBreakdown(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            empty = ObjectiveBreakdown(
+                recovery_reward=0.0,
+                instability_penalty=0.0,
+                overhead_penalty=0.0,
+                redundancy_penalty=0.0,
+                runtime_penalty=0.0,
+                retrieval_penalty=0.0,
+                durability_reward=0.0,
+            )
             evaluations.append(
                 CandidateEvaluation(
                     item.spec.config,
                     item.spec.reconstruction_mode,
                     len(seeds),
                     0,
+                    0.0,
+                    (),
                     0.0,
                     0,
                     0.0,
@@ -527,7 +554,18 @@ def optimize_codec(
             )
             continue
 
-        recovery_rate = item.successes / len(seeds)
+        recovery_rate = sum(item.outcomes) / len(seeds)
+        folds = (item.outcomes[::2], item.outcomes[1::2])
+        fold_rates = tuple(
+            sum(fold) / len(fold)
+            for fold in folds
+            if fold
+        )
+        instability = (
+            max(fold_rates) - min(fold_rates)
+            if len(fold_rates) > 1
+            else 0.0
+        )
         overhead_norm = item.overhead / max_overhead
         redundancy_norm = item.redundancy / max_redundancy
         runtime_norm = item.runtime / max_runtime
@@ -537,8 +575,14 @@ def optimize_codec(
         lifecycle_energy = lifecycle.energy_kwh * footprint_scale if lifecycle else 0.0
         lifecycle_latency = lifecycle.retrieval_latency_hours if lifecycle else 0.0
 
+        effective_instability = (
+            instability if space.search_method == "balanced_robust" else 0.0
+        )
         breakdown = ObjectiveBreakdown(
             recovery_reward=resolved_weights.recovery * recovery_rate / weight_total,
+            instability_penalty=(
+                resolved_weights.instability * effective_instability / weight_total
+            ),
             overhead_penalty=resolved_weights.overhead * overhead_norm / weight_total,
             redundancy_penalty=resolved_weights.redundancy * redundancy_norm / weight_total,
             runtime_penalty=resolved_weights.runtime * runtime_norm / weight_total,
@@ -592,8 +636,10 @@ def optimize_codec(
                 config=item.spec.config,
                 reconstruction_mode=item.spec.reconstruction_mode,
                 trials=len(seeds),
-                verified_successes=item.successes,
+                verified_successes=sum(item.outcomes),
                 recovery_rate=round(recovery_rate, 6),
+                fold_recovery_rates=tuple(round(value, 6) for value in fold_rates),
+                recovery_instability=round(instability, 6),
                 encoded_nucleotides=item.encoded,
                 overhead_ratio=round(item.overhead, 6),
                 redundancy_ratio=round(item.redundancy, 6),
@@ -622,6 +668,11 @@ def optimize_codec(
         ),
         f"search_seed={space.search_seed}",
         f"calibration_seeds={list(seeds)}",
+        (
+            "balanced_robust penalizes alternating-fold recovery instability"
+            if space.search_method == "balanced_robust"
+            else "candidate ranking uses mean calibration recovery"
+        ),
         "success requires normal recovery and original SHA-256 verification",
         (
             f"winner recovery={winner.recovery_rate:.3f}, overhead={winner.overhead_ratio:.3f}, "
