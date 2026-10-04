@@ -1,0 +1,28 @@
+name: Publication experiments
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run publication profile
+        run: python benchmarks/run_experiments.py --profile publication --output-dir publication-results
+      - name: Upload publication artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-publication-results
+          path: publication-results/
+          if-no-files-found: error
+          retention-days: 90
