@@ -9,4 +9,4 @@ Thank you for improving OligoArk.
 5. Never present simulated synthesis/sequencing results as wet-lab evidence.
 6. Cite external algorithms/papers and avoid copying code from repositories with incompatible licenses.
 
-For research contributions, include a reproducible command, seed, dataset/source description, and machine-readable output.
+For research contributions, include a reproducible command, explicit calibration/training and evaluation/test seed sets, dataset/source description, search method/seed, machine-readable raw output, and the exact commit. Calibration/training data must be disjoint from final evaluation/test data unless the contribution explicitly studies resubstitution bias.
