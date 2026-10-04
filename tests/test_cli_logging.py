@@ -108,3 +108,31 @@ def test_logging_configuration_validation() -> None:
     configure_logging("INFO")
     with pytest.raises(ValueError, match="Unknown logging level"):
         configure_logging("not-a-level")
+
+
+def test_cli_held_out_optimizer_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = tmp_path / "held-out.bin"
+    payload.write_bytes(b"cli held out payload")
+    _run_cli(
+        [
+            "optimize-plan",
+            str(payload),
+            "--retention-years",
+            "50",
+            "--substitution",
+            "0.001",
+            "--max-candidates",
+            "4",
+            "--calibration-seeds",
+            "9001",
+            "--evaluation-seeds",
+            "2026",
+            "--search-method",
+            "balanced",
+            "--search-seed",
+            "77",
+        ],
+        monkeypatch,
+    )
