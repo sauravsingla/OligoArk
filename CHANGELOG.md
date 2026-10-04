@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 - 2026-10-04
+
+### Added
+- Disjoint calibration and held-out evaluation for the measured optimizer.
+- Canonical order-independent balanced candidate sampling plus full-grid search.
+- Explicit optimizer terms for redundancy and optional caller-supplied lifecycle cost, energy, retrieval cost, and latency.
+- Per-candidate objective contribution breakdowns and search metadata.
+- Fully decomposable per-tier storage score contributions.
+- Controlled graph-rescue validation comparing direct, medoid-graph, and alignment-graph recovery.
+- Graph diagnostics for nodes, candidate pairs, edges, connected components, cluster sizes, consensus lengths, and runtime.
+- Experiment-record to policy-learning dataset conversion and held-out learning evaluation.
+- Deterministic ridge-model serialization and restoration.
+- Paired strategy effects on identical simulated channel realizations.
+- Publication plots for error/recovery, overhead/recovery, runtime/recovery, graph rescue, ablation, and optimizer generalization.
+- Payload-sharded publication workflow with merged 90-day artifacts.
+- CLI/API controls for calibration/evaluation seeds, search method/seed, objective weights, and reconstruction diagnostics.
+
+### Changed
+- Version advanced to 0.5.0.
+- Publication evaluation seeds are explicitly disjoint from optimizer calibration seeds.
+- Lifecycle terms can influence the codec objective when caller-supplied physical assumptions are provided.
+- Publication validation distinguishes calibration score from unseen-seed recovery.
+
 ## 0.4.0 - 2026-10-04
 
 ### Added
