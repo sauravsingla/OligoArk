@@ -198,9 +198,9 @@ def write_plots(
     gen_heldout: list[float] = []
     for (scenario, payload_size), rows in sorted(generalization.items()):
         scores = [
-            float(row["selection_score"])
+            float(row["selection_calibration_recovery_rate"])
             for row in rows
-            if row["selection_score"] is not None
+            if row["selection_calibration_recovery_rate"] is not None
         ]
         gen_labels.append(f"{scenario}\n{payload_size}B")
         gen_calibration.append(sum(scores) / len(scores) if scores else 0.0)
@@ -212,7 +212,7 @@ def write_plots(
         [position - width / 2 for position in positions],
         gen_calibration,
         width,
-        label="calibration score",
+        label="calibration recovery",
     )
     plt.bar(
         [position + width / 2 for position in positions],
@@ -220,7 +220,7 @@ def write_plots(
         width,
         label="held-out recovery",
     )
-    plt.ylabel("Normalized score / recovery rate")
+    plt.ylabel("SHA-256 verified recovery rate")
     plt.xticks(positions, gen_labels, rotation=65, ha="right")
     plt.legend()
     plt.tight_layout()
