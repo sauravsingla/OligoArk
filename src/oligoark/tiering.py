@@ -400,7 +400,7 @@ def recommend_storage_tier(
         breakdowns[name] = breakdown
         scores[name] = breakdown.final_score
 
-    winner = max(scores, key=scores.get)
+    winner = max(scores, key=lambda tier_name: scores[tier_name])
     rationale = (
         f"retention horizon normalized to {retention_need:.3f}",
         f"access frequency normalized to {access_frequency_need:.3f}",
