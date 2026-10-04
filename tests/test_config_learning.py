@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 from oligoark.config import RuntimeConfig
-from oligoark.learning import EmpiricalPolicyModel, PolicyObservation
+from oligoark.learning import (
+    EmpiricalPolicyModel,
+    LinearUtilityPolicyModel,
+    PolicyObservation,
+)
 from oligoark.policy import ChannelProfile, CodecPolicy
 
 
@@ -29,16 +33,33 @@ def test_runtime_config_rejects_unknown_fields() -> None:
         RuntimeConfig.from_mapping({"mystery": 1})
 
 
-def test_empirical_policy_model_learns_nearby_success() -> None:
+def _observations() -> tuple[CodecPolicy, CodecPolicy, list[PolicyObservation]]:
     conservative = CodecPolicy(48, 24, 3, True, ("conservative",))
     lean = CodecPolicy(96, 8, 8, True, ("lean",))
     observations = [
         PolicyObservation(ChannelProfile(0.03, 0, 0, 0.10), conservative, True, 2000, 0.2),
         PolicyObservation(ChannelProfile(0.03, 0, 0, 0.10), lean, False, 1200, 0.1),
         PolicyObservation(ChannelProfile(0.0, 0, 0, 0.0), lean, True, 1200, 0.1),
+        PolicyObservation(ChannelProfile(0.0, 0, 0, 0.0), conservative, True, 2000, 0.2),
     ]
+    return conservative, lean, observations
+
+
+def test_empirical_policy_model_learns_nearby_success() -> None:
+    conservative, _, observations = _observations()
     recommendation = EmpiricalPolicyModel().fit(observations).recommend(
         ChannelProfile(0.028, 0, 0, 0.09)
     )
     assert recommendation.policy == conservative
     assert 0 <= recommendation.confidence <= 1
+
+
+def test_linear_utility_policy_model_is_deterministic() -> None:
+    _, _, observations = _observations()
+    model = LinearUtilityPolicyModel(ridge=0.01).fit(observations)
+    channel = ChannelProfile(0.028, 0, 0, 0.09)
+    first = model.recommend(channel)
+    second = model.recommend(channel)
+    assert first == second
+    assert first.candidate_count == 2
+    assert 0 <= first.margin <= 1
