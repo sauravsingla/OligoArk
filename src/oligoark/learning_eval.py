@@ -226,10 +226,12 @@ def evaluate_learning_from_records(
         ridge_candidates = (0.001, 0.01, 0.1)
         ridge_scores: list[tuple[float, float]] = []
         for ridge in ridge_candidates:
-            candidate = LinearUtilityPolicyModel(ridge=ridge).fit(training_observations)
+            linear_candidate = LinearUtilityPolicyModel(ridge=ridge).fit(
+                training_observations
+            )
             regret = _selector_validation_regret(
                 validation_records,
-                lambda channel, candidates, model=candidate: model.recommend(
+                lambda channel, candidates, model=linear_candidate: model.recommend(
                     channel, candidates=candidates
                 ).policy,
             )
@@ -240,12 +242,12 @@ def evaluate_learning_from_records(
         bandwidth_candidates = (0.005, 0.01, 0.02, 0.05)
         bandwidth_scores: list[tuple[float, float]] = []
         for bandwidth in bandwidth_candidates:
-            candidate = KernelUtilityPolicyModel(bandwidth=bandwidth).fit(
+            kernel_candidate = KernelUtilityPolicyModel(bandwidth=bandwidth).fit(
                 training_observations
             )
             regret = _selector_validation_regret(
                 validation_records,
-                lambda channel, candidates, model=candidate: model.recommend(
+                lambda channel, candidates, model=kernel_candidate: model.recommend(
                     channel, candidates=candidates
                 ).policy,
             )
