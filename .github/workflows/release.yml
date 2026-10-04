@@ -1,0 +1,26 @@
+name: Release package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip build
+      - run: python -m build
+      - run: python -m pip install dist/*.whl
+      - run: oligoark --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-dist
+          path: dist/*
