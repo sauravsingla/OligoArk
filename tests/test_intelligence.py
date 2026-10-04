@@ -29,10 +29,10 @@ def test_integrated_plan_is_explainable_and_deterministic() -> None:
     first = plan_archive(_workload(), channel)
     second = plan_archive(_workload(), channel)
     assert first == second
-    assert first.policy_source == "deterministic"
+    assert first.policy_source == "deterministic-heuristic"
     assert first.tier.recommended_tier in first.tier.scores
     assert first.codec_policy.rs_nsym >= 16
-    assert first.rationale
+    assert "heuristic" in first.rationale[-1]
 
 
 def test_integrated_plan_can_use_empirical_policy_model() -> None:
@@ -49,6 +49,6 @@ def test_integrated_plan_can_use_empirical_policy_model() -> None:
         ChannelProfile(0.028, 0, 0, 0.09),
         empirical_model=model,
     )
-    assert plan.policy_source == "empirical"
+    assert plan.policy_source == "empirical-instance"
     assert plan.codec_policy == robust
     assert plan.learned_confidence is not None
