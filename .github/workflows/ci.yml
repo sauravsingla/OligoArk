@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: python -m pip install -U pip
-      - run: pip install -e ".[dev,api]"
+      - run: pip install -e ".[dev,api,bench]"
       - run: ruff check .
       - run: mypy src/oligoark
       - run: python -m build
@@ -44,5 +44,19 @@ jobs:
           for example in examples/*.py; do
             python "$example"
           done
+      - name: Run reproducible benchmark
+        run: |
+          python benchmarks/run_benchmark.py
+          test -s benchmark-results/results.json
+          test -s benchmark-results/results.csv
+          test -s benchmark-results/metadata.json
+          test -s benchmark-results/recovery_by_regime.png
+          test -s benchmark-results/overhead_by_regime.png
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-benchmark-results
+          path: benchmark-results/
+          if-no-files-found: error
       - name: Build Docker image
         run: docker build -t oligoark:ci .
