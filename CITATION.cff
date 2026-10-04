@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+title: "OligoArk: AI-Native DNA Archival Storage"
+message: "If you use OligoArk in research, please cite this software and the specific git commit or release used."
+type: software
+authors:
+  - family-names: Singla
+    given-names: Saurav
+repository-code: "https://github.com/sauravsingla/OligoArk"
+url: "https://github.com/sauravsingla/OligoArk"
+license: MIT
+version: 0.1.0
+date-released: 2026-10-04
