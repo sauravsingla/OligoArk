@@ -109,6 +109,9 @@ def main() -> None:
     (output / "linear-model.json").write_text(
         json.dumps(result.linear_model_state, indent=2), encoding="utf-8"
     )
+    (output / "kernel-model.json").write_text(
+        json.dumps(result.kernel_model_state, indent=2), encoding="utf-8"
+    )
     print(json.dumps(result.to_dict(), indent=2))
 
 
