@@ -133,9 +133,12 @@ def evaluate_learning_from_records(
     all_scenarios = tuple(sorted({record.scenario for record in records}))
     resolved_training_scenarios = training_scenarios or all_scenarios
     resolved_test_scenarios = test_scenarios or all_scenarios
-    if training_scenarios is not None and test_scenarios is not None:
-        if set(resolved_training_scenarios) & set(resolved_test_scenarios):
-            raise ValueError("training and test scenarios must be disjoint")
+    if (
+        training_scenarios is not None
+        and test_scenarios is not None
+        and set(resolved_training_scenarios) & set(resolved_test_scenarios)
+    ):
+        raise ValueError("training and test scenarios must be disjoint")
 
     training_records = [
         record
