@@ -19,6 +19,7 @@ from .optimizer import (
     optimize_codec,
 )
 from .policy import ChannelProfile, CodecPolicy, PolicyObjective, recommend_codec_policy
+from .reconstruct import TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import (
     EconomicAssumptions,
@@ -160,6 +161,8 @@ def optimize_archive_plan(
     weights: OptimizationWeights | None = None,
     seeds: tuple[int, ...] = (2026, 2027),
     duplicate_rate: float | None = None,
+    copies_per_strand: int = 1,
+    calibration_payloads: tuple[bytes, ...] | None = None,
 ) -> OptimizedArchivalPlan:
     """Search real software candidates and combine the winner with storage-tier planning."""
     workload.validate()
@@ -183,6 +186,8 @@ def optimize_archive_plan(
         seeds=seeds,
         lifecycle=lifecycle_objective,
         duplicate_rate=duplicate_rate,
+        copies_per_strand=copies_per_strand,
+        calibration_payloads=calibration_payloads,
     )
     config = optimization.best_config
     constraints: dict[str, object] = {
@@ -230,6 +235,8 @@ def evaluate_optimized_archive_plan(
     search_space: CodecSearchSpace | None = None,
     weights: OptimizationWeights | None = None,
     duplicate_rate: float = 0.0,
+    copies_per_strand: int = 1,
+    calibration_payloads: tuple[bytes, ...] | None = None,
 ) -> HeldOutOptimizedPlan:
     """Freeze a policy on calibration seeds, then evaluate it on unseen seeds."""
     if not calibration_seeds or not evaluation_seeds:
@@ -238,6 +245,8 @@ def evaluate_optimized_archive_plan(
         raise ValueError("calibration and evaluation seeds must be disjoint")
     if not 0 <= duplicate_rate <= 1:
         raise ValueError("duplicate_rate must be between 0 and 1")
+    if not 1 <= copies_per_strand <= 32:
+        raise ValueError("copies_per_strand must be between 1 and 32")
 
     plan = optimize_archive_plan(
         payload,
@@ -249,9 +258,11 @@ def evaluate_optimized_archive_plan(
         weights=weights,
         seeds=calibration_seeds,
         duplicate_rate=duplicate_rate,
+        copies_per_strand=copies_per_strand,
+        calibration_payloads=calibration_payloads,
     )
     config = plan.optimization.best_config
-    use_graph = plan.optimization.reconstruction_mode == "graph"
+    reconstruction_mode = plan.optimization.reconstruction_mode
     trials: list[HeldOutTrial] = []
     for seed in evaluation_seeds:
         started = time.perf_counter()
@@ -265,13 +276,21 @@ def evaluate_optimized_archive_plan(
                 dropout_rate=channel.dropout_rate,
                 duplicate_rate=duplicate_rate,
                 seed=seed,
+                copies_per_strand=copies_per_strand,
             ),
         )
         recovered = False
         graph_rescue = False
         try:
-            if use_graph:
+            if reconstruction_mode == "graph":
                 decoded, report = recover_from_reads(archive, reads)
+                graph_rescue = report.rescue_changed_result
+            elif reconstruction_mode == "trace":
+                decoded, report = recover_from_reads(
+                    archive,
+                    reads,
+                    reconstructor=TraceConsensusReconstructor(),
+                )
                 graph_rescue = report.rescue_changed_result
             else:
                 decoded = recover_bytes(archive, reads)
