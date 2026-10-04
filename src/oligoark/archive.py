@@ -282,7 +282,10 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     config = config or ArchiveConfig()
     config.validate()
     total = max(1, math.ceil(len(data) / config.chunk_size))
-    chunks = [data[index : index + config.chunk_size] for index in range(0, len(data), config.chunk_size)]
+    chunks = [
+        data[index : index + config.chunk_size]
+        for index in range(0, len(data), config.chunk_size)
+    ]
     if not chunks:
         chunks = [b""]
 
