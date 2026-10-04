@@ -360,7 +360,11 @@ def _decode_available_frames(
 
     for strand in strands:
         try:
-            frame = decode_frame(strand, rs_nsym=config.rs_nsym)
+            frame = decode_frame(
+                strand,
+                rs_nsym=config.rs_nsym,
+                mask_search_limit=config.mask_search_limit,
+            )
         except ValueError:
             continue
         if frame.total_data != total_data:
