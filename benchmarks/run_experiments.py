@@ -65,6 +65,10 @@ def _calibration_candidate_rows(
                 "trials": evaluation.trials,
                 "verified_successes": evaluation.verified_successes,
                 "recovery_rate": evaluation.recovery_rate,
+                "fold_recovery_rates": ",".join(
+                    f"{value:.6f}" for value in evaluation.fold_recovery_rates
+                ),
+                "recovery_instability": evaluation.recovery_instability,
                 "encoded_nucleotides": evaluation.encoded_nucleotides,
                 "overhead_ratio": evaluation.overhead_ratio,
                 "redundancy_ratio": evaluation.redundancy_ratio,
@@ -282,7 +286,8 @@ def main() -> None:
         "optimizer_search_method": profile.optimizer_search_method,
         "optimizer_search_seed": profile.optimizer_search_seed,
         "optimizer_max_candidates": profile.optimizer_max_candidates,
-        "calibration_payload_limit_bytes": 256,
+        "calibration_payload_limit_bytes": 1024,
+        "calibration_payload_variants": 3,
         "calibration_record_count": len(calibrations),
         "scenarios": [asdict(scenario) for scenario in profile.scenarios],
         "claim_scope": "software simulation only; no wet-lab performance is implied",
