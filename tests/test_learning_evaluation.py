@@ -179,3 +179,67 @@ def test_kernel_policy_model_is_deterministic_and_serializable() -> None:
     state = model.to_dict()
     assert state["model"] == "rbf-kernel-utility"
     assert len(state["observations"]) == 3
+
+
+def test_learning_uses_disjoint_validation_seeds_for_model_selection() -> None:
+    records: list[ExperimentRecord] = []
+    for seed in (1, 2, 3, 4):
+        for scenario in ("train-a", "train-b"):
+            records.extend(
+                [
+                    _record("fixed", seed, False, 96, 8, 8, 1.5, 0.1, scenario=scenario),
+                    _record("adaptive", seed, True, 64, 16, 8, 1.8, 0.2, scenario=scenario),
+                    _record(
+                        "adaptive_fountain",
+                        seed,
+                        True,
+                        64,
+                        16,
+                        8,
+                        2.1,
+                        0.22,
+                        scenario=scenario,
+                    ),
+                    _record("combined", seed, True, 64, 16, 8, 1.7, 0.18, scenario=scenario),
+                ]
+            )
+    for seed in (5, 6):
+        records.extend(
+            [
+                _record("fixed", seed, False, 96, 8, 8, 1.5, 0.1, scenario="test"),
+                _record("adaptive", seed, True, 64, 16, 8, 1.8, 0.2, scenario="test"),
+                _record(
+                    "adaptive_fountain",
+                    seed,
+                    True,
+                    64,
+                    16,
+                    8,
+                    2.1,
+                    0.22,
+                    scenario="test",
+                ),
+                _record("combined", seed, True, 64, 16, 8, 1.7, 0.18, scenario="test"),
+            ]
+        )
+    result = evaluate_learning_from_records(
+        records,
+        training_seeds=(1, 2),
+        validation_seeds=(3, 4),
+        test_seeds=(5, 6),
+        training_scenarios=("train-a", "train-b"),
+        test_scenarios=("test",),
+    )
+    assert result.validation_seeds == (3, 4)
+    assert result.validation_observations > 0
+    assert result.selected_ridge in {0.001, 0.01, 0.1}
+    assert result.selected_kernel_bandwidth in {0.005, 0.01, 0.02, 0.05}
+    assert set(result.validation_regret) == {"linear", "kernel"}
+
+    with pytest.raises(ValueError, match="training, validation, and test seeds"):
+        evaluate_learning_from_records(
+            records,
+            training_seeds=(1, 2),
+            validation_seeds=(2, 3),
+            test_seeds=(5, 6),
+        )
