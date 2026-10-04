@@ -10,7 +10,7 @@ client = TestClient(app)
 def test_api_encode_recover_and_health() -> None:
     health = client.get("/health").json()
     assert health["status"] == "ok"
-    assert health["version"] == "0.5.0"
+    assert health["version"] == "0.6.0"
 
     payload = b"api-roundtrip"
     encoded = client.post(
