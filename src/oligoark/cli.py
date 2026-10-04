@@ -138,19 +138,7 @@ def _load_lifecycle(path: str | None) -> LifecycleAssumptions | None:
 def _load_weights(path: str | None) -> OptimizationWeights | None:
     if path is None:
         return None
-    raw = _load_mapping(path, "Optimization weights")
-    allowed = set(OptimizationWeights.__dataclass_fields__)
-    unknown = sorted(set(raw) - allowed)
-    if unknown:
-        raise ValueError(f"Unknown optimization weight(s): {unknown}")
-    numeric: dict[str, float] = {}
-    for key, value in raw.items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"Optimization weight {key} must be numeric")
-        numeric[key] = float(value)
-    result = OptimizationWeights(**numeric)
-    result.validate()
-    return result
+    return OptimizationWeights.from_mapping(_load_mapping(path, "Optimization weights"))
 
 
 def _parse_seeds(value: str) -> tuple[int, ...]:
@@ -224,12 +212,10 @@ def _optimize_plan(args: argparse.Namespace) -> None:
     payload = Path(args.input).read_bytes()
     calibration_text = args.calibration_seeds or args.seeds
     calibration_seeds = _parse_seeds(calibration_text)
-    kwargs = {
-        "economics": _load_economics(args.economics_json),
-        "lifecycle": _load_lifecycle(args.lifecycle_json),
-        "search_space": _search_space(args),
-        "weights": _load_weights(args.weights_json),
-    }
+    economics = _load_economics(args.economics_json)
+    lifecycle = _load_lifecycle(args.lifecycle_json)
+    search_space = _search_space(args)
+    weights = _load_weights(args.weights_json)
     if args.evaluation_seeds:
         result = evaluate_optimized_archive_plan(
             payload,
@@ -238,7 +224,10 @@ def _optimize_plan(args: argparse.Namespace) -> None:
             calibration_seeds=calibration_seeds,
             evaluation_seeds=_parse_seeds(args.evaluation_seeds),
             duplicate_rate=args.duplicate,
-            **kwargs,
+            economics=economics,
+            lifecycle=lifecycle,
+            search_space=search_space,
+            weights=weights,
         )
     else:
         result = optimize_archive_plan(
@@ -246,7 +235,10 @@ def _optimize_plan(args: argparse.Namespace) -> None:
             _workload(args),
             _channel(args),
             seeds=calibration_seeds,
-            **kwargs,
+            economics=economics,
+            lifecycle=lifecycle,
+            search_space=search_space,
+            weights=weights,
         )
     print(json.dumps(result.to_dict(), indent=2))
 
