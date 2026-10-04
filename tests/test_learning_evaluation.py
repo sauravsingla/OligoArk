@@ -77,8 +77,8 @@ def test_held_out_learning_pipeline_reports_regret_and_baselines() -> None:
         records.extend(
             [
                 _record("fixed", seed, False, 96, 8, 8, 1.5, 0.1),
-                _record("adaptive", seed, True, 64, 16, 5, 1.8, 0.2),
-                _record("combined", seed, True, 64, 16, 5, 1.7, 0.18),
+                _record("adaptive", seed, True, 64, 16, 8, 1.8, 0.2),
+                _record("combined", seed, True, 64, 16, 8, 1.7, 0.18),
             ]
         )
     result = evaluate_learning_from_records(
