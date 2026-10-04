@@ -78,6 +78,7 @@ jobs:
           test -s learning-results/evaluation.json
           test -s learning-results/summary.csv
           test -s learning-results/linear-model.json
+          test -s learning-results/kernel-model.json
       - name: Run controlled graph rescue validation
         run: |
           python benchmarks/run_graph_rescue.py
