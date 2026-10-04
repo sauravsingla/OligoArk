@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -29,24 +29,35 @@ class RuntimeConfig:
         return asdict(self)
 
     @classmethod
-    def from_mapping(cls, values: dict[str, Any]) -> "RuntimeConfig":
+    def from_mapping(cls, values: Mapping[str, object]) -> RuntimeConfig:
         allowed = {"log_level", "reconstruction_threshold", "max_api_payload_bytes"}
         unknown = sorted(set(values) - allowed)
         if unknown:
             raise ValueError(f"Unknown runtime configuration field(s): {unknown}")
-        config = cls(**values)
+
+        log_level = values.get("log_level", "INFO")
+        threshold = values.get("reconstruction_threshold", 0.90)
+        max_payload = values.get("max_api_payload_bytes", 10 * 1024 * 1024)
+        if not isinstance(log_level, str):
+            raise ValueError("log_level must be a string")
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+            raise ValueError("reconstruction_threshold must be numeric")
+        if isinstance(max_payload, bool) or not isinstance(max_payload, int):
+            raise ValueError("max_api_payload_bytes must be an integer")
+
+        config = cls(log_level, float(threshold), max_payload)
         config.validate()
         return config
 
     @classmethod
-    def from_json_file(cls, path: str | Path) -> "RuntimeConfig":
+    def from_json_file(cls, path: str | Path) -> RuntimeConfig:
         parsed = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(parsed, dict):
             raise ValueError("Runtime configuration JSON must contain an object")
         return cls.from_mapping(parsed)
 
     @classmethod
-    def from_environment(cls, prefix: str = "OLIGOARK_") -> "RuntimeConfig":
+    def from_environment(cls, prefix: str = "OLIGOARK_") -> RuntimeConfig:
         values: dict[str, object] = {}
         if value := os.getenv(f"{prefix}LOG_LEVEL"):
             values["log_level"] = value
