@@ -14,14 +14,15 @@ DNA data storage research has demonstrated high-density archival concepts, rando
 
 ## Research contributions
 
-OligoArk v0.5 exposes six testable research layers through one **AI-Native Archival Intelligence Layer**:
+OligoArk v0.6 exposes seven testable research layers through one **AI-Native Archival Intelligence Layer**:
 
 1. **Explainable heterogeneous storage tiering** — evaluates SSD, object archive, tape, and an explicitly experimental `dna_future` tier from retention, access, mutability, durability, retrieval urgency, redundancy, energy, and user-supplied normalized economic assumptions.
 2. **Search-based adaptive codec optimisation** — actually encodes, simulates, reconstructs, SHA-256-verifies, measures and ranks candidate configurations across chunk size, Reed–Solomon strength, XOR/fountain/hybrid redundancy, sequence constraints and reconstruction mode.
-3. **Explicit graph + alignment reconstruction** — sequencing reads are graph nodes, qualifying similarities are weighted edges, connected components form clusters, and a medoid-anchored global-alignment consensus provides a deterministic indel-aware baseline.
-4. **Policy learning** — both an instance-based baseline and a deterministic ridge-regression utility model learn only from caller-supplied reproducible observations; no proprietary model is required.
+3. **Explicit graph + multi-trace reconstruction** — sequencing reads are graph nodes, qualifying similarities are weighted edges, connected components form clusters, and medoid, single-pass alignment, plus iterative trace consensus provide deterministic indel-aware ablations.
+4. **Policy learning** — instance-based, deterministic ridge-regression, and deterministic RBF-kernel utility baselines learn only from reproducible observations; no proprietary model is required.
 5. **Lifecycle-aware archival intelligence** — every tier returns a decomposable score, and caller-supplied lifecycle cost/energy/latency can influence both tier selection and codec optimisation.
-6. **Held-out research validation** — calibration seeds are disjoint from evaluation seeds, budgeted search is deterministic and order-independent, paired strategy effects are reported on identical channel realizations, and policy learning is evaluated on unseen records.
+6. **Robust held-out validation** — calibration seeds are disjoint from evaluation seeds, robust search penalizes cross-seed instability, calibration rotates across several payload contents, and learning is tested on unseen seeds and channel regimes.
+7. **Physical-read evaluation pathway** — FASTA/FASTQ reads can be compared against an explicit reference-oligo FASTA with provenance metadata; OligoArk never infers an external archive format or labels such reconstruction as OligoArk end-to-end decoding.
 
 `plan_archive()` remains a lightweight explainable heuristic. `optimize_archive_plan()` performs a real measured search, while `evaluate_optimized_archive_plan()` freezes the calibrated winner and measures it on disjoint held-out seeds. The CLI and API return the selected tier, redundancy scheme, sequence constraints, reconstruction strategy, search metadata, and per-candidate objective breakdowns. Reconstruction remains extensible through typed `ReadReconstructor` and `EdgeScorer` interfaces so future PyTorch/PyTorch-Geometric models can plug in without changing the archive format.
 
@@ -38,13 +39,13 @@ flowchart LR
   E --> F[Software archive]
   F --> G[Channel simulator]
   G --> H[Direct verified decode]
-  H -->|insufficient| I[Explicit weighted graph + alignment consensus]
+  H -->|insufficient| I[Multi-threshold graph + alignment/trace consensus]
   I --> J[Decode + XOR erasure recovery]
   H -->|sufficient| J
   J --> K[SHA-256 verification]
 
   L[Channel profile] --> M[Heuristic codec policy]
-  N[Candidate search space] --> O[Balanced/full-grid measured optimizer]
+  N[Candidate search space] --> O[Balanced robust/full-grid measured optimizer]
   L --> O
   T[Calibration seeds] --> O
   O --> U[Frozen codec plan]
@@ -147,11 +148,12 @@ oligoark optimize-plan demo.txt \
   --retention-years 100 \
   --substitution 0.01 \
   --dropout 0.05 \
-  --calibration-seeds 9201,9202,9203,9204 \
-  --evaluation-seeds 2026,2027,2028,2029 \
-  --search-method balanced \
-  --search-seed 5050 \
-  --max-candidates 24
+  --calibration-seeds 9401,9402,9403,9404,9405,9406 \
+  --evaluation-seeds 31001,31002,31003,31004 \
+  --search-method balanced_robust \
+  --search-seed 6060 \
+  --reconstruction-modes direct,graph,trace \
+  --max-candidates 36
 ```
 
 `optimize-plan` evaluates actual archive/simulation/recovery candidates and accepts success only after SHA-256 verification. `--seeds` is retained as a backward-compatible alias for calibration seeds; when `--evaluation-seeds` is supplied, the calibrated winner is frozen before unseen-seed evaluation.
@@ -271,16 +273,16 @@ Metadata records the OligoArk version, Python version, platform, deterministic s
 
 ### Experiment and ablation framework
 
-The continuity benchmark is retained, while v0.5 adds leakage-controlled held-out ablations:
+The continuity benchmark is retained, while v0.6 adds untouched leakage-controlled multi-trace ablations:
 
 ```bash
 python benchmarks/run_experiments.py --profile smoke
 python benchmarks/run_experiments.py --profile publication
 ```
 
-The experiment framework compares **fixed**, **adaptive**, **adaptive + fountain/hybrid redundancy**, **adaptive + graph/alignment reconstruction**, and the **combined measured optimizer**. Calibration seeds are disjoint from evaluation seeds. It records raw CSV/JSON, aggregated CSV/JSON, Wilson 95% recovery intervals, paired differences versus fixed on identical realizations, runtime, encoded overhead, strand/read counts, graph rescue, candidate-selection metadata, and reproducible plots. The publication workflow deterministically shards by payload size and aggregates all failures and successes.
+The experiment framework compares **fixed**, **adaptive**, **adaptive + fountain/hybrid redundancy**, **adaptive + graph/alignment reconstruction**, **adaptive + iterative trace reconstruction**, and the **combined robust measured optimizer**. Calibration seeds are disjoint from evaluation seeds. It records raw CSV/JSON, aggregated CSV/JSON, Wilson 95% recovery intervals, paired differences versus fixed on identical realizations, runtime, encoded overhead, strand/read counts, graph rescue, candidate-selection metadata, and reproducible plots. The publication workflow deterministically shards by payload size and aggregates all failures and successes.
 
-The same artifacts feed a held-out learning comparison between the deterministic heuristic, empirical instance-based model, ridge-regression model, and measured-search result:
+The same artifacts feed a held-out learning comparison between the deterministic heuristic, empirical instance-based model, ridge-regression model, RBF-kernel model, adaptive+fountain baseline, and measured-search result:
 
 ```bash
 python benchmarks/run_learning_evaluation.py --experiment-dir publication-results
@@ -305,6 +307,14 @@ Held-out policy learning trained on seeds 2026–2029 and the first four channel
 
 All numbers above are software/simulation results from the preserved GitHub Actions publication artifact, not wet-lab DNA-storage measurements or physical-media claims.
 
+### v0.6 validation design
+
+v0.6 deliberately does **not** reuse the v0.5 publication test seeds. The new publication profile uses calibration seeds `9401–9406`, untouched evaluation seeds `31001–31010`, three payload sizes, eight channel/coverage regimes, six strategies, three independent calibration payload contents, and `balanced_robust` candidate scoring. Moderate-indel channels are evaluated at both five-copy and eight-copy per-strand coverage so reconstruction is tested with genuine multi-trace evidence rather than only one optional duplicate.
+
+The DNA-Aeon provenance manifest records public sequencing accessions, but the repository does not bundle a verified external read-to-reference oligo mapping. `oligoark physical-evaluate` therefore requires an explicit reference FASTA and reports only reference-reconstruction accuracy; it does not claim end-to-end decoding of an external DNA-storage system.
+
+The v0.5 results below remain the historical baseline until the v0.6 untouched publication workflow is executed and its artifact is inspected.
+
 ## Tests and quality gates
 
 ```bash
@@ -328,8 +338,8 @@ The test suite includes unit, integration, API, CLI, reconstruction plug-in, arc
 - The base codec is a reversible 2-bit mapping wrapped in protected frames; it is not claimed to be capacity-optimal.
 - GC range and maximum homopolymer length are configurable **hard software constraints** enforced by deterministic mask search. They are research constraints, not claims about a particular synthesis platform.
 - Reed–Solomon protects frame bytes; archive-level redundancy can be `none`, `xor`, `fountain`, or `hybrid`. The fountain implementation is an LT-style research baseline, not DNA Fountain.
-- The simulator uses independent substitution/insertion/deletion/dropout/duplication probabilities. Real channels can be correlated and platform-specific.
-- The default reconstruction baseline builds an explicit weighted similarity graph, uses connected components, and applies medoid-anchored global-alignment consensus. v0.5 records direct/medoid/alignment ablations and graph diagnostics, but it is not claimed to match state-of-the-art reconstruction or HEDGES-style indel coding.
+- The simulator uses independent substitution/insertion/deletion/dropout probabilities plus explicit read coverage and optional extra duplication. Real channels can be correlated and platform-specific.
+- Reconstruction baselines use explicit weighted graphs, connected components, medoid/alignment consensus and a deterministic iterative trace-consensus extension. These remain research baselines and are not claimed equivalent to HEDGES or state-of-the-art trace reconstruction.
 - The `dna_future` storage tier is scenario analysis only. It is not a statement that DNA is presently cheaper, faster, or operationally superior to SSD/object/tape.
 - Economic defaults are neutral. Production decisions require externally sourced and time-appropriate cost, energy, durability, and retrieval assumptions.
 - The reference API is a research service, not a hardened multi-tenant production system.
