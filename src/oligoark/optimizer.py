@@ -597,8 +597,8 @@ def optimize_codec(
         ),
     )
     rationale = (
-        f"search_method={space.search_method}, search_seed={space.search_seed}",
-        f"possible={len(all_specs)}, evaluated={len(evaluations)}",
+        f"evaluated {len(evaluations)} of {len(all_specs)} candidates using search_method={space.search_method}",
+        f"search_seed={space.search_seed}",
         f"calibration_seeds={list(seeds)}",
         "success requires normal recovery and original SHA-256 verification",
         (
