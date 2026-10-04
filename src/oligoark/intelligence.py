@@ -6,8 +6,10 @@ search-based codec optimisation into explainable public planning APIs.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 
+from .archive import archive_bytes, recover_bytes, recover_from_reads
 from .learning import EmpiricalPolicyModel
 from .optimizer import (
     CodecSearchSpace,
@@ -17,6 +19,7 @@ from .optimizer import (
     optimize_codec,
 )
 from .policy import ChannelProfile, CodecPolicy, PolicyObjective, recommend_codec_policy
+from .simulator import SimulationConfig, simulate_channel
 from .tiering import (
     EconomicAssumptions,
     LifecycleAssumptions,
@@ -50,6 +53,30 @@ class OptimizedArchivalPlan:
     selected_reconstruction_strategy: str
     selected_sequence_constraints: dict[str, object]
     rationale: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class HeldOutTrial:
+    seed: int
+    recovered: bool
+    runtime_seconds: float
+    graph_rescue_used: bool
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class HeldOutOptimizedPlan:
+    plan: OptimizedArchivalPlan
+    calibration_seeds: tuple[int, ...]
+    evaluation_seeds: tuple[int, ...]
+    trials: tuple[HeldOutTrial, ...]
+    held_out_recovery_rate: float
+    mean_runtime_seconds: float
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -186,4 +213,88 @@ def optimize_archive_plan(
         selected_reconstruction_strategy=optimization.reconstruction_mode,
         selected_sequence_constraints=constraints,
         rationale=rationale,
+    )
+
+
+def evaluate_optimized_archive_plan(
+    payload: bytes,
+    workload: WorkloadProfile,
+    channel: ChannelProfile,
+    *,
+    calibration_seeds: tuple[int, ...],
+    evaluation_seeds: tuple[int, ...],
+    economics: EconomicAssumptions | None = None,
+    lifecycle: LifecycleAssumptions | None = None,
+    search_space: CodecSearchSpace | None = None,
+    weights: OptimizationWeights | None = None,
+    duplicate_rate: float = 0.0,
+) -> HeldOutOptimizedPlan:
+    """Freeze a policy on calibration seeds, then evaluate it on unseen seeds."""
+    if not calibration_seeds or not evaluation_seeds:
+        raise ValueError("calibration and evaluation seeds must not be empty")
+    if set(calibration_seeds) & set(evaluation_seeds):
+        raise ValueError("calibration and evaluation seeds must be disjoint")
+    if not 0 <= duplicate_rate <= 1:
+        raise ValueError("duplicate_rate must be between 0 and 1")
+
+    plan = optimize_archive_plan(
+        payload,
+        workload,
+        channel,
+        economics=economics,
+        lifecycle=lifecycle,
+        search_space=search_space,
+        weights=weights,
+        seeds=calibration_seeds,
+    )
+    config = plan.optimization.best_config
+    use_graph = plan.optimization.reconstruction_mode == "graph"
+    trials: list[HeldOutTrial] = []
+    for seed in evaluation_seeds:
+        started = time.perf_counter()
+        archive = archive_bytes(payload, config)
+        reads = simulate_channel(
+            archive.strands,
+            SimulationConfig(
+                substitution_rate=channel.substitution_rate,
+                insertion_rate=channel.insertion_rate,
+                deletion_rate=channel.deletion_rate,
+                dropout_rate=channel.dropout_rate,
+                duplicate_rate=duplicate_rate,
+                seed=seed,
+            ),
+        )
+        recovered = False
+        graph_rescue = False
+        try:
+            if use_graph:
+                decoded, report = recover_from_reads(archive, reads)
+                graph_rescue = report.rescue_changed_result
+            else:
+                decoded = recover_bytes(archive, reads)
+            recovered = decoded == payload
+        except ValueError:
+            recovered = False
+        trials.append(
+            HeldOutTrial(
+                seed=seed,
+                recovered=recovered,
+                runtime_seconds=round(time.perf_counter() - started, 8),
+                graph_rescue_used=graph_rescue,
+            )
+        )
+
+    return HeldOutOptimizedPlan(
+        plan=plan,
+        calibration_seeds=calibration_seeds,
+        evaluation_seeds=evaluation_seeds,
+        trials=tuple(trials),
+        held_out_recovery_rate=round(
+            sum(trial.recovered for trial in trials) / len(trials),
+            6,
+        ),
+        mean_runtime_seconds=round(
+            sum(trial.runtime_seconds for trial in trials) / len(trials),
+            8,
+        ),
     )
