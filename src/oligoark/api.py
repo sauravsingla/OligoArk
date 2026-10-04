@@ -205,9 +205,7 @@ def _channel(req: PlanRequest) -> ChannelProfile:
 def _weights(req: OptimizationWeightsRequest | None) -> OptimizationWeights | None:
     if req is None:
         return None
-    result = OptimizationWeights(**req.model_dump())
-    result.validate()
-    return result
+    return OptimizationWeights.from_mapping(req.model_dump())
 
 
 @app.get("/health")
@@ -340,12 +338,9 @@ def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
             search_method=req.search_method,
             search_seed=req.search_seed,
         )
-        common = {
-            "economics": _economics(req.economics),
-            "lifecycle": _lifecycle(req.lifecycle),
-            "search_space": search,
-            "weights": _weights(req.weights),
-        }
+        economics = _economics(req.economics)
+        lifecycle = _lifecycle(req.lifecycle)
+        weights = _weights(req.weights)
         if req.evaluation_seeds:
             return evaluate_optimized_archive_plan(
                 payload,
@@ -354,14 +349,20 @@ def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
                 calibration_seeds=calibration,
                 evaluation_seeds=tuple(req.evaluation_seeds),
                 duplicate_rate=req.duplicate_rate,
-                **common,
+                economics=economics,
+                lifecycle=lifecycle,
+                search_space=search,
+                weights=weights,
             ).to_dict()
         return optimize_archive_plan(
             payload,
             _workload(req),
             _channel(req),
             seeds=calibration,
-            **common,
+            economics=economics,
+            lifecycle=lifecycle,
+            search_space=search,
+            weights=weights,
         ).to_dict()
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
