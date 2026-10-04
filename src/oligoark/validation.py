@@ -6,7 +6,11 @@ import time
 from dataclasses import asdict, dataclass
 
 from .archive import DNAArchive, recover_bytes
-from .reconstruct import GraphConsensusReconstructor, ReconstructionResult, TraceConsensusReconstructor
+from .reconstruct import (
+    GraphConsensusReconstructor,
+    ReconstructionResult,
+    TraceConsensusReconstructor,
+)
 
 
 @dataclass(frozen=True)
