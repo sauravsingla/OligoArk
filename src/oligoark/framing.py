@@ -148,15 +148,26 @@ def _decode_with_mask(raw: bytes, mask_id: int, rs_nsym: int) -> DecodedFrame:
     )
 
 
-def decode_frame(sequence: str, *, rs_nsym: int) -> DecodedFrame:
-    """Decode a strand, recovering from a damaged unprotected mask byte when possible."""
+def decode_frame(
+    sequence: str,
+    *,
+    rs_nsym: int,
+    mask_search_limit: int = 256,
+) -> DecodedFrame:
+    """Decode a strand, with a bounded fallback search for a damaged mask byte."""
+    if not 1 <= mask_search_limit <= 256:
+        raise ValueError("mask_search_limit must be between 1 and 256")
     raw = dna_to_bytes(sequence)
     if len(raw) < 1 + _HEADER.size + rs_nsym:
         raise ValueError("Strand is shorter than the OligoArk frame")
 
     indicated = raw[0]
     candidates = [indicated]
-    candidates.extend(mask_id for mask_id in range(256) if mask_id != indicated)
+    candidates.extend(
+        mask_id
+        for mask_id in range(mask_search_limit)
+        if mask_id != indicated
+    )
     errors: list[Exception] = []
     for mask_id in candidates:
         try:
