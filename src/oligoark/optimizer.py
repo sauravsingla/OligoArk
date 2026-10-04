@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import itertools
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
 from .dna import SequenceConstraintError, SequenceConstraints
@@ -265,7 +265,8 @@ def optimize_codec(
     evaluations: list[CandidateEvaluation] = []
     for item in raw:
         spec = item["spec"]
-        assert isinstance(spec, CandidateSpec)
+        if not isinstance(spec, CandidateSpec):
+            raise TypeError("internal optimizer candidate has an invalid type")
         rejected = item["rejected"]
         if rejected is not None:
             evaluations.append(
@@ -312,7 +313,9 @@ def optimize_codec(
             )
         )
 
-    valid_evaluations = [evaluation for evaluation in evaluations if evaluation.rejected_reason is None]
+    valid_evaluations = [
+        evaluation for evaluation in evaluations if evaluation.rejected_reason is None
+    ]
     winner = max(
         valid_evaluations,
         key=lambda evaluation: (
