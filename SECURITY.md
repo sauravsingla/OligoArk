@@ -16,6 +16,8 @@ Please use GitHub private vulnerability reporting when it is enabled for the rep
 
 - `DNAArchive` validates archive format, metadata types, strand alphabet, declared counts, and checksum metadata, but the library intentionally does not impose a universal file-size limit.
 - The reference FastAPI service enforces `OLIGOARK_MAX_API_PAYLOAD_BYTES` on decoded input and serialized archive requests; deployments should also enforce reverse-proxy/body limits.
-- Optimizer full-grid search, pairwise graph construction, global alignment, and publication experiments can be computationally expensive on adversarial or very large inputs. The reference API exposes bounded candidate search but production deployments still need quotas, timeouts, concurrency controls, and rate limiting.
+- Optimizer full-grid search, graph construction, iterative global alignment, high `copies_per_strand` coverage, physical-read assignment, and publication experiments can be computationally expensive on adversarial or very large inputs. Q-gram indexing reduces unrelated graph comparisons, but production deployments still need quotas, timeouts, concurrency controls, file-size limits, and rate limiting.
 - The reference API has no authentication or authorization and is intended for local/research deployment unless placed behind an authenticated gateway.
 - The provided Docker image runs as an unprivileged user, but container isolation is not a substitute for application-level access controls.
+
+- The physical-read adapter treats FASTA/FASTQ and reference files as untrusted research input. Do not expose arbitrary local filesystem paths through an unauthenticated multi-tenant service.
