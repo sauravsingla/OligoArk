@@ -14,12 +14,14 @@ DNA data storage research has demonstrated high-density archival concepts, rando
 
 ## Research contributions
 
-OligoArk v0.2 separates four testable research layers:
+OligoArk v0.3 exposes four testable research layers through one **AI-Native Archival Intelligence Layer**:
 
 1. **Explainable heterogeneous storage tiering** — evaluates SSD, object archive, tape, and an explicitly experimental `dna_future` tier from retention, access, mutability, durability, retrieval urgency, redundancy, energy, and user-supplied normalized economic assumptions.
 2. **Adaptive DNA codec policy** — changes chunk size, Reed–Solomon strength, XOR erasure grouping, and sequence masking from simulated channel conditions and durability/overhead/retrieval objectives.
 3. **Graph-assisted strand reconstruction** — tries verified direct decoding first, then builds an implicit similarity graph using q-gram prefiltering + Levenshtein scoring and generates deterministic consensus reads before retrying checksum-verified recovery.
 4. **Empirical policy learning** — a dependency-free instance-based learning baseline ranks codec policies from prior channel/policy observations. It requires no proprietary model and always coexists with deterministic heuristics.
+
+`plan_archive()` combines workload requirements, channel conditions, economics, storage-tier choice, and codec policy into one explainable recommendation. Reconstruction is separately extensible through typed `ReadReconstructor` and `EdgeScorer` interfaces so future PyTorch/PyTorch-Geometric models can plug in without changing the archive format.
 
 The repository also contains an independently implemented **fountain-style seeded XOR/peeling baseline** for redundancy experiments. It is not represented as the published DNA Fountain implementation.
 
@@ -44,8 +46,10 @@ flowchart LR
   M --> B
   O --> B
 
-  P[Workload profile] --> Q[Explainable tiering]
+  P[Workload profile] --> Q[AI-Native Archival Intelligence]
   R[User economic assumptions] --> Q
+  L --> Q
+  Q --> S[Explainable tier + codec plan]
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for module-level details.
@@ -118,6 +122,20 @@ oligoark policy \
   --storage-overhead-priority 0.1
 ```
 
+### Integrated archival plan
+
+```bash
+oligoark plan \
+  --retention-years 100 \
+  --accesses-per-year 0.1 \
+  --durability-priority 1.0 \
+  --energy-priority 0.8 \
+  --substitution 0.01 \
+  --dropout 0.05
+```
+
+This command returns one explainable storage-tier recommendation plus an adaptive DNA codec policy. The codec objective is derived transparently from workload priorities unless the Python API caller supplies an explicit objective or empirical model.
+
 ### Storage-tier recommendation
 
 ```bash
@@ -167,6 +185,29 @@ print(recommendation.policy)
 
 `observations` must come from explicitly labeled simulated or measured experiments. The model is transparent instance-based learning, not a pretrained black box.
 
+### AI-Native Archival Intelligence Layer
+
+```python
+from oligoark import ChannelProfile, WorkloadProfile, plan_archive
+
+workload = WorkloadProfile(
+    retention_years=100,
+    accesses_per_year=0.1,
+    mutability=0.0,
+    retrieval_urgency=0.1,
+    durability_priority=1.0,
+    energy_priority=0.8,
+)
+channel = ChannelProfile(substitution_rate=0.01, dropout_rate=0.05)
+
+plan = plan_archive(workload, channel)
+print(plan.to_dict())
+```
+
+### Reconstruction extension interface
+
+Custom reconstruction methods implement `ReadReconstructor`; custom graph edge models implement `EdgeScorer`. The default `GraphConsensusReconstructor` uses normalized Levenshtein similarity. A future PyTorch/PyTorch-Geometric scorer can be injected with `use_qgram_prefilter=False` without changing encoding, archive metadata, or recovery verification.
+
 ## REST API
 
 ```bash
@@ -182,6 +223,7 @@ Open `/docs` for the generated OpenAPI UI. Endpoints include:
 - `POST /simulate`
 - `POST /recommend`
 - `POST /policy`
+- `POST /plan`
 
 Runtime settings can be supplied via `OLIGOARK_LOG_LEVEL`, `OLIGOARK_RECONSTRUCTION_THRESHOLD`, and `OLIGOARK_MAX_API_PAYLOAD_BYTES`. See [`docs/configuration.md`](docs/configuration.md).
 
@@ -203,7 +245,7 @@ Metadata records the OligoArk version, Python version, platform, deterministic s
 
 ### Current deterministic software-simulation finding
 
-With seed `2026` and an 8 KiB deterministic payload, the v0.2 benchmark showed:
+With seed `2026` and an 8 KiB deterministic payload, the deterministic benchmark shows:
 
 | Simulated regime | Fixed | Adaptive |
 | --- | --- | --- |
@@ -230,9 +272,12 @@ python -m compileall -q src tests examples benchmarks
 python examples/end_to_end.py
 python examples/noisy_recovery.py
 python examples/policy_learning.py
+python examples/archival_plan.py
+python examples/custom_reconstructor.py
+python benchmarks/run_benchmark.py
 ```
 
-The test suite includes unit, integration, API, CLI, reconstruction, ECC, policy-learning, archive-validation, and Hypothesis property-based tests. CI runs supported Python versions independently, enforces at least 80% coverage, builds the package and Docker image, and runs all examples. Tag pushes matching `v*` build installable release artifacts in a separate release workflow.
+The test suite includes unit, integration, API, CLI, reconstruction plug-in, archival-intelligence, ECC, policy-learning, archive-validation, version-synchronization, and Hypothesis property-based tests. CI runs supported Python versions independently, enforces at least 80% coverage, builds the package and Docker image, runs all examples, executes the deterministic benchmark, verifies CSV/JSON/metadata outputs, generates both benchmark plots, and uploads benchmark artifacts. Tag pushes matching `v*` build installable release artifacts in a separate release workflow.
 
 ## Scientific assumptions and limitations
 
@@ -240,14 +285,14 @@ The test suite includes unit, integration, API, CLI, reconstruction, ECC, policy
 - GC/homopolymer scoring is a transparent mask-selection heuristic, not a biochemical synthesis model.
 - Reed–Solomon protects frame bytes; XOR parity currently supports one erasure per parity group.
 - The simulator uses independent substitution/insertion/deletion/dropout/duplication probabilities. Real channels can be correlated and platform-specific.
-- The graph baseline uses q-gram prefiltering, Levenshtein similarity, medoids, and same-length majority consensus. It is not an alignment-aware state-of-the-art decoder and currently remains weak on indels.
+- The default graph baseline uses q-gram prefiltering, Levenshtein similarity, medoids, and same-length majority consensus. The extension interfaces are production-tested, but no GNN model is bundled or claimed to outperform published decoders; the baseline remains weak on indels.
 - The `dna_future` storage tier is scenario analysis only. It is not a statement that DNA is presently cheaper, faster, or operationally superior to SSD/object/tape.
 - Economic defaults are neutral. Production decisions require externally sourced and time-appropriate cost, energy, durability, and retrieval assumptions.
 - The reference API is a research service, not a hardened multi-tenant production system.
 
 ## Research roadmap
 
-1. Alignment-aware and graph-neural reconstruction for insertion/deletion-heavy channels.
+1. Implement and evaluate PyTorch/PyTorch-Geometric `EdgeScorer`/`ReadReconstructor` plug-ins for insertion/deletion-heavy channels.
 2. Candidate-policy search trained on reproducible simulation grids and eventually published physical datasets.
 3. Pluggable synthesis/sequencing channel models calibrated to specific published datasets.
 4. Additional constrained codecs and rateless/fountain baselines under one benchmark protocol.
