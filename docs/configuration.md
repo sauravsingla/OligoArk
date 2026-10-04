@@ -106,15 +106,17 @@ Each tier response includes a `score_breakdowns` entry whose contributions repro
 
 ## Search-based optimization
 
-`oligoark optimize-plan` performs real encode/simulate/recover/SHA-256-verify trials. The v0.5 search controls are:
+`oligoark optimize-plan` performs real encode/simulate/recover/SHA-256-verify trials. The v0.6 search controls are:
 
 - `--max-candidates` — evaluation budget;
-- `--search-method balanced|full_grid`;
+- `--search-method balanced|balanced_robust|full_grid`; `balanced_robust` adds a cross-seed recovery-instability penalty;
 - `--search-seed` — deterministic balanced-sampling seed;
 - `--seeds` — backward-compatible alias for calibration seeds;
 - `--calibration-seeds` — explicit optimizer calibration/training realizations;
 - `--evaluation-seeds` — optional disjoint held-out realizations;
-- `--duplicate` — duplicate-read probability used by held-out evaluation;
+- `--duplicate` — probability of one additional read after deterministic coverage;
+- `--copies-per-strand` — deterministic independently corrupted reads emitted per surviving strand;
+- `--reconstruction-modes` — comma-separated subset of `direct,graph,trace`;
 - `--weights-json` — objective-weight override.
 
 Example:
@@ -124,11 +126,13 @@ oligoark optimize-plan payload.bin \
   --retention-years 100 \
   --substitution 0.005 \
   --dropout 0.02 \
-  --calibration-seeds 9201,9202,9203,9204 \
-  --evaluation-seeds 2026,2027,2028,2029 \
-  --search-method balanced \
-  --search-seed 5050 \
-  --max-candidates 24
+  --calibration-seeds 9401,9402,9403,9404,9405,9406 \
+  --evaluation-seeds 31001,31002,31003,31004 \
+  --search-method balanced_robust \
+  --search-seed 6060 \
+  --reconstruction-modes direct,graph,trace \
+  --copies-per-strand 4 \
+  --max-candidates 36
 ```
 
 Calibration and evaluation sets must be disjoint.
@@ -139,8 +143,9 @@ A JSON file can override any `OptimizationWeights` field:
 
 ```json
 {
-  "recovery": 0.40,
-  "overhead": 0.15,
+  "recovery": 0.36,
+  "instability": 0.10,
+  "overhead": 0.13,
   "redundancy": 0.10,
   "runtime": 0.08,
   "retrieval": 0.07,
@@ -152,11 +157,11 @@ A JSON file can override any `OptimizationWeights` field:
 }
 ```
 
-Weights are software research preferences, not physical measurements. Recovery/overhead/redundancy/runtime/retrieval/durability terms use normalized software quantities. Lifecycle terms are activated only when caller lifecycle assumptions supply the corresponding physical quantities.
+Weights are software research preferences, not physical measurements. In `balanced_robust` mode the instability term penalizes disagreement between deterministic calibration-seed folds; it is omitted from ordinary balanced/full-grid scoring. Recovery/overhead/redundancy/runtime/retrieval/durability terms use normalized software quantities. Lifecycle terms are activated only when caller lifecycle assumptions supply the corresponding physical quantities.
 
 ## Reconstruction diagnostics
 
-To compare direct recovery, graph+medoid consensus and graph+alignment consensus on the same reads:
+To compare direct recovery, graph+medoid consensus, graph+alignment consensus, and iterative multi-threshold trace consensus on the same reads:
 
 ```bash
 oligoark diagnose-reconstruction \
@@ -165,3 +170,18 @@ oligoark diagnose-reconstruction \
 ```
 
 The response includes graph node/pair/edge/component counts, cluster sizes, consensus lengths, runtime, verification result, and whether alignment reconstruction rescued a direct failure.
+
+
+## Physical-read reconstruction adapter
+
+`oligoark physical-evaluate` accepts a provenance manifest, external FASTA/FASTQ reads (gzip is supported), and an explicit reference-oligo FASTA:
+
+```bash
+oligoark physical-evaluate \
+  --manifest datasets/dna_aeon.json \
+  --reads reads.fastq.gz \
+  --references references.fasta \
+  --assignment-threshold 0.70
+```
+
+The command compares exact reference reconstruction from single reads, medoid consensus, alignment consensus, and iterative trace consensus. It does **not** infer another project's archive format. The checked DNA-Aeon manifest documents public SRA provenance but explicitly records that OligoArk does not bundle a verified read-to-reference mapping.
