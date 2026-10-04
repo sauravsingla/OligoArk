@@ -62,6 +62,10 @@ jobs:
           test -s experiment-results/metadata.json
           test -s experiment-results/experiment_recovery.png
           test -s experiment-results/experiment_overhead.png
+      - name: Run verified adaptive corruption demo
+        run: |
+          python benchmarks/run_verified_demo.py
+          test -s verified-demo-results.json
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -69,6 +73,7 @@ jobs:
           path: |
             benchmark-results/
             experiment-results/
+            verified-demo-results.json
           if-no-files-found: error
       - name: Build Docker image
         run: docker build -t oligoark:ci .
