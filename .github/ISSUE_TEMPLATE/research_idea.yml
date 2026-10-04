@@ -1,0 +1,18 @@
+name: Research idea
+description: Propose a reproducible research extension
+title: "[Research]: "
+labels: ["research"]
+body:
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+    validations:
+      required: true
+  - type: textarea
+    id: baseline
+    attributes:
+      label: Baseline and evaluation plan
+      description: State baseline, metrics, data source, and how simulation vs measured evidence will be separated.
+    validations:
+      required: true
