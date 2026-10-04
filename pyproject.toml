@@ -4,13 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oligoark"
-version = "0.2.0"
-description = "AI-native DNA archival storage research framework for adaptive encoding, reconstruction, simulation, and explainable storage tiering."
+version = "0.3.0"
+description = "AI-native DNA archival storage research framework for adaptive encoding, graph-assisted reconstruction, simulation, and explainable archival intelligence."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Saurav Singla"}]
-keywords = ["dna-storage", "archival-storage", "error-correction", "bioinformatics", "storage-tiering"]
+keywords = [
+  "dna-storage",
+  "archival-storage",
+  "error-correction",
+  "bioinformatics",
+  "storage-tiering",
+  "graph-ai",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
@@ -45,6 +52,7 @@ oligoark = "oligoark.cli:main"
 Homepage = "https://github.com/sauravsingla/OligoArk"
 Repository = "https://github.com/sauravsingla/OligoArk"
 Issues = "https://github.com/sauravsingla/OligoArk/issues"
+PyPI = "https://pypi.org/project/oligoark/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/oligoark"]
