@@ -101,6 +101,7 @@ class ExperimentRecord:
     calibration_seeds: tuple[int, ...] = ()
     selection_score: float | None = None
     selection_search_method: str | None = None
+    selection_calibration_recovery_rate: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -322,7 +323,7 @@ def _strategy_config(
     strategy: str,
     scenario: ExperimentScenario,
     combined: OptimizationResult | None,
-) -> tuple[ArchiveConfig, bool, float | None, str | None]:
+) -> tuple[ArchiveConfig, bool, float | None, str | None, float | None]:
     if strategy == "fixed":
         return (
             ArchiveConfig(
@@ -339,21 +340,49 @@ def _strategy_config(
             False,
             None,
             None,
+            None,
         )
     if strategy == "adaptive":
-        return _adaptive_config(scenario.channel, redundancy_scheme="xor"), False, None, None
+        return (
+            _adaptive_config(scenario.channel, redundancy_scheme="xor"),
+            False,
+            None,
+            None,
+            None,
+        )
     if strategy == "adaptive_fountain":
-        return _adaptive_config(scenario.channel, redundancy_scheme="hybrid"), False, None, None
+        return (
+            _adaptive_config(scenario.channel, redundancy_scheme="hybrid"),
+            False,
+            None,
+            None,
+            None,
+        )
     if strategy == "adaptive_graph":
-        return _adaptive_config(scenario.channel, redundancy_scheme="xor"), True, None, None
+        return (
+            _adaptive_config(scenario.channel, redundancy_scheme="xor"),
+            True,
+            None,
+            None,
+            None,
+        )
     if strategy == "combined":
         if combined is None:
             raise ValueError("combined strategy requires calibration result")
+        winner = next(
+            evaluation
+            for evaluation in combined.evaluations
+            if evaluation.rejected_reason is None
+            and evaluation.config == combined.best_config
+            and evaluation.reconstruction_mode == combined.reconstruction_mode
+            and evaluation.score == combined.best_score
+        )
         return (
             combined.best_config,
             combined.reconstruction_mode == "graph",
             combined.best_score,
             combined.search_method,
+            winner.recovery_rate,
         )
     raise ValueError(f"unknown experiment strategy: {strategy}")
 
@@ -374,6 +403,7 @@ def _run_one(
     calibration_seeds: tuple[int, ...],
     selection_score: float | None,
     selection_search_method: str | None,
+    selection_calibration_recovery_rate: float | None,
 ) -> ExperimentRecord:
     started = time.perf_counter()
     archive = archive_bytes(payload, config)
@@ -429,6 +459,7 @@ def _run_one(
         calibration_seeds=calibration_seeds if strategy == "combined" else (),
         selection_score=selection_score,
         selection_search_method=selection_search_method,
+        selection_calibration_recovery_rate=selection_calibration_recovery_rate,
     )
 
 
@@ -457,7 +488,7 @@ def run_experiment_bundle(profile: ExperimentProfile) -> ExperimentBundle:
             for scenario in profile.scenarios:
                 combined = combined_by_scenario.get(scenario.name)
                 for strategy in profile.strategies:
-                    config, use_graph, score, method = _strategy_config(
+                    config, use_graph, score, method, calibration_recovery = _strategy_config(
                         strategy, scenario, combined
                     )
                     records.append(
@@ -471,6 +502,7 @@ def run_experiment_bundle(profile: ExperimentProfile) -> ExperimentBundle:
                             calibration_seeds=profile.calibration_seeds,
                             selection_score=score,
                             selection_search_method=method,
+                            selection_calibration_recovery_rate=calibration_recovery,
                         )
                     )
     return ExperimentBundle(tuple(records), tuple(calibrations))
