@@ -49,6 +49,8 @@ def _record(raw: dict[str, object]) -> ExperimentRecord:
             if raw.get("selection_search_method") is not None
             else None
         ),
+        reconstruction_mode=str(raw.get("reconstruction_mode", "direct")),
+        copies_per_strand=int(cast(int, raw.get("copies_per_strand", 1))),
     )
 
 
