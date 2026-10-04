@@ -22,6 +22,7 @@ from .intelligence import (
 from .logging_utils import configure_logging
 from .optimizer import CodecSearchSpace, OptimizationWeights
 from .policy import ChannelProfile, PolicyObjective, recommend_codec_policy
+from .reconstruct import TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import (
     EconomicAssumptions,
@@ -61,6 +62,7 @@ class RecoverReadsRequest(BaseModel):
         ge=0,
         le=1,
     )
+    reconstruction_mode: str = "graph"
 
 
 class ReconstructionDiagnosticsRequest(RecoverReadsRequest):
@@ -127,8 +129,9 @@ class PlanRequest(TierRequest):
 
 
 class OptimizationWeightsRequest(BaseModel):
-    recovery: float = Field(default=0.40, ge=0)
-    overhead: float = Field(default=0.15, ge=0)
+    recovery: float = Field(default=0.36, ge=0)
+    instability: float = Field(default=0.10, ge=0)
+    overhead: float = Field(default=0.13, ge=0)
     redundancy: float = Field(default=0.10, ge=0)
     runtime: float = Field(default=0.08, ge=0)
     retrieval: float = Field(default=0.07, ge=0)
@@ -142,12 +145,15 @@ class OptimizationWeightsRequest(BaseModel):
 class OptimizePlanRequest(PlanRequest):
     data_b64: str
     seeds: list[int] | None = None
-    calibration_seeds: list[int] = Field(default_factory=lambda: [2026, 2027])
+    calibration_seeds: list[int] = Field(default_factory=lambda: [9401, 9402, 9403, 9404])
     evaluation_seeds: list[int] | None = None
     duplicate_rate: float = Field(default=0.0, ge=0, le=1)
     max_candidates: int = Field(default=24, ge=1, le=256)
-    search_method: str = "balanced"
-    search_seed: int = 5050
+    search_method: str = "balanced_robust"
+    search_seed: int = 6060
+    reconstruction_modes: list[str] = Field(
+        default_factory=lambda: ["direct", "graph", "trace"]
+    )
     weights: OptimizationWeightsRequest | None = None
 
 
@@ -250,10 +256,18 @@ def recover(req: RecoverRequest) -> dict[str, str]:
 def recover_reads(req: RecoverReadsRequest) -> dict[str, object]:
     try:
         archive = _archive_from_mapping(req.archive)
+        if req.reconstruction_mode not in {"graph", "trace"}:
+            raise ValueError("reconstruction_mode must be graph or trace")
+        reconstructor = (
+            TraceConsensusReconstructor()
+            if req.reconstruction_mode == "trace"
+            else None
+        )
         raw, report = recover_from_reads(
             archive,
             req.reads,
             similarity_threshold=req.similarity_threshold,
+            reconstructor=reconstructor,
         )
         return {
             "data_b64": base64.b64encode(raw).decode("ascii"),
@@ -334,6 +348,7 @@ def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
         payload = _decode_payload(req.data_b64)
         calibration = tuple(req.seeds or req.calibration_seeds)
         search = CodecSearchSpace(
+            reconstruction_modes=tuple(req.reconstruction_modes),
             max_candidates=req.max_candidates,
             search_method=req.search_method,
             search_seed=req.search_seed,
