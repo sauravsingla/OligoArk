@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
 from .optimizer import CodecSearchSpace, OptimizationResult, optimize_codec
 from .policy import ChannelProfile, recommend_codec_policy
+from .reconstruct import TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import WorkloadProfile
 
@@ -28,7 +29,7 @@ class ExperimentProfile:
     """Experiment profile with disjoint calibration and held-out evaluation seeds.
 
     The seeds field is retained for backward compatibility and means evaluation/test
-    seeds in v0.5.
+    seeds in v0.6.
     """
 
     seeds: tuple[int, ...]
@@ -39,6 +40,7 @@ class ExperimentProfile:
         "adaptive",
         "adaptive_fountain",
         "adaptive_graph",
+        "adaptive_trace",
         "combined",
     )
     optimizer_max_candidates: int = 12
@@ -64,14 +66,21 @@ class ExperimentProfile:
             "adaptive",
             "adaptive_fountain",
             "adaptive_graph",
+            "adaptive_trace",
             "combined",
         }
         if any(strategy not in valid for strategy in self.strategies):
             raise ValueError(f"experiment strategies must be drawn from {sorted(valid)}")
         if self.optimizer_max_candidates < 1:
             raise ValueError("optimizer_max_candidates must be positive")
-        if self.optimizer_search_method not in {"balanced", "full_grid"}:
-            raise ValueError("optimizer_search_method must be balanced or full_grid")
+        if self.optimizer_search_method not in {
+            "balanced",
+            "balanced_robust",
+            "full_grid",
+        }:
+            raise ValueError(
+                "optimizer_search_method must be balanced, balanced_robust, or full_grid"
+            )
 
 
 @dataclass(frozen=True)
@@ -102,6 +111,7 @@ class ExperimentRecord:
     selection_score: float | None = None
     selection_search_method: str | None = None
     selection_calibration_recovery_rate: float | None = None
+    reconstruction_mode: str = "direct"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -189,8 +199,8 @@ def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float
 
 def smoke_profile() -> ExperimentProfile:
     return ExperimentProfile(
-        seeds=(2026, 2027),
-        calibration_seeds=(9001, 9002),
+        seeds=(6101, 6102),
+        calibration_seeds=(9601, 9602, 9603, 9604),
         payload_sizes=(256,),
         scenarios=(
             ExperimentScenario("clean", ChannelProfile()),
@@ -204,42 +214,57 @@ def smoke_profile() -> ExperimentProfile:
             ),
             ExperimentScenario("dropout", ChannelProfile(dropout_rate=0.05), duplicate_rate=0.10),
         ),
-        optimizer_max_candidates=8,
+        strategies=(
+            "fixed",
+            "adaptive",
+            "adaptive_fountain",
+            "adaptive_graph",
+            "adaptive_trace",
+            "combined",
+        ),
+        optimizer_max_candidates=12,
+        optimizer_search_method="balanced_robust",
+        optimizer_search_seed=6060,
     )
 
 
 def publication_profile() -> ExperimentProfile:
+    """v0.6 publication profile using seed sets untouched by the v0.5 study."""
     return ExperimentProfile(
-        seeds=(2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033),
-        calibration_seeds=(9201, 9202, 9203, 9204),
+        seeds=(31001, 31002, 31003, 31004, 31005, 31006, 31007, 31008, 31009, 31010),
+        calibration_seeds=(9401, 9402, 9403, 9404, 9405, 9406),
         payload_sizes=(512, 2048, 8192),
         scenarios=(
             ExperimentScenario("clean", ChannelProfile()),
             ExperimentScenario(
-                "substitution-0.1pct",
-                ChannelProfile(substitution_rate=0.001),
-                duplicate_rate=0.10,
-            ),
-            ExperimentScenario(
                 "substitution-1pct",
                 ChannelProfile(substitution_rate=0.01),
-                duplicate_rate=0.25,
+                duplicate_rate=0.30,
             ),
             ExperimentScenario(
                 "indel-low",
                 ChannelProfile(insertion_rate=0.0005, deletion_rate=0.0005),
-                duplicate_rate=0.35,
+                duplicate_rate=0.50,
             ),
             ExperimentScenario(
                 "indel-moderate",
                 ChannelProfile(insertion_rate=0.0015, deletion_rate=0.0015),
-                duplicate_rate=0.50,
+                duplicate_rate=0.60,
             ),
             ExperimentScenario(
-                "dropout-2pct", ChannelProfile(dropout_rate=0.02), duplicate_rate=0.10
+                "indel-moderate-highcoverage",
+                ChannelProfile(insertion_rate=0.0015, deletion_rate=0.0015),
+                duplicate_rate=0.90,
             ),
             ExperimentScenario(
-                "dropout-10pct", ChannelProfile(dropout_rate=0.10), duplicate_rate=0.20
+                "dropout-2pct",
+                ChannelProfile(dropout_rate=0.02),
+                duplicate_rate=0.15,
+            ),
+            ExperimentScenario(
+                "dropout-10pct",
+                ChannelProfile(dropout_rate=0.10),
+                duplicate_rate=0.30,
             ),
             ExperimentScenario(
                 "mixed",
@@ -249,12 +274,20 @@ def publication_profile() -> ExperimentProfile:
                     deletion_rate=0.0005,
                     dropout_rate=0.02,
                 ),
-                duplicate_rate=0.35,
+                duplicate_rate=0.50,
             ),
         ),
-        optimizer_max_candidates=24,
-        optimizer_search_method="balanced",
-        optimizer_search_seed=5050,
+        strategies=(
+            "fixed",
+            "adaptive",
+            "adaptive_fountain",
+            "adaptive_graph",
+            "adaptive_trace",
+            "combined",
+        ),
+        optimizer_max_candidates=36,
+        optimizer_search_method="balanced_robust",
+        optimizer_search_seed=6060,
     )
 
 
@@ -296,7 +329,7 @@ def _optimizer_search(profile: ExperimentProfile) -> CodecSearchSpace:
         redundancy_schemes=("xor", "fountain", "hybrid"),
         parity_group_sizes=(3, 5),
         fountain_redundancies=(0.25, 0.40),
-        reconstruction_modes=("direct", "graph"),
+        reconstruction_modes=("direct", "graph", "trace"),
         max_candidates=profile.optimizer_max_candidates,
         search_method=profile.optimizer_search_method,
         search_seed=profile.optimizer_search_seed,
@@ -308,14 +341,19 @@ def _calibrate_combined(
     scenario: ExperimentScenario,
     profile: ExperimentProfile,
 ) -> OptimizationResult:
-    calibration = payload[: min(256, len(payload))]
+    calibration_size = min(1024, len(payload))
+    variants = tuple(
+        _payload(calibration_size, seed)
+        for seed in profile.calibration_seeds[:3]
+    )
     return optimize_codec(
-        calibration,
+        variants[0],
         scenario.channel,
         _workload(len(payload)),
         search_space=_optimizer_search(profile),
         seeds=profile.calibration_seeds,
         duplicate_rate=scenario.duplicate_rate,
+        calibration_payloads=variants,
     )
 
 
@@ -323,7 +361,7 @@ def _strategy_config(
     strategy: str,
     scenario: ExperimentScenario,
     combined: OptimizationResult | None,
-) -> tuple[ArchiveConfig, bool, float | None, str | None, float | None]:
+) -> tuple[ArchiveConfig, str, float | None, str | None, float | None]:
     if strategy == "fixed":
         return (
             ArchiveConfig(
@@ -337,7 +375,7 @@ def _strategy_config(
                 max_homopolymer=100,
                 mask_search_limit=1,
             ),
-            False,
+            "direct",
             None,
             None,
             None,
@@ -345,7 +383,7 @@ def _strategy_config(
     if strategy == "adaptive":
         return (
             _adaptive_config(scenario.channel, redundancy_scheme="xor"),
-            False,
+            "direct",
             None,
             None,
             None,
@@ -353,7 +391,7 @@ def _strategy_config(
     if strategy == "adaptive_fountain":
         return (
             _adaptive_config(scenario.channel, redundancy_scheme="hybrid"),
-            False,
+            "direct",
             None,
             None,
             None,
@@ -361,7 +399,15 @@ def _strategy_config(
     if strategy == "adaptive_graph":
         return (
             _adaptive_config(scenario.channel, redundancy_scheme="xor"),
-            True,
+            "graph",
+            None,
+            None,
+            None,
+        )
+    if strategy == "adaptive_trace":
+        return (
+            _adaptive_config(scenario.channel, redundancy_scheme="xor"),
+            "trace",
             None,
             None,
             None,
@@ -379,7 +425,7 @@ def _strategy_config(
         )
         return (
             combined.best_config,
-            combined.reconstruction_mode == "graph",
+            combined.reconstruction_mode,
             combined.best_score,
             combined.search_method,
             winner.recovery_rate,
@@ -397,7 +443,7 @@ def _run_one(
     scenario: ExperimentScenario,
     strategy: str,
     config: ArchiveConfig,
-    use_graph: bool,
+    reconstruction_mode: str,
     *,
     seed: int,
     calibration_seeds: tuple[int, ...],
@@ -421,8 +467,15 @@ def _run_one(
     recovered = False
     graph_rescue = False
     try:
-        if use_graph:
+        if reconstruction_mode == "graph":
             decoded, report = recover_from_reads(archive, reads)
+            graph_rescue = report.rescue_changed_result
+        elif reconstruction_mode == "trace":
+            decoded, report = recover_from_reads(
+                archive,
+                reads,
+                reconstructor=TraceConsensusReconstructor(),
+            )
             graph_rescue = report.rescue_changed_result
         else:
             decoded = recover_bytes(archive, reads)
@@ -460,6 +513,7 @@ def _run_one(
         selection_score=selection_score,
         selection_search_method=selection_search_method,
         selection_calibration_recovery_rate=selection_calibration_recovery_rate,
+        reconstruction_mode=reconstruction_mode,
     )
 
 
@@ -479,7 +533,7 @@ def run_experiment_bundle(profile: ExperimentProfile) -> ExperimentBundle:
                     CalibrationRecord(
                         scenario=scenario.name,
                         payload_size=payload_size,
-                        calibration_payload_size=min(256, len(calibration_payload)),
+                        calibration_payload_size=min(1024, len(calibration_payload)),
                         optimization=result,
                     )
                 )
@@ -488,16 +542,20 @@ def run_experiment_bundle(profile: ExperimentProfile) -> ExperimentBundle:
             for scenario in profile.scenarios:
                 combined = combined_by_scenario.get(scenario.name)
                 for strategy in profile.strategies:
-                    config, use_graph, score, method, calibration_recovery = _strategy_config(
-                        strategy, scenario, combined
-                    )
+                    (
+                        config,
+                        reconstruction_mode,
+                        score,
+                        method,
+                        calibration_recovery,
+                    ) = _strategy_config(strategy, scenario, combined)
                     records.append(
                         _run_one(
                             payload,
                             scenario,
                             strategy,
                             config,
-                            use_graph,
+                            reconstruction_mode,
                             seed=seed,
                             calibration_seeds=profile.calibration_seeds,
                             selection_score=score,
