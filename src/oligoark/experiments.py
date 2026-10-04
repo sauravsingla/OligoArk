@@ -225,6 +225,9 @@ def _strategy_config(
             8,
             False,
             redundancy_scheme="xor",
+            min_gc_fraction=0.0,
+            max_gc_fraction=1.0,
+            max_homopolymer=100,
             mask_search_limit=1,
         ), False
     if strategy == "adaptive":
