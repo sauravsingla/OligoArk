@@ -254,17 +254,15 @@ def medoid_consensus(cluster: list[str]) -> str:
     return "".join(chars)
 
 
-def alignment_consensus(cluster: list[str]) -> str:
-    """Medoid-anchored alignment consensus that can correct modest insertion/deletion noise."""
+def _alignment_consensus_with_reference(cluster: list[str], reference: str) -> str:
+    """Align every trace to a supplied reference and vote over bases and insertion slots."""
     if not cluster:
         raise ValueError("cluster must not be empty")
-    if len(cluster) == 1:
-        return cluster[0]
+    if not reference:
+        raise ValueError("reference must not be empty")
 
-    reference = _medoid(cluster)
     base_votes = [Counter[str]() for _ in reference]
     insertion_votes = [Counter[str]() for _ in range(len(reference) + 1)]
-
     for read in sorted(cluster):
         aligned_reference, aligned_read = global_align(reference, read)
         per_read_insertions = [""] * (len(reference) + 1)
@@ -295,6 +293,37 @@ def alignment_consensus(cluster: list[str]) -> str:
     if tail:
         output.append(tail)
     return "".join(output)
+
+
+def alignment_consensus(cluster: list[str]) -> str:
+    """Single-pass medoid-anchored alignment consensus retained as a v0.5 baseline."""
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if len(cluster) == 1:
+        return cluster[0]
+    return _alignment_consensus_with_reference(cluster, _medoid(cluster))
+
+
+def iterative_trace_consensus(cluster: list[str], *, rounds: int = 3) -> str:
+    """Iteratively refine a trace consensus using the previous consensus as reference.
+
+    This deterministic baseline is intended for modest insertion/deletion noise. It is
+    not a probabilistic trace-reconstruction algorithm and is not claimed state of art.
+    """
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if rounds < 1:
+        raise ValueError("rounds must be positive")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    reference = _medoid(cluster)
+    for _ in range(rounds):
+        updated = _alignment_consensus_with_reference(cluster, reference)
+        if updated == reference:
+            break
+        reference = updated
+    return reference
 
 
 @dataclass(frozen=True)
@@ -339,6 +368,83 @@ class GraphConsensusReconstructor:
             node_count=len(graph.nodes),
             candidate_pairs=graph.candidate_pairs,
             consensus_lengths=tuple(len(read) for read in consensus_reads),
+            runtime_seconds=round(time.perf_counter() - started, 8),
+        )
+
+
+@dataclass(frozen=True)
+class TraceConsensusReconstructor:
+    """Multi-threshold explicit-graph reconstruction with iterative trace consensus.
+
+    Multiple thresholds intentionally generate multiple candidate consensuses. Downstream
+    frame CRC, ECC, and archive SHA-256 verification remain the acceptance gate.
+    """
+
+    thresholds: tuple[float, ...] = (0.94, 0.90, 0.86)
+    scorer: EdgeScorer = field(default_factory=LevenshteinEdgeScorer)
+    qgram_width: int = 5
+    use_qgram_prefilter: bool = True
+    rounds: int = 3
+    minimum_component_size: int = 2
+
+    def _validate(self) -> None:
+        if not self.thresholds:
+            raise ValueError("thresholds must not be empty")
+        if any(not 0 <= threshold <= 1 for threshold in self.thresholds):
+            raise ValueError("thresholds must be between 0 and 1")
+        if self.qgram_width < 1:
+            raise ValueError("qgram_width must be positive")
+        if self.rounds < 1:
+            raise ValueError("rounds must be positive")
+        if self.minimum_component_size < 2:
+            raise ValueError("minimum_component_size must be at least 2")
+
+    def reconstruct(self, reads: list[str]) -> ReconstructionResult:
+        self._validate()
+        started = time.perf_counter()
+        candidates: list[str] = []
+        seen_candidates: set[str] = set()
+        edge_pairs: set[tuple[int, int]] = set()
+        cluster_sizes: list[int] = []
+        component_count = 0
+        candidate_pairs = 0
+
+        for threshold in sorted(set(self.thresholds), reverse=True):
+            graph = build_similarity_graph(
+                reads,
+                threshold=threshold,
+                scorer=self.scorer,
+                qgram_width=self.qgram_width,
+                use_qgram_prefilter=self.use_qgram_prefilter,
+            )
+            candidate_pairs = max(candidate_pairs, graph.candidate_pairs)
+            edge_pairs.update((edge.left, edge.right) for edge in graph.edges)
+            components = graph.connected_components()
+            component_count += len(components)
+
+            for component in components:
+                if len(component) < self.minimum_component_size:
+                    continue
+                cluster = [graph.nodes[index] for index in component]
+                cluster_sizes.append(len(cluster))
+                generated = (
+                    iterative_trace_consensus(cluster, rounds=self.rounds),
+                    alignment_consensus(cluster),
+                    medoid_consensus(cluster),
+                )
+                for candidate in generated:
+                    if candidate not in seen_candidates:
+                        seen_candidates.add(candidate)
+                        candidates.append(candidate)
+
+        return ReconstructionResult(
+            consensus_reads=candidates,
+            cluster_sizes=cluster_sizes,
+            edge_count=len(edge_pairs),
+            component_count=component_count,
+            node_count=len(reads),
+            candidate_pairs=candidate_pairs,
+            consensus_lengths=tuple(len(candidate) for candidate in candidates),
             runtime_seconds=round(time.perf_counter() - started, 8),
         )
 
