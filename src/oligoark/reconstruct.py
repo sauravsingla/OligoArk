@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -167,6 +168,17 @@ def _qgrams(sequence: str, width: int = 5) -> frozenset[str]:
     )
 
 
+def _qgram_counts(sequence: str, width: int) -> Counter[str]:
+    if width < 1:
+        raise ValueError("qgram width must be positive")
+    if len(sequence) < width:
+        return Counter({sequence: 1})
+    return Counter(
+        sequence[index : index + width]
+        for index in range(len(sequence) - width + 1)
+    )
+
+
 def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
     union = left | right
     if not union:
@@ -189,34 +201,64 @@ def build_similarity_graph(
         raise ValueError("qgram_width must be positive")
     resolved_scorer = scorer or LevenshteinEdgeScorer()
     nodes = tuple(reads)
-    signatures = [_qgrams(read, qgram_width) for read in nodes]
     edges: list[GraphEdge] = []
 
+    all_pairs = [
+        (left, right)
+        for left in range(len(nodes))
+        for right in range(left + 1, len(nodes))
+    ]
     if use_qgram_prefilter:
-        postings: dict[str, list[int]] = {}
+        signatures = [_qgram_counts(read, qgram_width) for read in nodes]
+        postings: dict[str, list[tuple[int, int]]] = {}
         for index, signature in enumerate(signatures):
-            for qgram in signature:
-                postings.setdefault(qgram, []).append(index)
-        pair_set: set[tuple[int, int]] = set()
-        for indexes in postings.values():
-            for offset, left in enumerate(indexes):
-                for right in indexes[offset + 1 :]:
-                    pair_set.add((left, right))
-        candidate_pair_indexes = sorted(pair_set)
+            for qgram, count in signature.items():
+                postings.setdefault(qgram, []).append((index, count))
+
+        shared_counts: dict[tuple[int, int], int] = {}
+        for entries in postings.values():
+            for offset, (left, left_count) in enumerate(entries):
+                for right, right_count in entries[offset + 1 :]:
+                    pair = (left, right)
+                    shared_counts[pair] = (
+                        shared_counts.get(pair, 0) + min(left_count, right_count)
+                    )
+
+        candidate_pair_indexes: list[tuple[int, int]] = []
+        for left, right in all_pairs:
+            left_length = len(nodes[left])
+            right_length = len(nodes[right])
+            max_length = max(1, left_length, right_length)
+            length_similarity = 1.0 - abs(left_length - right_length) / max_length
+            if length_similarity < threshold:
+                continue
+            if min(left_length, right_length) < qgram_width:
+                candidate_pair_indexes.append((left, right))
+                continue
+
+            max_edit_distance = math.floor(
+                (1.0 - threshold) * max_length + 1e-12
+            )
+            left_qgrams = left_length - qgram_width + 1
+            right_qgrams = right_length - qgram_width + 1
+            required_shared = math.ceil(
+                (
+                    left_qgrams
+                    + right_qgrams
+                    - 2 * qgram_width * max_edit_distance
+                )
+                / 2
+            )
+            if required_shared <= 0 or shared_counts.get((left, right), 0) >= required_shared:
+                candidate_pair_indexes.append((left, right))
     else:
-        candidate_pair_indexes = [
-            (left, right)
-            for left in range(len(nodes))
-            for right in range(left + 1, len(nodes))
-        ]
+        candidate_pair_indexes = all_pairs
 
     for left, right in candidate_pair_indexes:
         max_length = max(1, len(nodes[left]), len(nodes[right]))
         length_similarity = 1.0 - abs(len(nodes[left]) - len(nodes[right])) / max_length
         if length_similarity < threshold:
             continue
-        # Shared q-gram postings are only a conservative candidate index.
-        # Exact Levenshtein scoring remains the edge acceptance criterion.
         weight = resolved_scorer.score(nodes[left], nodes[right])
         if weight >= threshold:
             edges.append(GraphEdge(left, right, weight))
