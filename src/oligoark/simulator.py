@@ -16,13 +16,16 @@ class SimulationConfig:
     dropout_rate: float = 0.0
     duplicate_rate: float = 0.0
     seed: int = 7
+    copies_per_strand: int = 1
 
     def validate(self) -> None:
         for name, value in vars(self).items():
-            if name == "seed":
+            if name in {"seed", "copies_per_strand"}:
                 continue
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
+        if not 1 <= self.copies_per_strand <= 32:
+            raise ValueError("copies_per_strand must be between 1 and 32")
 
 
 def _mutate(sequence: str, cfg: SimulationConfig, rng: random.Random) -> str:
@@ -49,8 +52,8 @@ def simulate_channel(strands: list[str], cfg: SimulationConfig) -> list[str]:
     for strand in strands:
         if rng.random() < cfg.dropout_rate:
             continue
-        mutated = _mutate(strand, cfg, rng)
-        reads.append(mutated)
+        for _ in range(cfg.copies_per_strand):
+            reads.append(_mutate(strand, cfg, rng))
         if rng.random() < cfg.duplicate_rate:
             reads.append(_mutate(strand, cfg, rng))
     rng.shuffle(reads)
