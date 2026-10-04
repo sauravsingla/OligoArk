@@ -15,6 +15,7 @@ from .archive import (
     recover_bytes,
     recover_from_reads,
 )
+from .intelligence import plan_archive
 from .logging_utils import configure_logging
 from .policy import ChannelProfile, PolicyObjective, recommend_codec_policy
 from .simulator import SimulationConfig, simulate_channel
@@ -85,8 +86,8 @@ def _load_economics(path: str | None) -> EconomicAssumptions | None:
     return EconomicAssumptions.from_mapping(cast(dict[str, object], parsed))
 
 
-def _recommend(args: argparse.Namespace) -> None:
-    profile = WorkloadProfile(
+def _workload(args: argparse.Namespace) -> WorkloadProfile:
+    return WorkloadProfile(
         args.retention_years,
         args.accesses_per_year,
         args.mutability,
@@ -96,18 +97,57 @@ def _recommend(args: argparse.Namespace) -> None:
         args.redundancy_priority,
         args.cost_priority,
     )
+
+
+def _channel(args: argparse.Namespace) -> ChannelProfile:
+    return ChannelProfile(
+        args.substitution,
+        args.insertion,
+        args.deletion,
+        args.dropout,
+    )
+
+
+def _recommend(args: argparse.Namespace) -> None:
     economics = _load_economics(args.economics_json)
-    print(json.dumps(recommend_storage_tier(profile, economics).to_dict(), indent=2))
+    print(json.dumps(recommend_storage_tier(_workload(args), economics).to_dict(), indent=2))
 
 
 def _policy(args: argparse.Namespace) -> None:
-    channel = ChannelProfile(args.substitution, args.insertion, args.deletion, args.dropout)
     objective = PolicyObjective(
         args.durability_priority,
         args.storage_overhead_priority,
         args.retrieval_speed_priority,
     )
-    print(json.dumps(recommend_codec_policy(channel, objective).to_dict(), indent=2))
+    print(json.dumps(recommend_codec_policy(_channel(args), objective).to_dict(), indent=2))
+
+
+def _plan(args: argparse.Namespace) -> None:
+    economics = _load_economics(args.economics_json)
+    result = plan_archive(_workload(args), _channel(args), economics=economics)
+    print(json.dumps(result.to_dict(), indent=2))
+
+
+def _add_workload_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--retention-years", type=float, required=True)
+    command.add_argument("--accesses-per-year", type=float, default=0.0)
+    command.add_argument("--mutability", type=float, default=0.0)
+    command.add_argument("--retrieval-urgency", type=float, default=0.0)
+    command.add_argument("--durability-priority", type=float, default=1.0)
+    command.add_argument("--energy-priority", type=float, default=0.5)
+    command.add_argument("--redundancy-priority", type=float, default=0.5)
+    command.add_argument("--cost-priority", type=float, default=0.5)
+    command.add_argument(
+        "--economics-json",
+        help="JSON file containing normalized per-tier storage/retrieval cost indices",
+    )
+
+
+def _add_channel_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--substitution", type=float, default=0.0)
+    command.add_argument("--insertion", type=float, default=0.0)
+    command.add_argument("--deletion", type=float, default=0.0)
+    command.add_argument("--dropout", type=float, default=0.0)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -134,10 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     command = sub.add_parser("simulate", help="simulate a noisy DNA channel")
     command.add_argument("archive")
     command.add_argument("--output", default="reads.txt")
-    command.add_argument("--substitution", type=float, default=0.0)
-    command.add_argument("--insertion", type=float, default=0.0)
-    command.add_argument("--deletion", type=float, default=0.0)
-    command.add_argument("--dropout", type=float, default=0.0)
+    _add_channel_arguments(command)
     command.add_argument("--duplicate", type=float, default=0.0)
     command.add_argument("--seed", type=int, default=7)
     command.set_defaults(func=_simulate)
@@ -154,29 +191,24 @@ def build_parser() -> argparse.ArgumentParser:
     command.set_defaults(func=_inspect)
 
     command = sub.add_parser("recommend", help="recommend a storage tier")
-    command.add_argument("--retention-years", type=float, required=True)
-    command.add_argument("--accesses-per-year", type=float, default=0.0)
-    command.add_argument("--mutability", type=float, default=0.0)
-    command.add_argument("--retrieval-urgency", type=float, default=0.0)
-    command.add_argument("--durability-priority", type=float, default=1.0)
-    command.add_argument("--energy-priority", type=float, default=0.5)
-    command.add_argument("--redundancy-priority", type=float, default=0.5)
-    command.add_argument("--cost-priority", type=float, default=0.5)
-    command.add_argument(
-        "--economics-json",
-        help="JSON file containing normalized per-tier storage/retrieval cost indices",
-    )
+    _add_workload_arguments(command)
     command.set_defaults(func=_recommend)
 
     command = sub.add_parser("policy", help="recommend an adaptive codec policy")
-    command.add_argument("--substitution", type=float, default=0.0)
-    command.add_argument("--insertion", type=float, default=0.0)
-    command.add_argument("--deletion", type=float, default=0.0)
-    command.add_argument("--dropout", type=float, default=0.0)
+    _add_channel_arguments(command)
     command.add_argument("--durability-priority", type=float, default=0.7)
     command.add_argument("--storage-overhead-priority", type=float, default=0.2)
     command.add_argument("--retrieval-speed-priority", type=float, default=0.1)
     command.set_defaults(func=_policy)
+
+    command = sub.add_parser(
+        "plan",
+        help="create one explainable storage-tier and DNA-codec archival plan",
+    )
+    _add_workload_arguments(command)
+    _add_channel_arguments(command)
+    command.set_defaults(func=_plan)
+
     return parser
 
 
