@@ -1,4 +1,4 @@
-"""High-level archive, statistics, reconstruction, and recovery pipeline."""
+"""High-level archive, redundancy, statistics, reconstruction, and recovery pipeline."""
 
 from __future__ import annotations
 
@@ -10,18 +10,39 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
 
-from .dna import sequence_metrics
+from .dna import SequenceConstraints, sequence_metrics
 from .ecc import build_xor_parity, recover_one_missing
+from .fountain import FountainSymbol, indexes_for_seed, make_symbols, peel_decode
 from .framing import decode_frame, encode_frame
 from .reconstruct import GraphConsensusReconstructor, ReadReconstructor
+
+_REDUNDANCY_SCHEMES = {"none", "xor", "fountain", "hybrid"}
 
 
 @dataclass(frozen=True)
 class ArchiveConfig:
+    """Configuration that affects generated strands and therefore travels with an archive."""
+
     chunk_size: int = 96
     rs_nsym: int = 8
     parity_group_size: int = 8
     adaptive_masks: bool = True
+    redundancy_scheme: str = "xor"
+    fountain_redundancy: float = 0.25
+    fountain_seed: int = 1
+    fountain_max_degree: int = 4
+    min_gc_fraction: float = 0.35
+    max_gc_fraction: float = 0.65
+    max_homopolymer: int = 4
+    mask_search_limit: int = 64
+
+    @property
+    def sequence_constraints(self) -> SequenceConstraints:
+        return SequenceConstraints(
+            min_gc_fraction=self.min_gc_fraction,
+            max_gc_fraction=self.max_gc_fraction,
+            max_homopolymer=self.max_homopolymer,
+        )
 
     def validate(self) -> None:
         if self.chunk_size < 8:
@@ -32,10 +53,37 @@ class ArchiveConfig:
             raise ValueError("rs_nsym must be between 0 and 64")
         if self.parity_group_size < 2:
             raise ValueError("parity_group_size must be at least 2")
+        if self.redundancy_scheme not in _REDUNDANCY_SCHEMES:
+            raise ValueError(
+                f"redundancy_scheme must be one of {sorted(_REDUNDANCY_SCHEMES)}"
+            )
+        if not 0.0 <= self.fountain_redundancy <= 5.0:
+            raise ValueError("fountain_redundancy must be between 0 and 5")
+        if not 0 <= self.fountain_seed <= 0xFFFFFFFF:
+            raise ValueError("fountain_seed must fit in an unsigned 32-bit integer")
+        if not 1 <= self.fountain_max_degree <= 32:
+            raise ValueError("fountain_max_degree must be between 1 and 32")
+        if not 1 <= self.mask_search_limit <= 256:
+            raise ValueError("mask_search_limit must be between 1 and 256")
+        self.sequence_constraints.validate()
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, object]) -> ArchiveConfig:
-        allowed = {"chunk_size", "rs_nsym", "parity_group_size", "adaptive_masks"}
+        """Load current or older archive configuration with strict type validation."""
+        allowed = {
+            "chunk_size",
+            "rs_nsym",
+            "parity_group_size",
+            "adaptive_masks",
+            "redundancy_scheme",
+            "fountain_redundancy",
+            "fountain_seed",
+            "fountain_max_degree",
+            "min_gc_fraction",
+            "max_gc_fraction",
+            "max_homopolymer",
+            "mask_search_limit",
+        }
         unknown = sorted(set(values) - allowed)
         if unknown:
             raise ValueError(f"Unknown archive configuration field(s): {unknown}")
@@ -46,14 +94,32 @@ class ArchiveConfig:
                 raise ValueError(f"{name} must be an integer")
             return value
 
+        def number(name: str, default: float) -> float:
+            value = values.get(name, default)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{name} must be numeric")
+            return float(value)
+
         adaptive_masks = values.get("adaptive_masks", True)
         if not isinstance(adaptive_masks, bool):
             raise ValueError("adaptive_masks must be a boolean")
+        redundancy_scheme = values.get("redundancy_scheme", "xor")
+        if not isinstance(redundancy_scheme, str):
+            raise ValueError("redundancy_scheme must be a string")
+
         config = cls(
             chunk_size=integer("chunk_size", 96),
             rs_nsym=integer("rs_nsym", 8),
             parity_group_size=integer("parity_group_size", 8),
             adaptive_masks=adaptive_masks,
+            redundancy_scheme=redundancy_scheme,
+            fountain_redundancy=number("fountain_redundancy", 0.25),
+            fountain_seed=integer("fountain_seed", 1),
+            fountain_max_degree=integer("fountain_max_degree", 4),
+            min_gc_fraction=number("min_gc_fraction", 0.35),
+            max_gc_fraction=number("max_gc_fraction", 0.65),
+            max_homopolymer=integer("max_homopolymer", 4),
+            mask_search_limit=integer("mask_search_limit", 64),
         )
         config.validate()
         return config
@@ -64,12 +130,15 @@ class ArchiveStatistics:
     strand_count: int
     data_strands: int
     parity_strands: int
+    fountain_strands: int
+    redundancy_scheme: str
     encoded_nucleotides: int
     logical_bits_per_nucleotide: float
     mean_gc_fraction: float
     min_gc_fraction: float
     max_gc_fraction: float
     max_homopolymer: int
+    constraint_pass_rate: float
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -125,15 +194,20 @@ class DNAArchive:
             value = self.metadata[name]
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(f"{name} metadata must be an integer")
+        fountain_value = self.metadata.get("fountain_strands", 0)
+        if isinstance(fountain_value, bool) or not isinstance(fountain_value, int):
+            raise ValueError("fountain_strands metadata must be an integer")
         original_size = cast(int, self.metadata["original_size"])
         data_strands = cast(int, self.metadata["data_strands"])
         parity_strands = cast(int, self.metadata["parity_strands"])
+        fountain_strands = cast(int, fountain_value)
         if original_size < 0:
             raise ValueError("original_size must be non-negative")
-        if data_strands <= 0 or parity_strands < 0:
-            raise ValueError("data_strands must be positive and parity_strands non-negative")
-        if len(self.strands) < data_strands:
-            raise ValueError("Archive contains fewer strands than declared data_strands")
+        if data_strands <= 0 or parity_strands < 0 or fountain_strands < 0:
+            raise ValueError("strand counts must be non-negative and data_strands positive")
+        expected_min = data_strands + parity_strands + fountain_strands
+        if len(self.strands) < expected_min:
+            raise ValueError("Archive contains fewer strands than declared strand counts")
         if any(
             not strand or set(strand.upper()) - {"A", "C", "G", "T"}
             for strand in self.strands
@@ -157,21 +231,50 @@ class DNAArchive:
 
 def archive_statistics(archive: DNAArchive) -> ArchiveStatistics:
     archive.validate()
+    config_obj = cast(dict[str, object], archive.metadata["config"])
+    config = ArchiveConfig.from_mapping(config_obj)
     metrics = [sequence_metrics(strand) for strand in archive.strands]
     gc_values = [metric.gc_fraction for metric in metrics] or [0.0]
     encoded_nucleotides = sum(len(strand) for strand in archive.strands)
     original_size = int(cast(int, archive.metadata["original_size"]))
     logical_density = (original_size * 8 / encoded_nucleotides) if encoded_nucleotides else 0.0
+    constraints = config.sequence_constraints
+    passes = sum(constraints.accepts(strand) for strand in archive.strands)
     return ArchiveStatistics(
         strand_count=len(archive.strands),
         data_strands=int(cast(int, archive.metadata["data_strands"])),
         parity_strands=int(cast(int, archive.metadata["parity_strands"])),
+        fountain_strands=int(cast(int, archive.metadata.get("fountain_strands", 0))),
+        redundancy_scheme=config.redundancy_scheme,
         encoded_nucleotides=encoded_nucleotides,
         logical_bits_per_nucleotide=round(logical_density, 6),
         mean_gc_fraction=round(sum(gc_values) / len(gc_values), 6),
         min_gc_fraction=round(min(gc_values), 6),
         max_gc_fraction=round(max(gc_values), 6),
         max_homopolymer=max((metric.max_homopolymer for metric in metrics), default=0),
+        constraint_pass_rate=round(passes / max(1, len(archive.strands)), 6),
+    )
+
+
+def _encode_common(
+    payload: bytes,
+    *,
+    index: int,
+    total: int,
+    config: ArchiveConfig,
+    is_parity: bool = False,
+    is_fountain: bool = False,
+) -> str:
+    return encode_frame(
+        payload,
+        index=index,
+        total_data=total,
+        is_parity=is_parity,
+        is_fountain=is_fountain,
+        rs_nsym=config.rs_nsym,
+        adaptive_masks=config.adaptive_masks,
+        sequence_constraints=config.sequence_constraints,
+        mask_search_limit=config.mask_search_limit,
     )
 
 
@@ -179,32 +282,52 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     config = config or ArchiveConfig()
     config.validate()
     total = max(1, math.ceil(len(data) / config.chunk_size))
-    chunks = [data[i : i + config.chunk_size] for i in range(0, len(data), config.chunk_size)]
+    chunks = [data[index : index + config.chunk_size] for index in range(0, len(data), config.chunk_size)]
     if not chunks:
         chunks = [b""]
-    parity = build_xor_parity(chunks, config.parity_group_size, config.chunk_size)
-    strands = [
-        encode_frame(
-            chunk,
-            index=index,
-            total_data=total,
-            is_parity=False,
-            rs_nsym=config.rs_nsym,
-            adaptive_masks=config.adaptive_masks,
+
+    parity = []
+    if config.redundancy_scheme in {"xor", "hybrid"}:
+        parity = build_xor_parity(chunks, config.parity_group_size, config.chunk_size)
+
+    fountain_symbols: list[FountainSymbol] = []
+    if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
+        count = max(1, math.ceil(total * config.fountain_redundancy))
+        if config.fountain_seed + count - 1 > 0xFFFFFFFF:
+            raise ValueError("fountain seed range exceeds unsigned 32-bit frame index")
+        fountain_symbols = make_symbols(
+            chunks,
+            count=count,
+            width=config.chunk_size,
+            seed=config.fountain_seed,
+            max_degree=config.fountain_max_degree,
         )
+
+    strands = [
+        _encode_common(chunk, index=index, total=total, config=config)
         for index, chunk in enumerate(chunks)
     ]
     strands.extend(
-        encode_frame(
+        _encode_common(
             block.payload,
             index=block.group_index,
-            total_data=total,
+            total=total,
+            config=config,
             is_parity=True,
-            rs_nsym=config.rs_nsym,
-            adaptive_masks=config.adaptive_masks,
         )
         for block in parity
     )
+    strands.extend(
+        _encode_common(
+            symbol.payload,
+            index=symbol.seed,
+            total=total,
+            config=config,
+            is_fountain=True,
+        )
+        for symbol in fountain_symbols
+    )
+
     metadata: dict[str, object] = {
         "format": "oligoark-archive-v1",
         "original_size": len(data),
@@ -212,26 +335,25 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
         "config": asdict(config),
         "data_strands": total,
         "parity_strands": len(parity),
+        "fountain_strands": len(fountain_symbols),
         "measured": {"encoded_nucleotides": sum(map(len, strands))},
         "note": "DNA strings are software encodings; no wet-lab performance is implied.",
     }
     archive = DNAArchive(metadata, strands)
-    stats = archive_statistics(archive)
-    archive.metadata["measured"] = stats.to_dict()
+    archive.metadata["measured"] = archive_statistics(archive).to_dict()
     return archive
 
 
 def _decode_available_frames(
     archive: DNAArchive,
     strands: Iterable[str],
-) -> tuple[dict[int, bytes], dict[int, bytes]]:
-    config_obj = archive.metadata["config"]
-    if not isinstance(config_obj, dict):
-        raise ValueError("Archive metadata is missing codec configuration")
+) -> tuple[dict[int, bytes], dict[int, bytes], list[FountainSymbol]]:
+    config_obj = cast(dict[str, object], archive.metadata["config"])
     config = ArchiveConfig.from_mapping(config_obj)
     total_data = int(cast(int, archive.metadata["data_strands"]))
     data_chunks: dict[int, bytes] = {}
     parity_chunks: dict[int, bytes] = {}
+    fountain_symbols: list[FountainSymbol] = []
 
     for strand in strands:
         try:
@@ -240,28 +362,66 @@ def _decode_available_frames(
             continue
         if frame.total_data != total_data:
             continue
-        if frame.is_parity:
+        if frame.is_fountain:
+            indexes = indexes_for_seed(
+                total_data,
+                frame.index,
+                max_degree=config.fountain_max_degree,
+            )
+            fountain_symbols.append(FountainSymbol(frame.index, indexes, frame.payload))
+        elif frame.is_parity:
             parity_chunks.setdefault(frame.index, frame.payload)
         elif 0 <= frame.index < total_data:
             data_chunks.setdefault(frame.index, frame.payload)
-    return data_chunks, parity_chunks
+    return data_chunks, parity_chunks, fountain_symbols
+
+
+def _apply_redundancy(
+    data_chunks: dict[int, bytes],
+    parity_chunks: dict[int, bytes],
+    fountain_symbols: list[FountainSymbol],
+    total_data: int,
+    config: ArchiveConfig,
+) -> dict[int, bytes]:
+    recovered = dict(data_chunks)
+    for _ in range(3):
+        before = len(recovered)
+        if parity_chunks:
+            recovered = recover_one_missing(
+                recovered,
+                parity_chunks,
+                total_data,
+                config.parity_group_size,
+                config.chunk_size,
+            )
+        if fountain_symbols:
+            recovered = peel_decode(
+                recovered,
+                fountain_symbols,
+                total=total_data,
+                width=config.chunk_size,
+            )
+        if len(recovered) == before:
+            break
+    return recovered
 
 
 def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> bytes:
     archive.validate()
-    config_obj = archive.metadata["config"]
-    if not isinstance(config_obj, dict):
-        raise ValueError("Archive metadata is missing codec configuration")
+    config_obj = cast(dict[str, object], archive.metadata["config"])
     config = ArchiveConfig.from_mapping(config_obj)
     total_data = int(cast(int, archive.metadata["data_strands"]))
     selected_strands = archive.strands if strands is None else strands
-    data_chunks, parity_chunks = _decode_available_frames(archive, selected_strands)
-    data_chunks = recover_one_missing(
+    data_chunks, parity_chunks, fountain_symbols = _decode_available_frames(
+        archive,
+        selected_strands,
+    )
+    data_chunks = _apply_redundancy(
         data_chunks,
         parity_chunks,
+        fountain_symbols,
         total_data,
-        config.parity_group_size,
-        config.chunk_size,
+        config,
     )
     missing = [index for index in range(total_data) if index not in data_chunks]
     if missing:
