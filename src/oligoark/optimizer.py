@@ -336,6 +336,7 @@ def _simulate_once(
     channel: ChannelProfile,
     *,
     seed: int,
+    duplicate_rate: float | None,
 ) -> tuple[bool, int, float, bool]:
     started = time.perf_counter()
     archive = archive_bytes(payload, spec.config)
@@ -346,7 +347,11 @@ def _simulate_once(
             insertion_rate=channel.insertion_rate,
             deletion_rate=channel.deletion_rate,
             dropout_rate=channel.dropout_rate,
-            duplicate_rate=min(0.65, max(0.0, channel.dropout_rate * 2.0)),
+            duplicate_rate=(
+                duplicate_rate
+                if duplicate_rate is not None
+                else min(0.65, max(0.0, channel.dropout_rate * 2.0))
+            ),
             seed=seed,
         ),
     )
@@ -396,6 +401,7 @@ def optimize_codec(
     weights: OptimizationWeights | None = None,
     seeds: tuple[int, ...] = (2026, 2027),
     lifecycle: LifecycleObjectiveInputs | None = None,
+    duplicate_rate: float | None = None,
 ) -> OptimizationResult:
     """Search candidates on calibration seeds only and return an explainable winner."""
     if not payload:
@@ -406,6 +412,8 @@ def optimize_codec(
         raise ValueError("at least one calibration seed is required")
     if len(set(seeds)) != len(seeds):
         raise ValueError("calibration seeds must be unique")
+    if duplicate_rate is not None and not 0 <= duplicate_rate <= 1:
+        raise ValueError("duplicate_rate must be between 0 and 1")
     space = search_space or CodecSearchSpace()
     resolved_weights = weights or OptimizationWeights()
     resolved_weights.validate()
@@ -424,7 +432,11 @@ def optimize_codec(
         for seed in seeds:
             try:
                 success, encoded, elapsed, graph_used = _simulate_once(
-                    payload, spec, channel, seed=seed
+                    payload,
+                    spec,
+                    channel,
+                    seed=seed,
+                    duplicate_rate=duplicate_rate,
                 )
             except (SequenceConstraintError, ValueError) as exc:
                 rejected = str(exc)
