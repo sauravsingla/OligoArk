@@ -5,8 +5,10 @@ research baseline used to compare fixed parity groups with seeded, overlapping X
 """
 
 from __future__ import annotations
+
 import random
 from dataclasses import dataclass
+
 from .ecc import xor_bytes
 
 
@@ -25,22 +27,33 @@ def _choose_indexes(total: int, seed: int, max_degree: int = 4) -> tuple[int, ..
     return tuple(sorted(rng.sample(range(total), degree)))
 
 
-def make_symbols(chunks: list[bytes], count: int, width: int, seed: int = 1) -> list[FountainSymbol]:
+def make_symbols(
+    chunks: list[bytes],
+    count: int,
+    width: int,
+    seed: int = 1,
+) -> list[FountainSymbol]:
     if count < 0:
         raise ValueError("count must be non-negative")
     symbols: list[FountainSymbol] = []
     for offset in range(count):
         symbol_seed = seed + offset
         indexes = _choose_indexes(len(chunks), symbol_seed)
-        symbols.append(FountainSymbol(
-            symbol_seed, indexes, xor_bytes([chunks[i] for i in indexes], width)))
+        symbols.append(
+            FountainSymbol(symbol_seed, indexes, xor_bytes([chunks[i] for i in indexes], width))
+        )
     return symbols
 
 
-def peel_decode(known: dict[int, bytes], symbols: list[FountainSymbol],
-                total: int, width: int) -> dict[int, bytes]:
+def peel_decode(
+    known: dict[int, bytes],
+    symbols: list[FountainSymbol],
+    total: int,
+    width: int,
+) -> dict[int, bytes]:
+    """Iteratively solve degree-one XOR equations against already-known chunks."""
     recovered = dict(known)
-    pending = [(set(s.indexes), s.payload) for s in symbols]
+    pending = [(set(symbol.indexes), symbol.payload) for symbol in symbols]
     changed = True
     while changed:
         changed = False
