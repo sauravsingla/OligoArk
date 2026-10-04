@@ -1,80 +1,103 @@
 # Benchmarking and reproducibility
 
-OligoArk provides three complementary experiment paths. All results are software measurements or simulations unless explicitly linked to an external physical dataset.
+All OligoArk benchmark results are **software measurements or seeded simulations** unless an external physical dataset is explicitly identified.
 
-## 1. Continuity benchmark
+## Continuity benchmark
 
 ```bash
 python benchmarks/run_benchmark.py
 ```
 
-This retains the original fixed-vs-adaptive deterministic comparison and writes CSV/JSON, environment metadata and recovery/overhead plots.
+This retains the historical fixed-vs-adaptive comparison and produces JSON/CSV plus recovery and overhead plots.
 
-## 2. Ablation experiment framework
+## Held-out ablation experiments
 
-Quick CI-sized sweep:
+CI-sized validation:
 
 ```bash
 python benchmarks/run_experiments.py --profile smoke
+python benchmarks/run_learning_evaluation.py
+python benchmarks/run_graph_rescue.py
 ```
 
-Publication-oriented sweep:
+Publication profile:
 
 ```bash
 python benchmarks/run_experiments.py --profile publication --output-dir publication-results
 ```
 
-The publication profile varies five deterministic seeds, three payload sizes and eight channel regimes. It compares:
+The preferred full publication execution is the **Publication experiments** GitHub Actions workflow. It shards by payload size, runs the same publication profile in each shard, downloads all raw shards, merges them, recomputes aggregate statistics, evaluates learned policies, runs graph-rescue validation, and uploads a 90-day validation artifact.
+
+### Seed discipline
+
+v0.5 separates:
+
+- **optimizer calibration seeds** — used to choose the combined-system configuration;
+- **evaluation seeds** — never seen during optimizer selection;
+- **learning train/test seeds** — a further disjoint split of experiment evaluation records.
+
+The metadata file records all seed sets, the git commit, platform, Python version, search method, search seed, candidate budget, strategies, scenarios, and payload sizes.
+
+## Publication strategies
 
 - `fixed`
-- `adaptive`
-- `adaptive_fountain`
-- `adaptive_graph`
-- `combined` measured optimisation
+- `adaptive` — deterministic heuristic policy
+- `adaptive_fountain` — heuristic policy with hybrid XOR/fountain redundancy
+- `adaptive_graph` — heuristic policy with graph/alignment fallback
+- `combined` — measured candidate search frozen on calibration seeds and tested on unseen seeds
 
-Raw and aggregated results are stored as JSON and CSV. Aggregation includes Wilson 95% intervals for verified recovery rates, mean encoded overhead, mean runtime and graph-use rate. The script also generates recovery and overhead plots.
+The learned empirical and ridge-regression policies are evaluated from the experiment output in a separate held-out learning analysis so training/test provenance stays explicit.
 
-CI runs only the smoke profile. The GitHub `Publication experiments` workflow runs the larger profile manually and uploads artifacts for 90 days.
+## Statistics and artifacts
 
-## 3. Verified optimisation/reconstruction demonstration
+Raw and aggregate outputs include:
+
+- per-trial JSON/CSV;
+- aggregate JSON/CSV;
+- Wilson 95% recovery intervals;
+- paired recovery/overhead/runtime differences versus the fixed baseline on identical seed/scenario/payload trials;
+- encoded nucleotide overhead;
+- runtime;
+- graph rescue rate;
+- selected codec/redundancy fields;
+- calibration search score and held-out recovery;
+- learned-policy recovery, overhead, runtime, selection accuracy, and regret.
+
+Plots include recovery by strategy, overhead by strategy, recovery vs configured error rate, overhead vs recovery, runtime vs recovery, strategy ablation, graph rescue rate, and optimizer calibration-vs-held-out behavior.
+
+## Controlled graph rescue
 
 ```bash
-python benchmarks/run_verified_demo.py
+python benchmarks/run_graph_rescue.py
 ```
 
-The demo uses separate calibration and evaluation seeds. For substitution, indel, dropout and mixed scenarios it performs:
+This benchmark constructs noisy observations from ordinary OligoArk strands and compares:
 
 ```text
-payload
-  -> candidate search / adaptive optimisation
-  -> hard-constrained DNA encoding
-  -> selected XOR / fountain / hybrid redundancy
-  -> simulated corruption
-  -> explicit graph clustering
-  -> alignment-aware consensus
-  -> frame + erasure recovery
-  -> SHA-256 verification
+direct decode
+graph + medoid consensus
+graph + alignment-aware consensus
 ```
 
-It writes `verified-demo-results.json` and intentionally reports both successes and failures rather than treating failure as a test harness error.
+A rescue is counted only when direct decoding fails and a reconstructed path succeeds through the normal frame/ECC/CRC/SHA-256 verification pipeline. The original strand is not injected into recovery.
 
-## Metrics
+## Learning evaluation
 
-- `recovered`: exact payload equality after SHA-256-verified recovery.
-- `recovery_rate`: successes / trials for the aggregate group.
-- `recovery_ci95_low/high`: Wilson 95% interval for the binomial recovery proportion.
-- `encoded_nucleotides`: measured length of generated software DNA strings.
-- `overhead_ratio`: encoded nucleotide count divided by the ideal raw 2-bit mapping length.
-- `strand_count` and `read_count`: encoded strands and simulated reads.
-- `runtime_seconds`: wall-clock software runtime in the current environment.
-- `graph_reconstruction_used`: whether graph/alignment fallback was needed.
-- codec fields such as redundancy scheme, RS symbols and chunk size.
+```bash
+python benchmarks/run_learning_evaluation.py \
+  --experiment-dir experiment-results \
+  --output-dir learning-results
+```
 
-## Reproducibility rules
+Experiment records become explicit `PolicyObservation` training rows. The evaluation reports heuristic, empirical, ridge-regression, and measured-search results on disjoint held-out seeds. The ridge model coefficients and normalization state are saved to JSON.
 
-- Report the exact git commit/release, Python version, platform, experiment profile, seeds and payload sizes.
-- Do not compare runtime across machines without reporting environment metadata.
-- Do not convert nucleotide counts into synthesis prices unless a dated external pricing model is explicitly supplied.
-- Do not describe simulated rates as observed synthesis/sequencing rates.
-- Do not discard failed recoveries from aggregate statistics.
-- When tuning and evaluation use different seeds, report both.
+## Interpretation rules
+
+- Never describe configured simulation error rates as observed sequencing/synthesis rates.
+- Never drop failed recovery trials.
+- Report calibration and evaluation seed sets separately.
+- Do not call a smoke-test difference statistically significant.
+- Runtime comparisons require the recorded machine/software environment.
+- Do not translate nucleotide counts to synthesis cost without a dated, externally sourced cost model.
+- Physical lifecycle cost, energy, or latency terms are used only when supplied by the caller.
+- Publication conclusions should come from the completed held-out publication workflow, not CI smoke data.
