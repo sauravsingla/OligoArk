@@ -52,11 +52,37 @@ jobs:
           test -s benchmark-results/metadata.json
           test -s benchmark-results/recovery_by_regime.png
           test -s benchmark-results/overhead_by_regime.png
-      - name: Upload benchmark artifacts
+      - name: Run ablation smoke experiment
+        run: |
+          python benchmarks/run_experiments.py --profile smoke
+          test -s experiment-results/raw.json
+          test -s experiment-results/raw.csv
+          test -s experiment-results/summary.json
+          test -s experiment-results/summary.csv
+          test -s experiment-results/metadata.json
+          test -s experiment-results/experiment_recovery.png
+          test -s experiment-results/experiment_overhead.png
+      - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: oligoark-benchmark-results
-          path: benchmark-results/
+          name: oligoark-research-results
+          path: |
+            benchmark-results/
+            experiment-results/
           if-no-files-found: error
       - name: Build Docker image
         run: docker build -t oligoark:ci .
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[api,security]"
+      - name: Bandit source scan
+        run: bandit -r src/oligoark -q
+      - name: Dependency audit
+        run: pip-audit --local --skip-editable
