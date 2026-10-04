@@ -135,21 +135,27 @@ class LifecycleAssumptions:
         for tier_name, raw in values.items():
             if not isinstance(raw, dict):
                 raise ValueError(f"lifecycle tier {tier_name!r} must be an object")
-
-            def number(field_name: str) -> float:
+            numeric: dict[str, float] = {}
+            for field_name in (
+                "storage_cost_per_gb_year",
+                "retrieval_cost_per_gb",
+                "idle_energy_kwh_per_tb_year",
+                "retrieval_energy_kwh_per_gb",
+                "retrieval_latency_hours",
+            ):
                 value = raw.get(field_name)
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
                     raise ValueError(
                         f"lifecycle {tier_name}.{field_name} must be numeric"
                     )
-                return float(value)
+                numeric[field_name] = float(value)
 
             tiers[str(tier_name)] = TierLifecycleAssumption(
-                storage_cost_per_gb_year=number("storage_cost_per_gb_year"),
-                retrieval_cost_per_gb=number("retrieval_cost_per_gb"),
-                idle_energy_kwh_per_tb_year=number("idle_energy_kwh_per_tb_year"),
-                retrieval_energy_kwh_per_gb=number("retrieval_energy_kwh_per_gb"),
-                retrieval_latency_hours=number("retrieval_latency_hours"),
+                storage_cost_per_gb_year=numeric["storage_cost_per_gb_year"],
+                retrieval_cost_per_gb=numeric["retrieval_cost_per_gb"],
+                idle_energy_kwh_per_tb_year=numeric["idle_energy_kwh_per_tb_year"],
+                retrieval_energy_kwh_per_gb=numeric["retrieval_energy_kwh_per_gb"],
+                retrieval_latency_hours=numeric["retrieval_latency_hours"],
             )
         assumptions = cls(tiers)
         assumptions.validate()
