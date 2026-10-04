@@ -77,6 +77,7 @@ class SimulateRequest(BaseModel):
     dropout_rate: float = Field(default=0.0, ge=0, le=1)
     duplicate_rate: float = Field(default=0.0, ge=0, le=1)
     seed: int = 7
+    copies_per_strand: int = Field(default=1, ge=1, le=32)
 
 
 class EconomicRequest(BaseModel):
@@ -148,6 +149,7 @@ class OptimizePlanRequest(PlanRequest):
     calibration_seeds: list[int] = Field(default_factory=lambda: [9401, 9402, 9403, 9404])
     evaluation_seeds: list[int] | None = None
     duplicate_rate: float = Field(default=0.0, ge=0, le=1)
+    copies_per_strand: int = Field(default=1, ge=1, le=32)
     max_candidates: int = Field(default=24, ge=1, le=256)
     search_method: str = "balanced_robust"
     search_seed: int = 6060
@@ -300,6 +302,7 @@ def simulate(req: SimulateRequest) -> dict[str, object]:
             req.dropout_rate,
             req.duplicate_rate,
             req.seed,
+            req.copies_per_strand,
         )
         return {"reads": simulate_channel(archive.strands, config)}
     except (ValueError, TypeError, KeyError) as exc:
@@ -364,6 +367,7 @@ def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
                 calibration_seeds=calibration,
                 evaluation_seeds=tuple(req.evaluation_seeds),
                 duplicate_rate=req.duplicate_rate,
+                copies_per_strand=req.copies_per_strand,
                 economics=economics,
                 lifecycle=lifecycle,
                 search_space=search,
@@ -379,6 +383,7 @@ def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
             search_space=search,
             weights=weights,
             duplicate_rate=req.duplicate_rate,
+            copies_per_strand=req.copies_per_strand,
         ).to_dict()
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
