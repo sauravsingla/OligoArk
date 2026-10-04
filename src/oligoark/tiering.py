@@ -71,7 +71,7 @@ class EconomicAssumptions:
                 raise ValueError(f"{name} values must be between 0 and 1")
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, object]) -> "EconomicAssumptions":
+    def from_mapping(cls, values: Mapping[str, object]) -> EconomicAssumptions:
         storage = values.get("storage_cost_index")
         retrieval = values.get("retrieval_cost_index")
         if not isinstance(storage, dict) or not isinstance(retrieval, dict):
