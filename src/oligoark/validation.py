@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass
 
 from .archive import DNAArchive, recover_bytes
-from .reconstruct import GraphConsensusReconstructor, ReconstructionResult
+from .reconstruct import GraphConsensusReconstructor, ReconstructionResult, TraceConsensusReconstructor
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,9 @@ class GraphRescueComparison:
     direct_failure: str | None
     medoid: RescueModeResult
     alignment: RescueModeResult
+    trace: RescueModeResult
     alignment_rescued_direct_failure: bool
+    trace_rescued_direct_failure: bool
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -63,6 +65,47 @@ def _attempt_reconstruction(
         failure = str(exc)
     return RescueModeResult(
         mode=mode,
+        recovered=recovered,
+        verified_sha256=recovered,
+        node_count=reconstruction.node_count,
+        candidate_pairs=reconstruction.candidate_pairs,
+        edge_count=reconstruction.edge_count,
+        component_count=reconstruction.component_count,
+        cluster_sizes=tuple(reconstruction.cluster_sizes),
+        consensus_lengths=reconstruction.consensus_lengths,
+        consensus_count=len(reconstruction.consensus_reads),
+        reconstruction_runtime_seconds=reconstruction.runtime_seconds,
+        total_runtime_seconds=round(time.perf_counter() - started, 8),
+        failure=failure,
+    )
+
+
+def _attempt_trace_reconstruction(
+    archive: DNAArchive,
+    reads: list[str],
+    *,
+    threshold: float,
+) -> RescueModeResult:
+    started = time.perf_counter()
+    thresholds = tuple(
+        value
+        for value in (
+            min(0.99, threshold + 0.04),
+            threshold,
+            max(0.0, threshold - 0.04),
+        )
+    )
+    reconstructor = TraceConsensusReconstructor(thresholds=thresholds)
+    reconstruction = reconstructor.reconstruct(reads)
+    recovered = False
+    failure: str | None = None
+    try:
+        recover_bytes(archive, reads + reconstruction.consensus_reads)
+        recovered = True
+    except ValueError as exc:
+        failure = str(exc)
+    return RescueModeResult(
+        mode="trace",
         recovered=recovered,
         verified_sha256=recovered,
         node_count=reconstruction.node_count,
@@ -110,12 +153,21 @@ def compare_reconstruction_modes(
         mode="alignment",
         threshold=threshold,
     )
+    trace = _attempt_trace_reconstruction(
+        archive,
+        clean_reads,
+        threshold=threshold,
+    )
     return GraphRescueComparison(
         direct_recovered=direct_recovered,
         direct_failure=direct_failure,
         medoid=medoid,
         alignment=alignment,
+        trace=trace,
         alignment_rescued_direct_failure=(
             not direct_recovered and alignment.recovered and alignment.verified_sha256
+        ),
+        trace_rescued_direct_failure=(
+            not direct_recovered and trace.recovered and trace.verified_sha256
         ),
     )
