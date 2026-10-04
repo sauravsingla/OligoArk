@@ -34,7 +34,7 @@ class ArchiveConfig:
             raise ValueError("parity_group_size must be at least 2")
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, object]) -> "ArchiveConfig":
+    def from_mapping(cls, values: Mapping[str, object]) -> ArchiveConfig:
         allowed = {"chunk_size", "rs_nsym", "parity_group_size", "adaptive_masks"}
         unknown = sorted(set(values) - allowed)
         if unknown:
@@ -97,7 +97,7 @@ class DNAArchive:
         return json.dumps({"metadata": self.metadata, "strands": self.strands}, indent=2)
 
     @classmethod
-    def from_json(cls, text: str) -> "DNAArchive":
+    def from_json(cls, text: str) -> DNAArchive:
         obj = json.loads(text)
         if not isinstance(obj, dict) or not isinstance(obj.get("metadata"), dict):
             raise ValueError("Invalid OligoArk archive JSON")
@@ -150,7 +150,7 @@ class DNAArchive:
         Path(path).write_text(self.to_json(), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: str | Path) -> "DNAArchive":
+    def load(cls, path: str | Path) -> DNAArchive:
         return cls.from_json(Path(path).read_text(encoding="utf-8"))
 
 
