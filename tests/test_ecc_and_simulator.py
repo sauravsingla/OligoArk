@@ -23,3 +23,15 @@ def test_zero_noise_simulation_recovers() -> None:
     archive = archive_bytes(raw)
     reads = simulate_channel(archive.strands, SimulationConfig(seed=9))
     assert recover_bytes(archive, reads) == raw
+
+
+def test_simulator_supports_deterministic_multi_trace_coverage() -> None:
+    config = SimulationConfig(seed=17, copies_per_strand=4)
+    first = simulate_channel(["ACGTACGT"], config)
+    second = simulate_channel(["ACGTACGT"], config)
+    assert first == second
+    assert len(first) == 4
+    assert first == ["ACGTACGT"] * 4
+
+    with pytest.raises(ValueError, match="copies_per_strand"):
+        simulate_channel(["ACGT"], SimulationConfig(copies_per_strand=0))
