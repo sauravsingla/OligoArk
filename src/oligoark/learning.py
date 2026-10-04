@@ -234,7 +234,7 @@ class LinearUtilityPolicyModel:
         }
 
     @classmethod
-    def from_dict(cls, value: dict[str, object]) -> "LinearUtilityPolicyModel":
+    def from_dict(cls, value: dict[str, object]) -> LinearUtilityPolicyModel:
         if value.get("model") != "linear-utility-ridge":
             raise ValueError("Unsupported serialized policy model")
         ridge = value.get("ridge")
