@@ -58,7 +58,12 @@ def write_plots(
     runtime = [float(row["mean_runtime_seconds"]) for row in summary]
     rescue = [float(row["graph_rescue_rate"]) for row in summary]
 
-    def save_bar(values: list[float], ylabel: str, filename: str, ylim: tuple[float, float] | None = None) -> None:
+    def save_bar(
+        values: list[float],
+        ylabel: str,
+        filename: str,
+        ylim: tuple[float, float] | None = None,
+    ) -> None:
         plt.figure(figsize=(max(12, len(labels) * 0.45), 5))
         plt.bar(labels, values)
         plt.ylabel(ylabel)
@@ -142,15 +147,29 @@ def write_plots(
     gen_calibration: list[float] = []
     gen_heldout: list[float] = []
     for (scenario, payload_size), rows in sorted(generalization.items()):
-        scores = [float(row["selection_score"]) for row in rows if row["selection_score"] is not None]
+        scores = [
+            float(row["selection_score"])
+            for row in rows
+            if row["selection_score"] is not None
+        ]
         gen_labels.append(f"{scenario}\n{payload_size}B")
         gen_calibration.append(sum(scores) / len(scores) if scores else 0.0)
         gen_heldout.append(sum(float(bool(row["recovered"])) for row in rows) / len(rows))
     positions = list(range(len(gen_labels)))
     width = 0.4
     plt.figure(figsize=(max(10, len(gen_labels) * 0.55), 5))
-    plt.bar([position - width / 2 for position in positions], gen_calibration, width, label="calibration score")
-    plt.bar([position + width / 2 for position in positions], gen_heldout, width, label="held-out recovery")
+    plt.bar(
+        [position - width / 2 for position in positions],
+        gen_calibration,
+        width,
+        label="calibration score",
+    )
+    plt.bar(
+        [position + width / 2 for position in positions],
+        gen_heldout,
+        width,
+        label="held-out recovery",
+    )
     plt.ylabel("Normalized score / recovery rate")
     plt.xticks(positions, gen_labels, rotation=65, ha="right")
     plt.legend()
