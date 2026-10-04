@@ -60,6 +60,8 @@ jobs:
           test -s publication-results/raw.json
           test -s publication-results/summary.json
           test -s publication-results/paired-effects.json
+          test -s publication-results/calibration.json
+          test -s publication-results/calibration-candidates.csv
           test -s publication-results/metadata.json
           test -s publication-results/recovery_vs_error_rate.png
           test -s publication-results/overhead_vs_recovery.png
