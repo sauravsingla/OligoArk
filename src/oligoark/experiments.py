@@ -1,4 +1,4 @@
-"""Reusable deterministic experiment and ablation framework for OligoArk."""
+"""Held-out deterministic experiment and ablation framework for OligoArk."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import time
 from dataclasses import asdict, dataclass
 
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
-from .optimizer import CodecSearchSpace, optimize_codec
+from .optimizer import CodecSearchSpace, OptimizationResult, optimize_codec
 from .policy import ChannelProfile, recommend_codec_policy
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import WorkloadProfile
@@ -25,6 +25,12 @@ class ExperimentScenario:
 
 @dataclass(frozen=True)
 class ExperimentProfile:
+    """Experiment profile with disjoint calibration and held-out evaluation seeds.
+
+    The seeds field is retained for backward compatibility and means evaluation/test
+    seeds in v0.5.
+    """
+
     seeds: tuple[int, ...]
     payload_sizes: tuple[int, ...]
     scenarios: tuple[ExperimentScenario, ...]
@@ -36,10 +42,21 @@ class ExperimentProfile:
         "combined",
     )
     optimizer_max_candidates: int = 12
+    calibration_seeds: tuple[int, ...] = (9101, 9102, 9103)
+    optimizer_search_method: str = "balanced"
+    optimizer_search_seed: int = 5050
+
+    @property
+    def evaluation_seeds(self) -> tuple[int, ...]:
+        return self.seeds
 
     def validate(self) -> None:
-        if not self.seeds or not self.payload_sizes or not self.scenarios:
-            raise ValueError("experiment seeds, payload sizes, and scenarios must not be empty")
+        if not self.seeds or not self.calibration_seeds:
+            raise ValueError("calibration and evaluation seeds must not be empty")
+        if set(self.seeds) & set(self.calibration_seeds):
+            raise ValueError("calibration and evaluation seeds must be disjoint")
+        if not self.payload_sizes or not self.scenarios:
+            raise ValueError("payload sizes and scenarios must not be empty")
         if any(size <= 0 for size in self.payload_sizes):
             raise ValueError("payload sizes must be positive")
         valid = {
@@ -53,6 +70,8 @@ class ExperimentProfile:
             raise ValueError(f"experiment strategies must be drawn from {sorted(valid)}")
         if self.optimizer_max_candidates < 1:
             raise ValueError("optimizer_max_candidates must be positive")
+        if self.optimizer_search_method not in {"balanced", "full_grid"}:
+            raise ValueError("optimizer_search_method must be balanced or full_grid")
 
 
 @dataclass(frozen=True)
@@ -72,6 +91,16 @@ class ExperimentRecord:
     redundancy_scheme: str
     rs_nsym: int
     chunk_size: int
+    parity_group_size: int
+    adaptive_masks: bool
+    substitution_rate: float
+    insertion_rate: float
+    deletion_rate: float
+    dropout_rate: float
+    duplicate_rate: float
+    calibration_seeds: tuple[int, ...] = ()
+    selection_score: float | None = None
+    selection_search_method: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -89,14 +118,28 @@ class ExperimentSummary:
     recovery_ci95_high: float
     mean_overhead_ratio: float
     mean_runtime_seconds: float
-    graph_use_rate: float
+    graph_rescue_rate: float
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class StrategyEffectSummary:
+    strategy: str
+    baseline_strategy: str
+    scenario: str
+    payload_size: int
+    paired_trials: int
+    recovery_rate_difference: float
+    overhead_ratio_difference: float
+    runtime_seconds_difference: float
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
 def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
-    """Wilson score interval for a binomial recovery proportion."""
     if trials <= 0:
         raise ValueError("trials must be positive")
     if not 0 <= successes <= trials:
@@ -117,25 +160,20 @@ def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float
 
 def smoke_profile() -> ExperimentProfile:
     return ExperimentProfile(
-        seeds=(2026,),
+        seeds=(2026, 2027),
+        calibration_seeds=(9001, 9002),
         payload_sizes=(256,),
         scenarios=(
             ExperimentScenario("clean", ChannelProfile()),
             ExperimentScenario(
-                "substitution",
-                ChannelProfile(substitution_rate=0.01),
-                duplicate_rate=0.20,
+                "substitution", ChannelProfile(substitution_rate=0.01), duplicate_rate=0.20
             ),
             ExperimentScenario(
                 "indel",
                 ChannelProfile(insertion_rate=0.001, deletion_rate=0.001),
                 duplicate_rate=0.35,
             ),
-            ExperimentScenario(
-                "dropout",
-                ChannelProfile(dropout_rate=0.05),
-                duplicate_rate=0.10,
-            ),
+            ExperimentScenario("dropout", ChannelProfile(dropout_rate=0.05), duplicate_rate=0.10),
         ),
         optimizer_max_candidates=8,
     )
@@ -143,7 +181,8 @@ def smoke_profile() -> ExperimentProfile:
 
 def publication_profile() -> ExperimentProfile:
     return ExperimentProfile(
-        seeds=(2026, 2027, 2028, 2029, 2030),
+        seeds=(2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033),
+        calibration_seeds=(9201, 9202, 9203, 9204),
         payload_sizes=(512, 2048, 8192),
         scenarios=(
             ExperimentScenario("clean", ChannelProfile()),
@@ -168,14 +207,10 @@ def publication_profile() -> ExperimentProfile:
                 duplicate_rate=0.50,
             ),
             ExperimentScenario(
-                "dropout-2pct",
-                ChannelProfile(dropout_rate=0.02),
-                duplicate_rate=0.10,
+                "dropout-2pct", ChannelProfile(dropout_rate=0.02), duplicate_rate=0.10
             ),
             ExperimentScenario(
-                "dropout-10pct",
-                ChannelProfile(dropout_rate=0.10),
-                duplicate_rate=0.20,
+                "dropout-10pct", ChannelProfile(dropout_rate=0.10), duplicate_rate=0.20
             ),
             ExperimentScenario(
                 "mixed",
@@ -189,6 +224,22 @@ def publication_profile() -> ExperimentProfile:
             ),
         ),
         optimizer_max_candidates=24,
+        optimizer_search_method="balanced",
+        optimizer_search_seed=5050,
+    )
+
+
+def _workload(payload_size: int) -> WorkloadProfile:
+    return WorkloadProfile(
+        retention_years=100,
+        accesses_per_year=0.1,
+        mutability=0.0,
+        retrieval_urgency=0.2,
+        durability_priority=1.0,
+        energy_priority=0.5,
+        redundancy_priority=0.8,
+        cost_priority=0.5,
+        data_size_gb=max(1e-9, payload_size / 1_000_000_000),
     )
 
 
@@ -209,83 +260,93 @@ def _adaptive_config(
     )
 
 
-def _strategy_config(
-    strategy: str,
+def _optimizer_search(profile: ExperimentProfile) -> CodecSearchSpace:
+    return CodecSearchSpace(
+        chunk_sizes=(48, 64, 96),
+        rs_nsyms=(8, 16, 24),
+        redundancy_schemes=("xor", "fountain", "hybrid"),
+        parity_group_sizes=(3, 5),
+        fountain_redundancies=(0.25, 0.40),
+        reconstruction_modes=("direct", "graph"),
+        max_candidates=profile.optimizer_max_candidates,
+        search_method=profile.optimizer_search_method,
+        search_seed=profile.optimizer_search_seed,
+    )
+
+
+def _calibrate_combined(
     payload: bytes,
     scenario: ExperimentScenario,
-    workload: WorkloadProfile,
-    *,
-    optimizer_max_candidates: int,
-    seed: int,
-) -> tuple[ArchiveConfig, bool]:
+    profile: ExperimentProfile,
+) -> OptimizationResult:
+    calibration = payload[: min(256, len(payload))]
+    return optimize_codec(
+        calibration,
+        scenario.channel,
+        _workload(len(payload)),
+        search_space=_optimizer_search(profile),
+        seeds=profile.calibration_seeds,
+    )
+
+
+def _strategy_config(
+    strategy: str,
+    scenario: ExperimentScenario,
+    combined: OptimizationResult | None,
+) -> tuple[ArchiveConfig, bool, float | None, str | None]:
     if strategy == "fixed":
-        return ArchiveConfig(
-            96,
-            8,
-            8,
+        return (
+            ArchiveConfig(
+                96,
+                8,
+                8,
+                False,
+                redundancy_scheme="xor",
+                min_gc_fraction=0.0,
+                max_gc_fraction=1.0,
+                max_homopolymer=100,
+                mask_search_limit=1,
+            ),
             False,
-            redundancy_scheme="xor",
-            min_gc_fraction=0.0,
-            max_gc_fraction=1.0,
-            max_homopolymer=100,
-            mask_search_limit=1,
-        ), False
+            None,
+            None,
+        )
     if strategy == "adaptive":
-        return _adaptive_config(scenario.channel, redundancy_scheme="xor"), False
+        return _adaptive_config(scenario.channel, redundancy_scheme="xor"), False, None, None
     if strategy == "adaptive_fountain":
-        return _adaptive_config(scenario.channel, redundancy_scheme="hybrid"), False
+        return _adaptive_config(scenario.channel, redundancy_scheme="hybrid"), False, None, None
     if strategy == "adaptive_graph":
-        return _adaptive_config(scenario.channel, redundancy_scheme="xor"), True
+        return _adaptive_config(scenario.channel, redundancy_scheme="xor"), True, None, None
     if strategy == "combined":
-        calibration = payload[: min(256, len(payload))]
-        search = CodecSearchSpace(
-            chunk_sizes=(48, 64, 96),
-            rs_nsyms=(8, 16, 24),
-            redundancy_schemes=("xor", "fountain", "hybrid"),
-            parity_group_sizes=(3, 5),
-            fountain_redundancies=(0.25, 0.40),
-            reconstruction_modes=("direct", "graph"),
-            max_candidates=optimizer_max_candidates,
+        if combined is None:
+            raise ValueError("combined strategy requires calibration result")
+        return (
+            combined.best_config,
+            combined.reconstruction_mode == "graph",
+            combined.best_score,
+            combined.search_method,
         )
-        result = optimize_codec(
-            calibration,
-            scenario.channel,
-            workload,
-            search_space=search,
-            seeds=(seed,),
-        )
-        return result.best_config, result.reconstruction_mode == "graph"
     raise ValueError(f"unknown experiment strategy: {strategy}")
+
+
+def _payload(payload_size: int, seed: int) -> bytes:
+    rng = random.Random(seed * 1_000_003 + payload_size)
+    return bytes(rng.randrange(256) for _ in range(payload_size))
 
 
 def _run_one(
     payload: bytes,
     scenario: ExperimentScenario,
     strategy: str,
+    config: ArchiveConfig,
+    use_graph: bool,
     *,
     seed: int,
-    optimizer_max_candidates: int,
+    calibration_seeds: tuple[int, ...],
+    selection_score: float | None,
+    selection_search_method: str | None,
 ) -> ExperimentRecord:
-    workload = WorkloadProfile(
-        retention_years=100,
-        accesses_per_year=0.1,
-        mutability=0.0,
-        retrieval_urgency=0.2,
-        durability_priority=1.0,
-        energy_priority=0.5,
-        redundancy_priority=0.8,
-        cost_priority=0.5,
-        data_size_gb=max(1e-9, len(payload) / 1_000_000_000),
-    )
     started = time.perf_counter()
-    config, use_graph = _strategy_config(
-        strategy,
-        payload,
-        scenario,
-        workload,
-        optimizer_max_candidates=optimizer_max_candidates,
-        seed=seed,
-    )
     archive = archive_bytes(payload, config)
     reads = simulate_channel(
         archive.strands,
@@ -299,11 +360,11 @@ def _run_one(
         ),
     )
     recovered = False
-    graph_used = False
+    graph_rescue = False
     try:
         if use_graph:
             decoded, report = recover_from_reads(archive, reads)
-            graph_used = report.graph_reconstruction_used
+            graph_rescue = report.rescue_changed_result
         else:
             decoded = recover_bytes(archive, reads)
         recovered = decoded == payload
@@ -325,10 +386,20 @@ def _run_one(
         strand_count=len(archive.strands),
         read_count=len(reads),
         runtime_seconds=round(time.perf_counter() - started, 6),
-        graph_reconstruction_used=graph_used,
+        graph_reconstruction_used=graph_rescue,
         redundancy_scheme=config.redundancy_scheme,
         rs_nsym=config.rs_nsym,
         chunk_size=config.chunk_size,
+        parity_group_size=config.parity_group_size,
+        adaptive_masks=config.adaptive_masks,
+        substitution_rate=scenario.channel.substitution_rate,
+        insertion_rate=scenario.channel.insertion_rate,
+        deletion_rate=scenario.channel.deletion_rate,
+        dropout_rate=scenario.channel.dropout_rate,
+        duplicate_rate=scenario.duplicate_rate,
+        calibration_seeds=calibration_seeds if strategy == "combined" else (),
+        selection_score=selection_score,
+        selection_search_method=selection_search_method,
     )
 
 
@@ -336,18 +407,31 @@ def run_experiments(profile: ExperimentProfile) -> list[ExperimentRecord]:
     profile.validate()
     records: list[ExperimentRecord] = []
     for payload_size in profile.payload_sizes:
-        for seed in profile.seeds:
-            rng = random.Random(seed * 1000003 + payload_size)
-            payload = bytes(rng.randrange(256) for _ in range(payload_size))
+        calibration_payload = _payload(payload_size, profile.calibration_seeds[0])
+        combined_by_scenario = {
+            scenario.name: _calibrate_combined(calibration_payload, scenario, profile)
+            for scenario in profile.scenarios
+            if "combined" in profile.strategies
+        }
+        for seed in profile.evaluation_seeds:
+            payload = _payload(payload_size, seed)
             for scenario in profile.scenarios:
+                combined = combined_by_scenario.get(scenario.name)
                 for strategy in profile.strategies:
+                    config, use_graph, score, method = _strategy_config(
+                        strategy, scenario, combined
+                    )
                     records.append(
                         _run_one(
                             payload,
                             scenario,
                             strategy,
+                            config,
+                            use_graph,
                             seed=seed,
-                            optimizer_max_candidates=profile.optimizer_max_candidates,
+                            calibration_seeds=profile.calibration_seeds,
+                            selection_score=score,
+                            selection_search_method=method,
                         )
                     )
     return records
@@ -356,10 +440,9 @@ def run_experiments(profile: ExperimentProfile) -> list[ExperimentRecord]:
 def aggregate_experiments(records: list[ExperimentRecord]) -> list[ExperimentSummary]:
     grouped: dict[tuple[str, str, int], list[ExperimentRecord]] = {}
     for record in records:
-        grouped.setdefault(
-            (record.strategy, record.scenario, record.payload_size),
-            [],
-        ).append(record)
+        grouped.setdefault((record.strategy, record.scenario, record.payload_size), []).append(
+            record
+        )
 
     summaries: list[ExperimentSummary] = []
     for (strategy, scenario, payload_size), group in sorted(grouped.items()):
@@ -376,20 +459,76 @@ def aggregate_experiments(records: list[ExperimentRecord]) -> list[ExperimentSum
                 recovery_ci95_low=round(low, 6),
                 recovery_ci95_high=round(high, 6),
                 mean_overhead_ratio=round(
-                    statistics.fmean(record.overhead_ratio for record in group),
-                    6,
+                    statistics.fmean(record.overhead_ratio for record in group), 6
                 ),
                 mean_runtime_seconds=round(
-                    statistics.fmean(record.runtime_seconds for record in group),
-                    6,
+                    statistics.fmean(record.runtime_seconds for record in group), 6
                 ),
-                graph_use_rate=round(
+                graph_rescue_rate=round(
                     statistics.fmean(
-                        1.0 if record.graph_reconstruction_used else 0.0
-                        for record in group
+                        1.0 if record.graph_reconstruction_used else 0.0 for record in group
                     ),
                     6,
                 ),
             )
         )
     return summaries
+
+
+def paired_strategy_effects(
+    records: list[ExperimentRecord],
+    *,
+    baseline_strategy: str = "fixed",
+) -> list[StrategyEffectSummary]:
+    """Paired mean differences on identical scenario/payload/seed realizations."""
+    index = {
+        (record.strategy, record.scenario, record.payload_size, record.seed): record
+        for record in records
+    }
+    groups = sorted(
+        {(record.strategy, record.scenario, record.payload_size) for record in records}
+    )
+    effects: list[StrategyEffectSummary] = []
+    for strategy, scenario, payload_size in groups:
+        if strategy == baseline_strategy:
+            continue
+        pairs: list[tuple[ExperimentRecord, ExperimentRecord]] = []
+        for record in records:
+            if (
+                record.strategy == strategy
+                and record.scenario == scenario
+                and record.payload_size == payload_size
+            ):
+                baseline = index.get((baseline_strategy, scenario, payload_size, record.seed))
+                if baseline is not None:
+                    pairs.append((record, baseline))
+        if not pairs:
+            continue
+        effects.append(
+            StrategyEffectSummary(
+                strategy=strategy,
+                baseline_strategy=baseline_strategy,
+                scenario=scenario,
+                payload_size=payload_size,
+                paired_trials=len(pairs),
+                recovery_rate_difference=round(
+                    statistics.fmean(
+                        float(left.recovered) - float(right.recovered) for left, right in pairs
+                    ),
+                    6,
+                ),
+                overhead_ratio_difference=round(
+                    statistics.fmean(
+                        left.overhead_ratio - right.overhead_ratio for left, right in pairs
+                    ),
+                    6,
+                ),
+                runtime_seconds_difference=round(
+                    statistics.fmean(
+                        left.runtime_seconds - right.runtime_seconds for left, right in pairs
+                    ),
+                    6,
+                ),
+            )
+        )
+    return effects
