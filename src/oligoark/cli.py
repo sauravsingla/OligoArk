@@ -81,6 +81,7 @@ def _simulate(args: argparse.Namespace) -> None:
         args.dropout,
         args.duplicate,
         args.seed,
+        args.copies_per_strand,
     )
     reads = simulate_channel(archive.strands, cfg)
     Path(args.output).write_text("\n".join(reads) + "\n", encoding="utf-8")
@@ -255,6 +256,7 @@ def _optimize_plan(args: argparse.Namespace) -> None:
             calibration_seeds=calibration_seeds,
             evaluation_seeds=_parse_seeds(args.evaluation_seeds),
             duplicate_rate=args.duplicate,
+            copies_per_strand=args.copies_per_strand,
             economics=economics,
             lifecycle=lifecycle,
             search_space=search_space,
@@ -273,6 +275,7 @@ def _optimize_plan(args: argparse.Namespace) -> None:
         search_space=search_space,
         weights=weights,
         duplicate_rate=args.duplicate,
+        copies_per_strand=args.copies_per_strand,
     )
     print(json.dumps(optimized.to_dict(), indent=2))
 
@@ -336,6 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--output", default="reads.txt")
     _add_channel_arguments(command)
     command.add_argument("--duplicate", type=float, default=0.0)
+    command.add_argument("--copies-per-strand", type=int, default=1)
     command.add_argument("--seed", type=int, default=7)
     command.set_defaults(func=_simulate)
 
@@ -406,6 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--calibration-seeds")
     command.add_argument("--evaluation-seeds")
     command.add_argument("--duplicate", type=float, default=0.0)
+    command.add_argument("--copies-per-strand", type=int, default=1)
     command.add_argument("--max-candidates", type=int, default=24)
     command.add_argument(
         "--search-method",
