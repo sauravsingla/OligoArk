@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 - 2026-10-04
+
+### Added
+- Iterative medoid-refined trace consensus for insertion/deletion-heavy read clusters.
+- Multi-threshold explicit-graph reconstruction that emits multiple independently derived candidates while retaining normal CRC/ECC/SHA-256 acceptance gates.
+- Explicit deterministic multi-read channel coverage through `copies_per_strand`, preserving legacy probabilistic duplication behavior.
+- `balanced_robust` optimizer scoring with cross-seed fold-instability penalties.
+- Multi-payload-content optimizer calibration and larger calibration payloads to reduce the v0.5 small-payload overfitting failure.
+- Direct/graph/trace reconstruction as an optimizer policy dimension.
+- Entirely new v0.6 calibration and held-out seed sets not used by the v0.5 publication study.
+- Dependency-free deterministic RBF-kernel policy-learning baseline.
+- Held-out learning comparison against heuristic, empirical, ridge, kernel, adaptive+fountain and measured-search strategies.
+- FASTA/FASTQ/gzip physical-read reconstruction adapter with an explicit reference-oligo input.
+- Verified DNA-Aeon provenance manifest for DOI `10.1038/s41467-023-36297-3`, BioProject `PRJNA855029`, and the paper-listed SRA runs.
+- Payload-by-channel publication sharding for the heavier multi-trace v0.6 experiment.
+
+### Changed
+- Version advanced to 0.6.0.
+- Publication optimizer calibration uses six seeds, three independent calibration payload contents, up to 1024 bytes, 36 candidates and instability-aware scoring.
+- Publication experiments now include an explicit iterative-trace strategy and two moderate-indel coverage levels.
+- Physical sequencing data remains claim-limited: public reads may be evaluated only with an explicit reproducible reference mapping; no external archive format is inferred.
+
 ## 0.5.0 - 2026-10-04
 
 ### Added
