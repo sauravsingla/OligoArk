@@ -12,10 +12,11 @@ from pathlib import Path
 
 from oligoark import __version__
 from oligoark.experiments import (
+    CalibrationRecord,
     aggregate_experiments,
     paired_strategy_effects,
     publication_profile,
-    run_experiments,
+    run_experiment_bundle,
     smoke_profile,
 )
 
@@ -27,6 +28,55 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _calibration_candidate_rows(
+    calibrations: list[CalibrationRecord],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for calibration in calibrations:
+        optimization = calibration.optimization
+        selected_key = (
+            optimization.best_config,
+            optimization.reconstruction_mode,
+            optimization.best_score,
+        )
+        for candidate_index, evaluation in enumerate(optimization.evaluations):
+            config = asdict(evaluation.config)
+            objective = asdict(evaluation.objective)
+            row: dict[str, object] = {
+                "scenario": calibration.scenario,
+                "payload_size": calibration.payload_size,
+                "calibration_payload_size": calibration.calibration_payload_size,
+                "calibration_seeds": ",".join(map(str, optimization.calibration_seeds)),
+                "search_method": optimization.search_method,
+                "search_seed": optimization.search_seed,
+                "total_possible_candidates": optimization.total_possible_candidates,
+                "evaluated_candidates": optimization.evaluated_candidates,
+                "rejected_candidates": optimization.rejected_candidates,
+                "candidate_index": candidate_index,
+                "selected": (
+                    evaluation.config,
+                    evaluation.reconstruction_mode,
+                    evaluation.score,
+                )
+                == selected_key,
+                "reconstruction_mode": evaluation.reconstruction_mode,
+                "trials": evaluation.trials,
+                "verified_successes": evaluation.verified_successes,
+                "recovery_rate": evaluation.recovery_rate,
+                "encoded_nucleotides": evaluation.encoded_nucleotides,
+                "overhead_ratio": evaluation.overhead_ratio,
+                "redundancy_ratio": evaluation.redundancy_ratio,
+                "mean_runtime_seconds": evaluation.mean_runtime_seconds,
+                "graph_recovery_count": evaluation.graph_recovery_count,
+                "score": evaluation.score,
+                "rejected_reason": evaluation.rejected_reason or "",
+            }
+            row.update({f"config_{key}": value for key, value in config.items()})
+            row.update({f"objective_{key}": value for key, value in objective.items()})
+            rows.append(row)
+    return rows
 
 
 def _error_rate(row: dict[str, object]) -> float:
@@ -190,7 +240,9 @@ def main() -> None:
         if args.payload_size not in profile.payload_sizes:
             raise ValueError("requested payload size is not part of the selected profile")
         profile = replace(profile, payload_sizes=(args.payload_size,))
-    records = run_experiments(profile)
+    bundle = run_experiment_bundle(profile)
+    records = list(bundle.records)
+    calibrations = list(bundle.calibrations)
     summaries = aggregate_experiments(records)
     effects = paired_strategy_effects(records)
 
@@ -199,14 +251,20 @@ def main() -> None:
     raw_rows = [record.to_dict() for record in records]
     summary_rows = [summary.to_dict() for summary in summaries]
     effect_rows = [effect.to_dict() for effect in effects]
+    calibration_rows = [calibration.to_dict() for calibration in calibrations]
+    calibration_candidate_rows = _calibration_candidate_rows(calibrations)
     (output / "raw.json").write_text(json.dumps(raw_rows, indent=2), encoding="utf-8")
     (output / "summary.json").write_text(json.dumps(summary_rows, indent=2), encoding="utf-8")
     (output / "paired-effects.json").write_text(
         json.dumps(effect_rows, indent=2), encoding="utf-8"
     )
+    (output / "calibration.json").write_text(
+        json.dumps(calibration_rows, indent=2), encoding="utf-8"
+    )
     _write_csv(output / "raw.csv", raw_rows)
     _write_csv(output / "summary.csv", summary_rows)
     _write_csv(output / "paired-effects.csv", effect_rows)
+    _write_csv(output / "calibration-candidates.csv", calibration_candidate_rows)
 
     metadata = {
         "oligoark_version": __version__,
@@ -224,6 +282,8 @@ def main() -> None:
         "optimizer_search_method": profile.optimizer_search_method,
         "optimizer_search_seed": profile.optimizer_search_seed,
         "optimizer_max_candidates": profile.optimizer_max_candidates,
+        "calibration_payload_limit_bytes": 256,
+        "calibration_record_count": len(calibrations),
         "scenarios": [asdict(scenario) for scenario in profile.scenarios],
         "claim_scope": "software simulation only; no wet-lab performance is implied",
     }
@@ -231,7 +291,12 @@ def main() -> None:
     write_plots(raw_rows, summary_rows, effect_rows, output)
     print(
         json.dumps(
-            {"metadata": metadata, "summary": summary_rows, "paired_effects": effect_rows},
+            {
+                "metadata": metadata,
+                "summary": summary_rows,
+                "paired_effects": effect_rows,
+                "calibrations": calibration_rows,
+            },
             indent=2,
         )
     )
