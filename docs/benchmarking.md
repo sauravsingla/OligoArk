@@ -59,6 +59,37 @@ The aggregation artifact contains:
 - `metadata.json`: commit, Python/platform information, calibration/evaluation seeds, calibration payload limit, search method/seed, payload sizes and claim scope;
 - plots for recovery vs configured error rate, overhead vs recovery, runtime vs recovery, strategy ablation, graph rescue, and calibration-to-held-out optimizer generalization.
 
+## Executed v0.5 results
+
+The publication workflow completed successfully on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569` and uploaded a 90-day validation artifact. The merged design contains **960 held-out trials** and **576 calibration-candidate evaluations**.
+
+| Strategy | Successes / trials | Recovery | 95% Wilson CI | Mean overhead | Mean runtime |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fixed | 88 / 192 | 45.8% | 38.9–52.9% | 1.492× | 0.036 s |
+| heuristic adaptive | 115 / 192 | 59.9% | 52.8–66.6% | 1.557× | 0.728 s |
+| adaptive + fountain/hybrid | 128 / 192 | 66.7% | 59.7–73.0% | 2.114× | 0.959 s |
+| adaptive + graph/alignment | 115 / 192 | 59.9% | 52.8–66.6% | 1.557× | 3.379 s |
+| combined measured optimizer | 110 / 192 | 57.3% | 50.2–64.1% | 1.895× | 1.841 s |
+
+Paired recovery differences versus fixed on identical held-out realizations were +14.1 percentage points for heuristic adaptive, +20.8 points for adaptive+fountain/hybrid, +14.1 points for adaptive+graph/alignment, and +11.5 points for combined search. The combined search had two paired regressions versus fixed.
+
+Recovery by regime, aggregated over all three payload sizes and eight held-out seeds per size:
+
+| Regime | Fixed | Adaptive | Adaptive + fountain | Adaptive + graph | Combined |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| clean | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
+| substitution 0.1% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
+| substitution 1% | 4.2% | 100.0% | 100.0% | 100.0% | 79.2% |
+| indel low | 12.5% | 12.5% | 25.0% | 12.5% | 29.2% |
+| indel moderate | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| dropout 2% | 91.7% | 91.7% | 100.0% | 91.7% | 95.8% |
+| dropout 10% | 45.8% | 62.5% | 87.5% | 62.5% | 41.7% |
+| mixed | 12.5% | 12.5% | 20.8% | 12.5% | 12.5% |
+
+The combined optimizer's calibration recovery was frequently 100% while held-out recovery degraded with larger payloads in dropout, substitution and low-indel regimes. The current optimizer is therefore demonstrated as a functioning measured search, **not** as a uniformly superior policy. The four-seed, at-most-256-byte calibration budget is a documented generalization limitation.
+
+Runtimes above are wall-clock measurements from Python 3.13.15 on the recorded GitHub-hosted Linux environment and should only be compared within this run.
+
 ## Controlled graph-rescue evidence
 
 ```bash
@@ -94,7 +125,7 @@ Reported metrics include:
 - mean utility regret;
 - serialized ridge coefficient/model state for reproducibility.
 
-If a learned model performs worse than the heuristic, the result is retained and reported.
+The executed held-out learning result used training seeds 2026–2029 on four channel regimes and test seeds 2030–2033 on four unseen regimes. Across 48 test groups: heuristic recovery was 41.7% with mean regret 0.0520; empirical recovery was 37.5% with regret 0.0740; ridge recovery was 41.7% with regret 0.0520; measured-search recovery was 39.6% with regret 0.1630. The ridge model therefore matched but did not outperform the heuristic, and the empirical/search baselines were worse on this split. These negative results are retained rather than hidden.
 
 ## Metrics
 
