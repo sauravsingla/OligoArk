@@ -41,7 +41,7 @@ def _error_rate(row: dict[str, object]) -> float:
     )
 
 
-def _write_plots(
+def write_plots(
     raw: list[dict[str, object]],
     summary: list[dict[str, object]],
     effects: list[dict[str, object]],
@@ -209,7 +209,7 @@ def main() -> None:
         "claim_scope": "software simulation only; no wet-lab performance is implied",
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    _write_plots(raw_rows, summary_rows, effect_rows, output)
+    write_plots(raw_rows, summary_rows, effect_rows, output)
     print(
         json.dumps(
             {"metadata": metadata, "summary": summary_rows, "paired_effects": effect_rows},
