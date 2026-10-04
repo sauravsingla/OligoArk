@@ -72,11 +72,29 @@ def main() -> None:
     if not test_seeds:
         raise ValueError("learning evaluation needs non-empty test seeds")
 
+    scenario_items = metadata.get("scenarios")
+    if not isinstance(scenario_items, list):
+        raise ValueError("experiment metadata must include scenario definitions")
+    scenario_names = tuple(
+        str(item["name"])
+        for item in scenario_items
+        if isinstance(item, dict) and "name" in item
+    )
+    if len(scenario_names) < 2:
+        raise ValueError("learning evaluation needs at least two channel scenarios")
+    scenario_split = max(1, len(scenario_names) // 2)
+    training_scenarios = scenario_names[:scenario_split]
+    test_scenarios = scenario_names[scenario_split:]
+    if not test_scenarios:
+        raise ValueError("learning evaluation needs non-empty held-out scenarios")
+
     records = [_record(cast(dict[str, object], row)) for row in raw]
     result = evaluate_learning_from_records(
         records,
         training_seeds=training_seeds,
         test_seeds=test_seeds,
+        training_scenarios=training_scenarios,
+        test_scenarios=test_scenarios,
     )
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
