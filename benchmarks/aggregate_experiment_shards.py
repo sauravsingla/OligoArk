@@ -112,14 +112,22 @@ def main() -> None:
             for size in metadata.get("payload_sizes", [])
         }
     )
+    scenario_by_name: dict[str, object] = {}
+    for metadata in metadata_values:
+        for scenario in metadata.get("scenarios", []):
+            if isinstance(scenario, dict) and isinstance(scenario.get("name"), str):
+                scenario_by_name[str(scenario["name"])] = scenario
     metadata = {
         **first,
         "payload_sizes": payload_sizes,
+        "scenarios": [
+            scenario_by_name[name] for name in sorted(scenario_by_name)
+        ],
         "shard_count": len(raw_paths),
         "raw_trial_count": len(records),
         "calibration_record_count": len(calibration_rows),
         "calibration_candidate_count": len(candidate_rows),
-        "aggregation": "merged from payload-size shards without dropping failures",
+        "aggregation": "merged from payload/scenario shards without dropping failures",
     }
 
     output = Path("publication-results")
