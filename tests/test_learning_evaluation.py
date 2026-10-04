@@ -100,3 +100,12 @@ def test_learning_split_rejects_leakage() -> None:
     ]
     with pytest.raises(ValueError, match="disjoint"):
         evaluate_learning_from_records(records, training_seeds=(1,), test_seeds=(1,))
+
+
+def test_learning_rejects_insufficient_and_malformed_model_state() -> None:
+    policy = CodecPolicy(96, 8, 8, True, ("single",))
+    observation = PolicyObservation(ChannelProfile(), policy, True, 100, 0.1)
+    with pytest.raises(ValueError, match="at least two"):
+        LinearUtilityPolicyModel().fit([observation])
+    with pytest.raises(ValueError, match="Unsupported serialized"):
+        LinearUtilityPolicyModel.from_dict({"model": "unknown"})
