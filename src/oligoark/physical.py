@@ -27,7 +27,7 @@ class PhysicalDatasetManifest:
     notes: str
 
     @classmethod
-    def load(cls, path: str | Path) -> "PhysicalDatasetManifest":
+    def load(cls, path: str | Path) -> PhysicalDatasetManifest:
         value = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(value, dict):
             raise ValueError("physical dataset manifest must be a JSON object")
@@ -167,7 +167,11 @@ def evaluate_physical_reconstruction(
         raise ValueError("reads and references must not be empty")
 
     normalized_reads = [read.strip().upper() for read in reads if read.strip()]
-    normalized_references = [reference.strip().upper() for reference in references if reference.strip()]
+    normalized_references = [
+        reference.strip().upper()
+        for reference in references
+        if reference.strip()
+    ]
     clusters: list[list[str]] = [[] for _ in normalized_references]
     unassigned = 0
     exact_reads = 0
