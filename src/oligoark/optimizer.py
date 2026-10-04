@@ -65,6 +65,18 @@ class CandidateSpec:
 
 
 @dataclass(frozen=True)
+class _RawEvaluation:
+    spec: CandidateSpec
+    successes: int
+    rate: float
+    encoded: int
+    overhead: float
+    runtime: float
+    graph_count: int
+    rejected: str | None
+
+
+@dataclass(frozen=True)
 class CandidateEvaluation:
     config: ArchiveConfig
     reconstruction_mode: str
@@ -201,7 +213,7 @@ def optimize_codec(
     resolved_weights.validate()
     specs = _candidate_specs(space)
 
-    raw: list[dict[str, object]] = []
+    raw: list[_RawEvaluation] = []
     for spec in specs:
         successes = 0
         graph_count = 0
@@ -228,46 +240,44 @@ def optimize_codec(
             encoded_values.append(encoded)
         if rejected_reason is not None:
             raw.append(
-                {
-                    "spec": spec,
-                    "successes": 0,
-                    "rate": 0.0,
-                    "encoded": 0,
-                    "overhead": 0.0,
-                    "runtime": 0.0,
-                    "graph_count": 0,
-                    "rejected": rejected_reason,
-                }
+                _RawEvaluation(
+                    spec=spec,
+                    successes=0,
+                    rate=0.0,
+                    encoded=0,
+                    overhead=0.0,
+                    runtime=0.0,
+                    graph_count=0,
+                    rejected=rejected_reason,
+                )
             )
             continue
         encoded = max(encoded_values)
         ideal = max(1, len(payload) * 4)
         raw.append(
-            {
-                "spec": spec,
-                "successes": successes,
-                "rate": successes / len(seeds),
-                "encoded": encoded,
-                "overhead": encoded / ideal,
-                "runtime": sum(runtimes) / len(runtimes),
-                "graph_count": graph_count,
-                "rejected": None,
-            }
+            _RawEvaluation(
+                spec=spec,
+                successes=successes,
+                rate=successes / len(seeds),
+                encoded=encoded,
+                overhead=encoded / ideal,
+                runtime=sum(runtimes) / len(runtimes),
+                graph_count=graph_count,
+                rejected=None,
+            )
         )
 
-    finite = [item for item in raw if item["rejected"] is None]
+    finite = [item for item in raw if item.rejected is None]
     if not finite:
         raise ValueError("all optimization candidates were rejected by configured constraints")
-    max_overhead = max(float(item["overhead"]) for item in finite) or 1.0
-    max_runtime = max(float(item["runtime"]) for item in finite) or 1.0
+    max_overhead = max(item.overhead for item in finite) or 1.0
+    max_runtime = max(item.runtime for item in finite) or 1.0
     weight_total = sum(vars(resolved_weights).values())
 
     evaluations: list[CandidateEvaluation] = []
     for item in raw:
-        spec = item["spec"]
-        if not isinstance(spec, CandidateSpec):
-            raise TypeError("internal optimizer candidate has an invalid type")
-        rejected = item["rejected"]
+        spec = item.spec
+        rejected = item.rejected
         if rejected is not None:
             evaluations.append(
                 CandidateEvaluation(
@@ -286,9 +296,9 @@ def optimize_codec(
             )
             continue
 
-        recovery_rate = float(item["rate"])
-        overhead_norm = float(item["overhead"]) / max_overhead
-        runtime_norm = float(item["runtime"]) / max_runtime
+        recovery_rate = item.rate
+        overhead_norm = item.overhead / max_overhead
+        runtime_norm = item.runtime / max_runtime
         retrieval_penalty = runtime_norm * workload.retrieval_urgency
         durability_reward = recovery_rate * workload.durability_priority
         score = (
@@ -303,12 +313,12 @@ def optimize_codec(
                 config=spec.config,
                 reconstruction_mode=spec.reconstruction_mode,
                 trials=len(seeds),
-                verified_successes=int(item["successes"]),
+                verified_successes=item.successes,
                 recovery_rate=recovery_rate,
-                encoded_nucleotides=int(item["encoded"]),
-                overhead_ratio=round(float(item["overhead"]), 6),
-                mean_runtime_seconds=round(float(item["runtime"]), 6),
-                graph_recovery_count=int(item["graph_count"]),
+                encoded_nucleotides=item.encoded,
+                overhead_ratio=round(item.overhead, 6),
+                mean_runtime_seconds=round(item.runtime, 6),
+                graph_recovery_count=item.graph_count,
                 score=round(score, 8),
             )
         )
