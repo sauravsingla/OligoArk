@@ -13,7 +13,7 @@ from typing import cast
 from .dna import sequence_metrics
 from .ecc import build_xor_parity, recover_one_missing
 from .framing import decode_frame, encode_frame
-from .reconstruct import graph_cluster_consensus
+from .reconstruct import GraphConsensusReconstructor, ReadReconstructor
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,7 @@ class RecoveryReport:
     consensus_reads: int
     cluster_count: int
     verified_sha256: bool
+    reconstruction_strategy: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -280,27 +281,45 @@ def recover_from_reads(
     reads: Iterable[str],
     *,
     similarity_threshold: float = 0.90,
+    reconstructor: ReadReconstructor | None = None,
 ) -> tuple[bytes, RecoveryReport]:
-    """Recover from noisy/duplicate reads, adding graph-consensus reads only when needed."""
+    """Recover noisy/duplicate reads with a pluggable reconstruction fallback."""
+    archive.validate()
     read_list = [read.strip().upper() for read in reads if read.strip()]
     try:
         raw = recover_bytes(archive, read_list)
-        return raw, RecoveryReport(True, False, len(read_list), 0, 0, True)
+        return raw, RecoveryReport(
+            direct_attempt_succeeded=True,
+            graph_reconstruction_used=False,
+            input_reads=len(read_list),
+            consensus_reads=0,
+            cluster_count=0,
+            verified_sha256=True,
+            reconstruction_strategy=None,
+        )
     except ValueError:
-        reconstruction = graph_cluster_consensus(read_list, threshold=similarity_threshold)
+        resolved = reconstructor or GraphConsensusReconstructor(
+            threshold=similarity_threshold
+        )
+        reconstruction = resolved.reconstruct(read_list)
         augmented_reads = read_list + reconstruction.consensus_reads
         try:
             raw = recover_bytes(archive, augmented_reads)
         except ValueError as reconstructed_error:
             raise ValueError(
-                "Recovery failed after direct decode and graph-consensus reconstruction"
+                "Recovery failed after direct decode and reconstruction fallback"
             ) from reconstructed_error
+
+        strategy = type(resolved).__name__
         report = RecoveryReport(
             direct_attempt_succeeded=False,
-            graph_reconstruction_used=True,
+            graph_reconstruction_used=isinstance(
+                resolved, GraphConsensusReconstructor
+            ),
             input_reads=len(read_list),
             consensus_reads=len(reconstruction.consensus_reads),
             cluster_count=len(reconstruction.cluster_sizes),
             verified_sha256=True,
+            reconstruction_strategy=strategy,
         )
         return raw, report
