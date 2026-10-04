@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
