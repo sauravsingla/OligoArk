@@ -12,6 +12,8 @@ from .archive import (
 )
 from .dna import SequenceConstraintError, SequenceConstraints
 from .experiments import (
+    CalibrationRecord,
+    ExperimentBundle,
     ExperimentProfile,
     ExperimentRecord,
     ExperimentScenario,
@@ -20,6 +22,7 @@ from .experiments import (
     aggregate_experiments,
     paired_strategy_effects,
     publication_profile,
+    run_experiment_bundle,
     run_experiments,
     smoke_profile,
     wilson_interval,
@@ -95,6 +98,7 @@ __all__ = [
     "ArchivalIntelligencePlan",
     "CandidateEvaluation",
     "CandidateSpec",
+    "CalibrationRecord",
     "ChannelProfile",
     "CodecPolicy",
     "CodecSearchSpace",
@@ -102,6 +106,7 @@ __all__ = [
     "EconomicAssumptions",
     "EdgeScorer",
     "EmpiricalPolicyModel",
+    "ExperimentBundle",
     "ExperimentProfile",
     "ExperimentRecord",
     "ExperimentScenario",
@@ -160,6 +165,7 @@ __all__ = [
     "recover_from_reads",
     "recommend_codec_policy",
     "recommend_storage_tier",
+    "run_experiment_bundle",
     "run_experiments",
     "select_candidate_specs",
     "smoke_profile",
