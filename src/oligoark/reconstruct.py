@@ -192,27 +192,42 @@ def build_similarity_graph(
     signatures = [_qgrams(read, qgram_width) for read in nodes]
     prefilter_threshold = max(0.05, threshold - 0.45)
     edges: list[GraphEdge] = []
-    candidate_pairs = 0
 
-    for left in range(len(nodes)):
-        for right in range(left + 1, len(nodes)):
-            candidate_pairs += 1
-            max_length = max(1, len(nodes[left]), len(nodes[right]))
-            length_similarity = 1.0 - abs(len(nodes[left]) - len(nodes[right])) / max_length
-            if length_similarity < threshold:
-                continue
-            if (
-                use_qgram_prefilter
-                and _jaccard(signatures[left], signatures[right]) < prefilter_threshold
-            ):
-                continue
-            weight = resolved_scorer.score(nodes[left], nodes[right])
-            if weight >= threshold:
-                edges.append(GraphEdge(left, right, weight))
+    if use_qgram_prefilter:
+        postings: dict[str, list[int]] = {}
+        for index, signature in enumerate(signatures):
+            for qgram in signature:
+                postings.setdefault(qgram, []).append(index)
+        pair_set: set[tuple[int, int]] = set()
+        for indexes in postings.values():
+            for offset, left in enumerate(indexes):
+                for right in indexes[offset + 1 :]:
+                    pair_set.add((left, right))
+        candidate_pair_indexes = sorted(pair_set)
+    else:
+        candidate_pair_indexes = [
+            (left, right)
+            for left in range(len(nodes))
+            for right in range(left + 1, len(nodes))
+        ]
+
+    for left, right in candidate_pair_indexes:
+        max_length = max(1, len(nodes[left]), len(nodes[right]))
+        length_similarity = 1.0 - abs(len(nodes[left]) - len(nodes[right])) / max_length
+        if length_similarity < threshold:
+            continue
+        if (
+            use_qgram_prefilter
+            and _jaccard(signatures[left], signatures[right]) < prefilter_threshold
+        ):
+            continue
+        weight = resolved_scorer.score(nodes[left], nodes[right])
+        if weight >= threshold:
+            edges.append(GraphEdge(left, right, weight))
     return SimilarityGraph(
         nodes=nodes,
         edges=tuple(edges),
-        candidate_pairs=candidate_pairs,
+        candidate_pairs=len(candidate_pair_indexes),
     )
 
 
