@@ -73,3 +73,28 @@ def test_invalid_graph_configuration_rejected() -> None:
         assert "threshold" in str(exc)
     else:
         raise AssertionError("invalid threshold should fail")
+
+
+def test_qgram_index_reduces_unrelated_graph_candidates() -> None:
+    reads = [
+        "A" * 80 + "C" * 20,
+        "A" * 79 + "G" + "C" * 20,
+        "CGTAC" * 20,
+        "TGCAT" * 20,
+    ]
+    indexed = build_similarity_graph(
+        reads,
+        threshold=0.90,
+        qgram_width=5,
+        use_qgram_prefilter=True,
+    )
+    exhaustive = build_similarity_graph(
+        reads,
+        threshold=0.90,
+        qgram_width=5,
+        use_qgram_prefilter=False,
+    )
+    assert indexed.candidate_pairs < exhaustive.candidate_pairs
+    assert {(edge.left, edge.right) for edge in indexed.edges} == {
+        (edge.left, edge.right) for edge in exhaustive.edges
+    }
