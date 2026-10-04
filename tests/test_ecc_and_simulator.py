@@ -4,8 +4,8 @@ from oligoark.simulator import SimulationConfig, simulate_channel
 
 
 def test_reed_solomon_corrects_small_substitution_damage() -> None:
-    archive = archive_bytes(b"hello-reed-solomon",
-        ArchiveConfig(chunk_size=32, rs_nsym=12, parity_group_size=4))
+    config = ArchiveConfig(chunk_size=32, rs_nsym=12, parity_group_size=4)
+    archive = archive_bytes(b"hello-reed-solomon", config)
     dna = list(archive.strands[0])
     dna[-5] = "A" if dna[-5] != "A" else "C"
     frame = decode_frame("".join(dna), rs_nsym=12)
