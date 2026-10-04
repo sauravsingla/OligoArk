@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-
 BITS_TO_BASE = {0: "A", 1: "C", 2: "G", 3: "T"}
 BASE_TO_BITS = {v: k for k, v in BITS_TO_BASE.items()}
 
