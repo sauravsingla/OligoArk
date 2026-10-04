@@ -1,6 +1,9 @@
 name: Publication experiments
 
 on:
+  push:
+    branches:
+      - "feat/v0.5-research-validation"
   workflow_dispatch:
 
 permissions:
