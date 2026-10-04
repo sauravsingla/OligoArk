@@ -159,6 +159,7 @@ def optimize_archive_plan(
     search_space: CodecSearchSpace | None = None,
     weights: OptimizationWeights | None = None,
     seeds: tuple[int, ...] = (2026, 2027),
+    duplicate_rate: float | None = None,
 ) -> OptimizedArchivalPlan:
     """Search real software candidates and combine the winner with storage-tier planning."""
     workload.validate()
@@ -181,6 +182,7 @@ def optimize_archive_plan(
         weights=weights,
         seeds=seeds,
         lifecycle=lifecycle_objective,
+        duplicate_rate=duplicate_rate,
     )
     config = optimization.best_config
     constraints: dict[str, object] = {
@@ -246,6 +248,7 @@ def evaluate_optimized_archive_plan(
         search_space=search_space,
         weights=weights,
         seeds=calibration_seeds,
+        duplicate_rate=duplicate_rate,
     )
     config = plan.optimization.best_config
     use_graph = plan.optimization.reconstruction_mode == "graph"
