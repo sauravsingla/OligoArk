@@ -457,27 +457,36 @@ class TraceConsensusReconstructor:
         started = time.perf_counter()
         candidates: list[str] = []
         seen_candidates: set[str] = set()
-        edge_pairs: set[tuple[int, int]] = set()
+        processed_components: set[tuple[int, ...]] = set()
         cluster_sizes: list[int] = []
         component_count = 0
-        candidate_pairs = 0
+        thresholds = sorted(set(self.thresholds), reverse=True)
 
-        for threshold in sorted(set(self.thresholds), reverse=True):
-            graph = build_similarity_graph(
-                reads,
-                threshold=threshold,
-                scorer=self.scorer,
-                qgram_width=self.qgram_width,
-                use_qgram_prefilter=self.use_qgram_prefilter,
+        base_graph = build_similarity_graph(
+            reads,
+            threshold=min(thresholds),
+            scorer=self.scorer,
+            qgram_width=self.qgram_width,
+            use_qgram_prefilter=self.use_qgram_prefilter,
+        )
+        for threshold in thresholds:
+            graph = SimilarityGraph(
+                nodes=base_graph.nodes,
+                edges=tuple(
+                    edge for edge in base_graph.edges if edge.weight >= threshold
+                ),
+                candidate_pairs=base_graph.candidate_pairs,
             )
-            candidate_pairs = max(candidate_pairs, graph.candidate_pairs)
-            edge_pairs.update((edge.left, edge.right) for edge in graph.edges)
             components = graph.connected_components()
             component_count += len(components)
 
             for component in components:
-                if len(component) < self.minimum_component_size:
+                if (
+                    len(component) < self.minimum_component_size
+                    or component in processed_components
+                ):
                     continue
+                processed_components.add(component)
                 cluster = [graph.nodes[index] for index in component]
                 cluster_sizes.append(len(cluster))
                 generated = (
@@ -493,10 +502,10 @@ class TraceConsensusReconstructor:
         return ReconstructionResult(
             consensus_reads=candidates,
             cluster_sizes=cluster_sizes,
-            edge_count=len(edge_pairs),
+            edge_count=len(base_graph.edges),
             component_count=component_count,
             node_count=len(reads),
-            candidate_pairs=candidate_pairs,
+            candidate_pairs=base_graph.candidate_pairs,
             consensus_lengths=tuple(len(candidate) for candidate in candidates),
             runtime_seconds=round(time.perf_counter() - started, 8),
         )
