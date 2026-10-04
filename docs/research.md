@@ -6,8 +6,9 @@ OligoArk is a software research framework, not a wet-lab DNA storage system. Its
 
 1. **Heterogeneous archival intelligence:** a transparent workload model can make future-DNA tier decisions explainable when retention, access, mutability, durability, energy, redundancy, and externally supplied economics are considered together.
 2. **Channel-aware policy adaptation:** changing chunk size and redundancy from a channel profile can improve recovery per encoded nucleotide relative to a fixed policy in some regimes.
-3. **Graph-assisted reconstruction:** read-similarity graphs and consensus reconstruction can create valid frames that direct decoding cannot recover, especially when multiple noisy observations of the same strand exist.
+3. **Graph-assisted reconstruction:** read-similarity graphs and consensus reconstruction can create valid frames that direct decoding cannot recover, especially when multiple noisy observations of the same strand exist. OligoArk exposes typed scorer/reconstructor interfaces so learned graph methods can be evaluated against the same deterministic baseline and checksum gate.
 4. **Empirical policy learning:** policy choices learned from prior reproducible experiments can complement deterministic rules without requiring a proprietary pretrained model.
+5. **Integrated archival intelligence:** workload priorities and channel conditions can be composed into one explainable tier + codec plan rather than optimized in isolation.
 
 These are testable hypotheses. OligoArk does **not** claim that the current heuristic is globally optimal, that the graph baseline outperforms published decoders, or that DNA is currently cheaper/faster than established storage media.
 
@@ -27,9 +28,10 @@ Wet-lab language must never be attached to a software simulation result.
 - Under which simulated error regimes does adaptive policy selection improve recovery probability per encoded nucleotide?
 - What is the trade-off among redundancy, recovery success, runtime, and graph-reconstruction cost?
 - Which q-gram/graph thresholds preserve true duplicate-read neighborhoods without joining unrelated strands?
-- Can alignment-aware graph methods or learned edge scoring improve insertion/deletion recovery?
+- Can alignment-aware graph methods or learned `EdgeScorer`/`ReadReconstructor` implementations improve insertion/deletion recovery while preserving checksum-verified correctness?
 - Can an empirical policy model generalize across channel profiles better than deterministic rules while remaining explainable?
 - At what workload boundaries would a future DNA tier become favorable under user-supplied cost/latency/durability assumptions?
+- Does joint workload/channel planning outperform independently chosen tier and codec policies on recovery-per-overhead and lifecycle-cost objectives?
 
 ## Selected foundational references
 
