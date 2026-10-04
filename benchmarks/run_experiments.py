@@ -7,7 +7,7 @@ import csv
 import json
 import os
 import platform
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from oligoark import __version__
@@ -163,9 +163,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", choices=("smoke", "publication"), default="smoke")
     parser.add_argument("--output-dir", default="experiment-results")
+    parser.add_argument("--payload-size", type=int)
     args = parser.parse_args()
 
     profile = smoke_profile() if args.profile == "smoke" else publication_profile()
+    if args.payload_size is not None:
+        if args.payload_size not in profile.payload_sizes:
+            raise ValueError("requested payload size is not part of the selected profile")
+        profile = replace(profile, payload_sizes=(args.payload_size,))
     records = run_experiments(profile)
     summaries = aggregate_experiments(records)
     effects = paired_strategy_effects(records)
