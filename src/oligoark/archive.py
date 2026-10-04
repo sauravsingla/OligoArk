@@ -14,7 +14,7 @@ from .dna import SequenceConstraints, sequence_metrics
 from .ecc import build_xor_parity, recover_one_missing
 from .fountain import FountainSymbol, indexes_for_seed, make_symbols, peel_decode
 from .framing import decode_frame, encode_frame
-from .reconstruct import GraphConsensusReconstructor, ReadReconstructor
+from .reconstruct import GraphConsensusReconstructor, ReadReconstructor, TraceConsensusReconstructor
 
 _REDUNDANCY_SCHEMES = {"none", "xor", "fountain", "hybrid"}
 
@@ -490,7 +490,8 @@ def recover_from_reads(
         report = RecoveryReport(
             direct_attempt_succeeded=False,
             graph_reconstruction_used=isinstance(
-                resolved, GraphConsensusReconstructor
+                resolved,
+                (GraphConsensusReconstructor, TraceConsensusReconstructor),
             ),
             input_reads=len(read_list),
             consensus_reads=len(reconstruction.consensus_reads),
