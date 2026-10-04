@@ -7,9 +7,13 @@ permissions:
   contents: read
 
 jobs:
-  experiment:
+  shard:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        payload-size: [512, 2048, 8192]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,12 +21,62 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -U pip
       - run: pip install -e ".[bench]"
-      - name: Run publication profile
-        run: python benchmarks/run_experiments.py --profile publication --output-dir publication-results
-      - name: Upload publication artifacts
+      - name: Run publication payload shard
+        run: |
+          python benchmarks/run_experiments.py             --profile publication             --payload-size ${{ matrix.payload-size }}             --output-dir publication-${{ matrix.payload-size }}
+      - name: Upload publication shard
         uses: actions/upload-artifact@v4
         with:
-          name: oligoark-publication-results
-          path: publication-results/
+          name: oligoark-publication-${{ matrix.payload-size }}
+          path: publication-${{ matrix.payload-size }}/
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Download publication shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: oligoark-publication-*
+          path: publication-shards
+      - name: Aggregate held-out experiment shards
+        run: python benchmarks/aggregate_experiment_shards.py
+      - name: Evaluate learned policies on held-out seeds
+        run: |
+          python benchmarks/run_learning_evaluation.py             --experiment-dir publication-results             --output-dir learning-results
+      - name: Run controlled graph rescue validation
+        run: python benchmarks/run_graph_rescue.py
+      - name: Validate publication artifacts
+        run: |
+          test -s publication-results/raw.json
+          test -s publication-results/summary.json
+          test -s publication-results/paired-effects.json
+          test -s publication-results/metadata.json
+          test -s publication-results/recovery_vs_error_rate.png
+          test -s publication-results/overhead_vs_recovery.png
+          test -s publication-results/runtime_vs_recovery.png
+          test -s publication-results/strategy_ablation.png
+          test -s publication-results/graph_rescue_rate.png
+          test -s publication-results/optimizer_generalization.png
+          test -s learning-results/evaluation.json
+          test -s learning-results/linear-model.json
+          test -s graph-rescue-results.json
+      - name: Upload publication validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-publication-validation
+          path: |
+            publication-results/
+            learning-results/
+            graph-rescue-results.json
           if-no-files-found: error
           retention-days: 90
