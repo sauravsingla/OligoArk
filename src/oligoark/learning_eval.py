@@ -6,7 +6,12 @@ import statistics
 from dataclasses import asdict, dataclass
 
 from .experiments import ExperimentRecord
-from .learning import EmpiricalPolicyModel, LinearUtilityPolicyModel, PolicyObservation
+from .learning import (
+    EmpiricalPolicyModel,
+    KernelUtilityPolicyModel,
+    LinearUtilityPolicyModel,
+    PolicyObservation,
+)
 from .policy import ChannelProfile, CodecPolicy, recommend_codec_policy
 
 
@@ -34,6 +39,7 @@ class LearningEvaluationResult:
     test_groups: int
     summaries: tuple[LearningMethodSummary, ...]
     linear_model_state: dict[str, object]
+    kernel_model_state: dict[str, object]
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -160,6 +166,7 @@ def evaluate_learning_from_records(
     observations = policy_observations_from_records(training_records)
     empirical = EmpiricalPolicyModel().fit(observations)
     linear = LinearUtilityPolicyModel(ridge=0.01).fit(observations)
+    kernel = KernelUtilityPolicyModel(bandwidth=0.01).fit(observations)
 
     grouped: dict[tuple[str, int, int], list[ExperimentRecord]] = {}
     for record in test_records:
@@ -169,6 +176,8 @@ def evaluate_learning_from_records(
         "heuristic": [],
         "empirical": [],
         "linear": [],
+        "kernel": [],
+        "adaptive_fountain": [],
         "measured_search": [],
     }
 
@@ -176,8 +185,11 @@ def evaluate_learning_from_records(
         codec_candidates = [
             record for record in group if record.strategy in {"fixed", "adaptive"}
         ]
+        fountain_candidates = [
+            record for record in group if record.strategy == "adaptive_fountain"
+        ]
         search_candidates = [record for record in group if record.strategy == "combined"]
-        if len(codec_candidates) < 2 or not search_candidates:
+        if len(codec_candidates) < 2 or not fountain_candidates or not search_candidates:
             continue
 
         unique_policies: dict[tuple[int, int, int, bool], CodecPolicy] = {}
@@ -206,6 +218,18 @@ def evaluate_learning_from_records(
             codec_candidates,
             linear.recommend(channel, candidates=candidates).policy,
         )
+        kernel_record = _match_record(
+            codec_candidates,
+            kernel.recommend(channel, candidates=candidates).policy,
+        )
+        fountain_record = max(
+            fountain_candidates,
+            key=lambda record: (
+                int(record.recovered),
+                -record.overhead_ratio,
+                -record.runtime_seconds,
+            ),
+        )
         search_record = max(
             search_candidates,
             key=lambda record: (
@@ -219,6 +243,7 @@ def evaluate_learning_from_records(
             ("heuristic", heuristic_record),
             ("empirical", empirical_record),
             ("linear", linear_record),
+            ("kernel", kernel_record),
         ):
             selected_utility = _utility(selected, max_overhead, max_runtime)
             metrics[method].append(
@@ -228,6 +253,19 @@ def evaluate_learning_from_records(
                     _policy_key(_policy(selected)) == oracle_key,
                 )
             )
+
+        fountain_utility = (
+            (1.0 if fountain_record.recovered else 0.0)
+            - 0.20 * fountain_record.overhead_ratio / max(1e-12, max_overhead)
+            - 0.05 * fountain_record.runtime_seconds / max(1e-12, max_runtime)
+        )
+        metrics["adaptive_fountain"].append(
+            (
+                fountain_record,
+                max(0.0, oracle_utility - fountain_utility),
+                False,
+            )
+        )
 
         search_regret = max(
             0.0,
@@ -240,11 +278,18 @@ def evaluate_learning_from_records(
         )
         metrics["measured_search"].append((search_record, search_regret, False))
 
-    if not metrics["linear"]:
+    if not metrics["linear"] or not metrics["kernel"]:
         raise ValueError("No complete held-out groups were available for learning evaluation")
 
     summaries: list[LearningMethodSummary] = []
-    for method in ("heuristic", "empirical", "linear", "measured_search"):
+    for method in (
+        "heuristic",
+        "empirical",
+        "linear",
+        "kernel",
+        "adaptive_fountain",
+        "measured_search",
+    ):
         values = metrics[method]
         summaries.append(
             LearningMethodSummary(
@@ -262,7 +307,7 @@ def evaluate_learning_from_records(
                 selection_accuracy=round(
                     statistics.fmean(float(correct) for _, _, correct in values), 6
                 )
-                if method != "measured_search"
+                if method not in {"adaptive_fountain", "measured_search"}
                 else 0.0,
                 mean_regret=round(statistics.fmean(regret for _, regret, _ in values), 6),
             )
@@ -277,4 +322,5 @@ def evaluate_learning_from_records(
         test_groups=len(metrics["linear"]),
         summaries=tuple(summaries),
         linear_model_state=linear.to_dict(),
+        kernel_model_state=kernel.to_dict(),
     )
