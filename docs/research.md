@@ -26,6 +26,32 @@ The v0.5 publication profile uses separate seed sets:
 
 Publication artifacts preserve the exact git commit, Python/platform metadata, calibration seeds, evaluation seeds, payload sizes, search method/seed, raw trials, aggregate summaries, paired differences, policy-model state, and graph-rescue diagnostics.
 
+## Measured v0.5 publication results
+
+The publication workflow completed successfully on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569`. It produced 960 held-out trials, 576 retained calibration-candidate evaluations, paired effects, Wilson confidence intervals, graph-rescue diagnostics, learned-policy outputs and plots.
+
+Overall SHA-256-verified recovery across 192 held-out trials per strategy was:
+
+| Strategy | Recovery | 95% Wilson CI | Mean encoded overhead | Mean runtime |
+| --- | ---: | ---: | ---: | ---: |
+| adaptive + fountain/hybrid | 66.7% | 59.7–73.0% | 2.114× | 0.959 s |
+| heuristic adaptive | 59.9% | 52.8–66.6% | 1.557× | 0.728 s |
+| adaptive + graph/alignment | 59.9% | 52.8–66.6% | 1.557× | 3.379 s |
+| combined measured optimizer | 57.3% | 50.2–64.1% | 1.895× | 1.841 s |
+| fixed | 45.8% | 38.9–52.9% | 1.492× | 0.036 s |
+
+The paired recovery-rate differences versus fixed, evaluated on identical simulated channel realizations, were +20.8 percentage points for adaptive+fountain/hybrid, +14.1 points for heuristic adaptive, +14.1 points for adaptive+graph/alignment, and +11.5 points for the combined optimizer. The combined optimizer had two paired regressions versus fixed and did not outperform the simpler adaptive+fountain/hybrid strategy overall.
+
+Regime-level results are also mixed and therefore informative. All strategies recovered 100% in clean and 0.1% substitution regimes. At 1% substitution, fixed recovered 4.2%, adaptive/adaptive+fountain/adaptive+graph each recovered 100%, and the combined optimizer recovered 79.2%. At 10% dropout, adaptive+fountain recovered 87.5%, adaptive/adaptive+graph 62.5%, fixed 45.8%, and combined 41.7%. No strategy recovered the moderate-indel regime. In the low-indel regime, combined recovered 29.2%, adaptive+fountain 25.0%, and fixed/adaptive/adaptive+graph 12.5%.
+
+The measured search therefore demonstrates a real, inspectable optimization mechanism, but its current four-seed/256-byte calibration budget can overfit stochastic conditions. This is reported as a **negative generalization result**, not tuned away after observing the held-out test set. A future optimizer study should increase calibration diversity or use sequential/uncertainty-aware search with a new untouched evaluation set.
+
+The controlled graph-rescue experiment independently establishes capability. Both constructed cases started with direct decode failure and formed an explicit 7-node, 21-edge, one-component graph. In the substitution case, medoid and alignment consensus both produced verified recovery. In the insertion/deletion case, medoid failed while alignment-aware consensus produced a consensus of length 280 and recovered through the normal decoder with SHA-256 verification. In the larger publication sweep, graph reconstruction produced no additional direct-failure rescues, so OligoArk does not claim broad graph superiority from this release.
+
+The policy-learning evaluation used disjoint seed and channel splits: training seeds 2026–2029 on clean, 0.1% substitution, 1% substitution and low-indel regimes; test seeds 2030–2033 on moderate-indel, 2% dropout, 10% dropout and mixed regimes. Across 48 held-out groups, the heuristic and ridge model each recovered 41.7% with mean regret 0.0520; empirical recovered 37.5% with regret 0.0740; measured search recovered 39.6% with regret 0.1630. The learned ridge baseline did not beat the heuristic.
+
+All of these are software/simulation results. Runtime values are specific to the recorded GitHub Actions environment and must not be interpreted as physical DNA-system latency.
+
 ## Claim boundaries
 
 Every reported statement should be classified as one of:
