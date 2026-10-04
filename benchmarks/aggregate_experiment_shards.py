@@ -67,6 +67,8 @@ def main() -> None:
     root = Path("publication-shards")
     raw_paths = sorted(root.glob("**/raw.json"))
     metadata_paths = sorted(root.glob("**/metadata.json"))
+    calibration_paths = sorted(root.glob("**/calibration.json"))
+    candidate_paths = sorted(root.glob("**/calibration-candidates.csv"))
     if not raw_paths:
         raise ValueError("no publication shard raw.json files were found")
 
@@ -76,6 +78,18 @@ def main() -> None:
         if not isinstance(value, list):
             raise ValueError(f"{path} must contain a list")
         raw_rows.extend(cast(list[dict[str, object]], value))
+
+    calibration_rows: list[dict[str, object]] = []
+    for path in calibration_paths:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, list):
+            raise ValueError(f"{path} must contain a list")
+        calibration_rows.extend(cast(list[dict[str, object]], value))
+
+    candidate_rows: list[dict[str, object]] = []
+    for path in candidate_paths:
+        with path.open(newline="", encoding="utf-8") as handle:
+            candidate_rows.extend(dict(row) for row in csv.DictReader(handle))
 
     records = [_record(row) for row in raw_rows]
     summaries = aggregate_experiments(records)
@@ -101,6 +115,8 @@ def main() -> None:
         "payload_sizes": payload_sizes,
         "shard_count": len(raw_paths),
         "raw_trial_count": len(records),
+        "calibration_record_count": len(calibration_rows),
+        "calibration_candidate_count": len(candidate_rows),
         "aggregation": "merged from payload-size shards without dropping failures",
     }
 
@@ -116,9 +132,14 @@ def main() -> None:
     (output / "metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
+    (output / "calibration.json").write_text(
+        json.dumps(calibration_rows, indent=2), encoding="utf-8"
+    )
     _write_csv(output / "raw.csv", raw_rows)
     _write_csv(output / "summary.csv", summary_rows)
     _write_csv(output / "paired-effects.csv", effect_rows)
+    if candidate_rows:
+        _write_csv(output / "calibration-candidates.csv", candidate_rows)
     write_plots(raw_rows, summary_rows, effect_rows, output)
     print(
         json.dumps(
@@ -127,6 +148,8 @@ def main() -> None:
                 "raw_trials": len(records),
                 "summaries": len(summary_rows),
                 "effects": len(effect_rows),
+                "calibrations": len(calibration_rows),
+                "calibration_candidates": len(candidate_rows),
             },
             indent=2,
         )
