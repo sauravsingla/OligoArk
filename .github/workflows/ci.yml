@@ -12,8 +12,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +23,26 @@ jobs:
       - run: python -m pip install -U pip
       - run: pip install -e ".[dev,api]"
       - run: pytest --cov=oligoark --cov-report=term-missing
+      - run: python examples/end_to_end.py
+      - run: python -m pip check
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev,api]"
       - run: ruff check .
       - run: mypy src/oligoark
-      - run: python examples/end_to_end.py
       - run: python -m build
+      - run: python -m compileall -q src tests examples benchmarks
+      - name: Run all examples
+        run: |
+          for example in examples/*.py; do
+            python "$example"
+          done
+      - name: Build Docker image
+        run: docker build -t oligoark:ci .
