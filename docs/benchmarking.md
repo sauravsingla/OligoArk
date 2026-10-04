@@ -1,6 +1,6 @@
 # Benchmarking and reproducibility
 
-All OligoArk benchmark results are **software measurements or seeded simulations** unless an external physical dataset is explicitly identified.
+OligoArk provides continuity, smoke, controlled-reconstruction, held-out learning, and publication-scale experiment paths. Every result is a measured software result or a software-channel simulation unless a physical dataset is explicitly named.
 
 ## Continuity benchmark
 
@@ -8,96 +8,118 @@ All OligoArk benchmark results are **software measurements or seeded simulations
 python benchmarks/run_benchmark.py
 ```
 
-This retains the historical fixed-vs-adaptive comparison and produces JSON/CSV plus recovery and overhead plots.
+This retains the historical fixed-vs-adaptive comparison and writes CSV/JSON, environment metadata, and recovery/overhead plots.
 
-## Held-out ablation experiments
-
-CI-sized validation:
+## CI smoke validation
 
 ```bash
 python benchmarks/run_experiments.py --profile smoke
 python benchmarks/run_learning_evaluation.py
 python benchmarks/run_graph_rescue.py
+python benchmarks/run_verified_demo.py
 ```
 
-Publication profile:
+The smoke profile is deliberately small and is a regression gate, **not** a basis for statistical significance claims. It verifies that held-out calibration, aggregation, learning evaluation, graph-rescue evidence, plotting, and the normal recovery integrity gates remain executable.
+
+## Publication experiment
+
+The publication profile is defined in `oligoark.experiments.publication_profile()`. v0.5 uses:
+
+- calibration seeds `9201,9202,9203,9204`;
+- disjoint held-out evaluation seeds `2026..2033`;
+- payload sizes `512, 2048, 8192` bytes;
+- clean, two substitution, two indel, two dropout, and one mixed regime;
+- fixed, heuristic adaptive, adaptive+hybrid redundancy, adaptive+graph/alignment, and combined measured-search strategies.
+
+The combined optimizer is calibrated **only** on calibration seeds, frozen, and then evaluated on unseen evaluation seeds. Its budgeted candidate search is deterministic and order-independent. `balanced` search distributes coverage across redundancy/reconstruction groups; `full_grid` evaluates the complete valid grid when practical.
+
+A local publication run is:
 
 ```bash
-python benchmarks/run_experiments.py --profile publication --output-dir publication-results
+python benchmarks/run_experiments.py \
+  --profile publication \
+  --output-dir publication-results
 ```
 
-The preferred full publication execution is the **Publication experiments** GitHub Actions workflow. It shards by payload size, runs the same publication profile in each shard, downloads all raw shards, merges them, recomputes aggregate statistics, evaluates learned policies, runs graph-rescue validation, and uploads a 90-day validation artifact.
+GitHub Actions uses deterministic payload-size shards. Each shard runs the same seed/scenario/strategy design for one payload size, uploads its raw artifact, and the aggregation job combines all trials without dropping failures:
 
-### Seed discipline
+```text
+512 B shard  ─┐
+2048 B shard ├─> aggregate -> held-out learning -> graph rescue -> 90-day artifact
+8192 B shard ┘
+```
 
-v0.5 separates:
+The aggregation artifact contains:
 
-- **optimizer calibration seeds** — used to choose the combined-system configuration;
-- **evaluation seeds** — never seen during optimizer selection;
-- **learning train/test seeds** — a further disjoint split of experiment evaluation records.
+- `raw.json` / `raw.csv`: every held-out strategy trial;
+- `summary.json` / `summary.csv`: Wilson 95% recovery intervals, mean overhead/runtime, graph-rescue rate;
+- `paired-effects.json` / `paired-effects.csv`: paired differences versus the fixed strategy on identical seed/scenario/payload realizations;
+- `metadata.json`: commit, Python/platform information, calibration/evaluation seeds, search method/seed, payload sizes and claim scope;
+- plots for recovery vs configured error rate, overhead vs recovery, runtime vs recovery, strategy ablation, graph rescue, and calibration-to-held-out optimizer generalization.
 
-The metadata file records all seed sets, the git commit, platform, Python version, search method, search seed, candidate budget, strategies, scenarios, and payload sizes.
-
-## Publication strategies
-
-- `fixed`
-- `adaptive` — deterministic heuristic policy
-- `adaptive_fountain` — heuristic policy with hybrid XOR/fountain redundancy
-- `adaptive_graph` — heuristic policy with graph/alignment fallback
-- `combined` — measured candidate search frozen on calibration seeds and tested on unseen seeds
-
-The learned empirical and ridge-regression policies are evaluated from the experiment output in a separate held-out learning analysis so training/test provenance stays explicit.
-
-## Statistics and artifacts
-
-Raw and aggregate outputs include:
-
-- per-trial JSON/CSV;
-- aggregate JSON/CSV;
-- Wilson 95% recovery intervals;
-- paired recovery/overhead/runtime differences versus the fixed baseline on identical seed/scenario/payload trials;
-- encoded nucleotide overhead;
-- runtime;
-- graph rescue rate;
-- selected codec/redundancy fields;
-- calibration search score and held-out recovery;
-- learned-policy recovery, overhead, runtime, selection accuracy, and regret.
-
-Plots include recovery by strategy, overhead by strategy, recovery vs configured error rate, overhead vs recovery, runtime vs recovery, strategy ablation, graph rescue rate, and optimizer calibration-vs-held-out behavior.
-
-## Controlled graph rescue
+## Controlled graph-rescue evidence
 
 ```bash
 python benchmarks/run_graph_rescue.py
 ```
 
-This benchmark constructs noisy observations from ordinary OligoArk strands and compares:
+This intentionally starts from multiple noisy observations of a real OligoArk strand. It compares:
 
-```text
-direct decode
-graph + medoid consensus
-graph + alignment-aware consensus
-```
+1. direct normal archive recovery;
+2. explicit graph clustering with medoid/non-alignment consensus;
+3. explicit graph clustering with alignment-aware consensus.
 
-A rescue is counted only when direct decoding fails and a reconstructed path succeeds through the normal frame/ECC/CRC/SHA-256 verification pipeline. The original strand is not injected into recovery.
+A rescue is counted only when direct recovery fails, reconstruction creates consensus candidate(s), and ordinary frame/ECC/CRC/SHA-256 recovery succeeds. Diagnostics include node count, candidate-pair count, retained edges, connected components, cluster sizes, consensus lengths, reconstruction runtime, and whether reconstruction changed the final result.
 
-## Learning evaluation
+No expected strand is inserted into the recovery path.
+
+## Held-out policy learning
 
 ```bash
 python benchmarks/run_learning_evaluation.py \
-  --experiment-dir experiment-results \
+  --experiment-dir publication-results \
   --output-dir learning-results
 ```
 
-Experiment records become explicit `PolicyObservation` training rows. The evaluation reports heuristic, empirical, ridge-regression, and measured-search results on disjoint held-out seeds. The ridge model coefficients and normalization state are saved to JSON.
+The learning pipeline converts reproducible experiment records into `PolicyObservation` data, splits evaluation seeds into disjoint training/test sets, fits both the instance-based empirical model and the deterministic ridge-regression utility model, and compares them with the deterministic heuristic and the measured combined-search result.
 
-## Interpretation rules
+Reported metrics include:
 
-- Never describe configured simulation error rates as observed sequencing/synthesis rates.
-- Never drop failed recovery trials.
-- Report calibration and evaluation seed sets separately.
-- Do not call a smoke-test difference statistically significant.
-- Runtime comparisons require the recorded machine/software environment.
-- Do not translate nucleotide counts to synthesis cost without a dated, externally sourced cost model.
-- Physical lifecycle cost, energy, or latency terms are used only when supplied by the caller.
-- Publication conclusions should come from the completed held-out publication workflow, not CI smoke data.
+- SHA-256-verified recovery rate;
+- mean encoded-overhead ratio;
+- mean runtime;
+- policy-selection accuracy relative to the best evaluated codec candidate;
+- mean utility regret;
+- serialized ridge coefficient/model state for reproducibility.
+
+If a learned model performs worse than the heuristic, the result is retained and reported.
+
+## Metrics
+
+- **recovered** — exact payload recovery accepted by the archive SHA-256 integrity gate.
+- **recovery_rate** — successes divided by held-out trials for a group.
+- **recovery_ci95_low/high** — Wilson 95% interval for the binomial recovery proportion.
+- **encoded_nucleotides** — measured length of generated software DNA strings.
+- **overhead_ratio** — encoded nucleotide count divided by the ideal raw 2-bit mapping length.
+- **redundancy_ratio** — explicit optimizer reliability/redundancy term derived from selected XOR/fountain configuration.
+- **strand_count / read_count** — generated strands and simulated reads.
+- **runtime_seconds** — wall-clock software runtime in the reported environment.
+- **graph_reconstruction_used** — whether reconstruction rescued a direct failure in the evaluated trial.
+- **paired recovery/overhead/runtime difference** — within-realization difference from the fixed baseline.
+
+## Optimizer objective
+
+`OptimizationWeights` exposes recovery, overhead, redundancy, runtime, retrieval, durability, lifecycle storage cost, lifecycle retrieval cost, energy, and latency terms. Each candidate returns an `ObjectiveBreakdown` whose signed contributions reproduce the final score.
+
+Normalized software quantities and physical/user-supplied lifecycle quantities remain separate. Lifecycle physical terms are omitted entirely when the caller does not provide lifecycle assumptions.
+
+## Reproducibility rules
+
+- Report the exact commit/release, Python version, platform, search method/seed, calibration seeds, evaluation seeds, and payload sizes.
+- Calibration/training seeds must not overlap final evaluation/test seeds.
+- Do not compare runtime across machines without environment metadata.
+- Do not convert nucleotide counts into synthesis prices unless a dated external model is explicitly supplied.
+- Do not describe configured software error probabilities as measured synthesis/sequencing rates.
+- Do not discard failed recoveries.
+- Do not call smoke-test differences statistically significant.
+- Preserve negative learned-policy, optimizer, and graph-reconstruction results.
