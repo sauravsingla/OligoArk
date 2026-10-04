@@ -51,12 +51,6 @@ from .learning_eval import (
     evaluate_learning_from_records,
     policy_observations_from_records,
 )
-from .physical import (
-    PhysicalDatasetManifest,
-    PhysicalReconstructionSummary,
-    evaluate_physical_reconstruction,
-    read_sequences,
-)
 from .optimizer import (
     CandidateEvaluation,
     CandidateSpec,
@@ -69,6 +63,12 @@ from .optimizer import (
     optimize_codec,
     select_candidate_specs,
 )
+from .physical import (
+    PhysicalDatasetManifest,
+    PhysicalReconstructionSummary,
+    evaluate_physical_reconstruction,
+    read_sequences,
+)
 from .policy import ChannelProfile, CodecPolicy, PolicyObjective, recommend_codec_policy
 from .reconstruct import (
     EdgeScorer,
@@ -77,8 +77,8 @@ from .reconstruct import (
     LevenshteinEdgeScorer,
     ReadReconstructor,
     ReconstructionResult,
-    TraceConsensusReconstructor,
     SimilarityGraph,
+    TraceConsensusReconstructor,
     alignment_consensus,
     build_similarity_graph,
     global_align,
