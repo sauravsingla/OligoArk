@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 - 2026-10-04
+
+### Added
+- Formal `EdgeScorer` and `ReadReconstructor` protocols for future learned/GNN reconstruction.
+- `GraphConsensusReconstructor` with pluggable edge scoring and optional q-gram prefilter bypass.
+- Pluggable `recover_from_reads()` reconstruction fallback with strategy diagnostics.
+- `ArchivalIntelligencePlan`, `objective_from_workload()`, and `plan_archive()` as a unified AI-native planning layer.
+- Integrated `oligoark plan` CLI command and `POST /plan` FastAPI endpoint.
+- Public examples for archival planning and custom reconstruction scoring.
+- Tests for plug-in reconstruction, intelligence planning, API/CLI integration, and package-version synchronization.
+- CI execution of the reproducible benchmark with mandatory CSV/JSON/metadata outputs and plot generation/upload.
+
+### Changed
+- Package version advanced to 0.3.0.
+- API health response now includes the package version.
+- Documentation now describes typed future PyTorch/PyTorch-Geometric integration boundaries explicitly.
+
 ## 0.2.0 - 2026-10-04
 
 ### Added
