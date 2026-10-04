@@ -61,6 +61,8 @@ jobs:
           test -s experiment-results/summary.csv
           test -s experiment-results/paired-effects.json
           test -s experiment-results/paired-effects.csv
+          test -s experiment-results/calibration.json
+          test -s experiment-results/calibration-candidates.csv
           test -s experiment-results/metadata.json
           test -s experiment-results/experiment_recovery.png
           test -s experiment-results/experiment_overhead.png
