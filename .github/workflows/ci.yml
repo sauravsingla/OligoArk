@@ -59,9 +59,27 @@ jobs:
           test -s experiment-results/raw.csv
           test -s experiment-results/summary.json
           test -s experiment-results/summary.csv
+          test -s experiment-results/paired-effects.json
+          test -s experiment-results/paired-effects.csv
           test -s experiment-results/metadata.json
           test -s experiment-results/experiment_recovery.png
           test -s experiment-results/experiment_overhead.png
+          test -s experiment-results/recovery_vs_error_rate.png
+          test -s experiment-results/overhead_vs_recovery.png
+          test -s experiment-results/runtime_vs_recovery.png
+          test -s experiment-results/strategy_ablation.png
+          test -s experiment-results/graph_rescue_rate.png
+          test -s experiment-results/optimizer_generalization.png
+      - name: Run held-out learning evaluation
+        run: |
+          python benchmarks/run_learning_evaluation.py
+          test -s learning-results/evaluation.json
+          test -s learning-results/summary.csv
+          test -s learning-results/linear-model.json
+      - name: Run controlled graph rescue validation
+        run: |
+          python benchmarks/run_graph_rescue.py
+          test -s graph-rescue-results.json
       - name: Run verified adaptive corruption demo
         run: |
           python benchmarks/run_verified_demo.py
@@ -73,6 +91,8 @@ jobs:
           path: |
             benchmark-results/
             experiment-results/
+            learning-results/
+            graph-rescue-results.json
             verified-demo-results.json
           if-no-files-found: error
       - name: Build Docker image
