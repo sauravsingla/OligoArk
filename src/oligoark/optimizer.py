@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import itertools
-import random
 import time
 from dataclasses import asdict, dataclass
 
@@ -420,8 +419,22 @@ def optimize_codec(
         raise ValueError("all optimization candidates were rejected")
 
     max_overhead = max(item.overhead for item in valid) or 1.0
+    min_overhead = min(item.overhead for item in valid) or 1.0
     max_redundancy = max(item.redundancy for item in valid) or 1.0
     max_runtime = max(item.runtime for item in valid) or 1.0
+    max_footprint_scale = max_overhead / min_overhead
+    lifecycle_storage_max = (
+        max(1e-12, lifecycle.storage_cost * max_footprint_scale) if lifecycle else 1.0
+    )
+    lifecycle_retrieval_max = (
+        max(1e-12, lifecycle.retrieval_cost * max_footprint_scale) if lifecycle else 1.0
+    )
+    lifecycle_energy_max = (
+        max(1e-12, lifecycle.energy_kwh * max_footprint_scale) if lifecycle else 1.0
+    )
+    lifecycle_latency_max = (
+        max(1e-12, lifecycle.retrieval_latency_hours) if lifecycle else 1.0
+    )
 
     active_weight_names = [
         "recovery",
@@ -469,19 +482,11 @@ def optimize_codec(
         overhead_norm = item.overhead / max_overhead
         redundancy_norm = item.redundancy / max_redundancy
         runtime_norm = item.runtime / max_runtime
-        footprint_scale = item.overhead / min(candidate.overhead for candidate in valid)
-
+        footprint_scale = item.overhead / min_overhead
         lifecycle_storage = lifecycle.storage_cost * footprint_scale if lifecycle else 0.0
         lifecycle_retrieval = lifecycle.retrieval_cost * footprint_scale if lifecycle else 0.0
         lifecycle_energy = lifecycle.energy_kwh * footprint_scale if lifecycle else 0.0
         lifecycle_latency = lifecycle.retrieval_latency_hours if lifecycle else 0.0
-        life_max = max(
-            1.0,
-            lifecycle_storage,
-            lifecycle_retrieval,
-            lifecycle_energy,
-            lifecycle_latency,
-        )
 
         breakdown = ObjectiveBreakdown(
             recovery_reward=resolved_weights.recovery * recovery_rate / weight_total,
@@ -501,25 +506,34 @@ def optimize_codec(
                 / weight_total
             ),
             lifecycle_storage_cost_penalty=(
-                resolved_weights.lifecycle_storage_cost * lifecycle_storage / life_max / weight_total
+                resolved_weights.lifecycle_storage_cost
+                * lifecycle_storage
+                / lifecycle_storage_max
+                / weight_total
                 if lifecycle
                 else 0.0
             ),
             lifecycle_retrieval_cost_penalty=(
                 resolved_weights.lifecycle_retrieval_cost
                 * lifecycle_retrieval
-                / life_max
+                / lifecycle_retrieval_max
                 / weight_total
                 if lifecycle
                 else 0.0
             ),
             lifecycle_energy_penalty=(
-                resolved_weights.lifecycle_energy * lifecycle_energy / life_max / weight_total
+                resolved_weights.lifecycle_energy
+                * lifecycle_energy
+                / lifecycle_energy_max
+                / weight_total
                 if lifecycle
                 else 0.0
             ),
             lifecycle_latency_penalty=(
-                resolved_weights.lifecycle_latency * lifecycle_latency / life_max / weight_total
+                resolved_weights.lifecycle_latency
+                * lifecycle_latency
+                / lifecycle_latency_max
+                / weight_total
                 if lifecycle
                 else 0.0
             ),
