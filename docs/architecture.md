@@ -18,11 +18,13 @@ flowchart LR
 
     N[Channel profile] --> O[Deterministic adaptive policy]
     P[Prior experiment observations] --> Q[Empirical policy learner]
-    O --> B
-    Q --> B
-
-    R[Workload profile] --> S[Explainable storage tiering]
+    R[Workload profile] --> S[AI-Native Archival Intelligence]
     T[Normalized economic assumptions] --> S
+    N --> S
+    O --> S
+    Q --> S
+    S --> U[Explainable tier + codec plan]
+    U --> B
 ```
 
 ## Module boundaries
@@ -34,10 +36,11 @@ flowchart LR
 | `ecc.py` | Pure-Python Reed–Solomon plus XOR erasure helpers |
 | `archive.py` | Archive creation, validation, statistics, recovery, graph-retry pipeline |
 | `simulator.py` | Seeded substitution/insertion/deletion/dropout/duplication channel |
-| `reconstruct.py` | Q-gram-filtered similarity graph and deterministic consensus baseline |
+| `reconstruct.py` | Typed `EdgeScorer`/`ReadReconstructor` extension interfaces plus deterministic graph consensus |
 | `fountain.py` | Independent seeded XOR/peeling research baseline |
 | `policy.py` | Deterministic channel/objective-aware codec policy |
 | `learning.py` | Dependency-free empirical policy-learning baseline |
+| `intelligence.py` | Unified workload/channel/economics planning and policy orchestration |
 | `tiering.py` | Explainable heterogeneous storage scoring and economic assumptions |
 | `config.py` | Runtime configuration from JSON/environment |
 | `api.py` / `cli.py` | Service and command-line surfaces |
@@ -46,7 +49,7 @@ flowchart LR
 
 1. **Reproducible baseline first.** Core functionality is deterministic and does not require a trained model.
 2. **Integrity is a hard gate.** Recovery is successful only if archive-level SHA-256 matches.
-3. **Research modules remain separable.** Codec policy, empirical learning, reconstruction, tiering, and channel models can be replaced independently.
+3. **Research modules remain separable.** Codec policy, empirical learning, reconstruction, tiering, and channel models can be replaced independently through typed boundaries.
 4. **Simulation is labeled as simulation.** No software benchmark is presented as synthesis or sequencing evidence.
 5. **No fabricated economics.** Economic defaults are neutral; users must supply real assumptions when making decisions.
 6. **Rust-ready hot paths.** `dna.py`, `ecc.py`, `framing.py`, and `reconstruct.py` expose narrow boundaries suitable for future native acceleration.
@@ -59,6 +62,10 @@ Archive metadata includes the original byte size, SHA-256, codec configuration, 
 
 ## Recovery pipeline
 
-`recover_from_reads()` first attempts normal frame decoding because valid Reed–Solomon-correctable reads need no expensive graph work. If verified recovery fails, reads are clustered through a q-gram prefilter and normalized Levenshtein similarity. Consensus reads are appended to the original reads and decoding is retried. The result is accepted only after SHA-256 verification.
+`recover_from_reads()` first validates the archive and attempts normal frame decoding because valid Reed–Solomon-correctable reads need no expensive reconstruction. If verified recovery fails, it invokes a `ReadReconstructor`. The default `GraphConsensusReconstructor` clusters through a q-gram prefilter and normalized Levenshtein similarity, emits consensus candidates, and retries decoding. A custom reconstructor can be injected without changing the archive format. The result is accepted only after SHA-256 verification.
 
-This fallback is intentionally conservative. The current consensus model is not a multiple-sequence alignment algorithm, so insertion/deletion-heavy channels remain an explicit research gap.
+The default fallback is intentionally conservative. Its edge scorer is pluggable through `EdgeScorer`; a PyTorch/PyTorch-Geometric model can replace edge scoring or the whole reconstruction strategy. No learned model is bundled by default, and insertion/deletion-heavy channels remain an explicit research gap.
+
+## Archival intelligence layer
+
+`plan_archive()` composes `WorkloadProfile`, `ChannelProfile`, optional `EconomicAssumptions`, deterministic codec objectives, and an optional fitted `EmpiricalPolicyModel`. It always returns an explainable `ArchivalIntelligencePlan` containing the recommended storage tier, codec policy, policy source, confidence when empirical learning is used, and human-readable rationale. The deterministic path remains the default and requires no trained model.
