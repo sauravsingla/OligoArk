@@ -285,7 +285,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = sub.add_parser(
         "optimize-plan",
-        help="search real codec/redundancy/reconstruction candidates and return a tier + codec plan",
+        help=(
+            "search real codec/redundancy/reconstruction candidates "
+            "and return a tier + codec plan"
+        ),
     )
     command.add_argument("input")
     _add_workload_arguments(command)
