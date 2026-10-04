@@ -1,3 +1,5 @@
+import pytest
+
 from oligoark.archive import ArchiveConfig, archive_bytes, recover_bytes
 from oligoark.framing import decode_frame
 from oligoark.simulator import SimulationConfig, simulate_channel
