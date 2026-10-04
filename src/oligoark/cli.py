@@ -217,7 +217,7 @@ def _optimize_plan(args: argparse.Namespace) -> None:
     search_space = _search_space(args)
     weights = _load_weights(args.weights_json)
     if args.evaluation_seeds:
-        result = evaluate_optimized_archive_plan(
+        held_out = evaluate_optimized_archive_plan(
             payload,
             _workload(args),
             _channel(args),
@@ -229,18 +229,20 @@ def _optimize_plan(args: argparse.Namespace) -> None:
             search_space=search_space,
             weights=weights,
         )
-    else:
-        result = optimize_archive_plan(
-            payload,
-            _workload(args),
-            _channel(args),
-            seeds=calibration_seeds,
-            economics=economics,
-            lifecycle=lifecycle,
-            search_space=search_space,
-            weights=weights,
-        )
-    print(json.dumps(result.to_dict(), indent=2))
+        print(json.dumps(held_out.to_dict(), indent=2))
+        return
+
+    optimized = optimize_archive_plan(
+        payload,
+        _workload(args),
+        _channel(args),
+        seeds=calibration_seeds,
+        economics=economics,
+        lifecycle=lifecycle,
+        search_space=search_space,
+        weights=weights,
+    )
+    print(json.dumps(optimized.to_dict(), indent=2))
 
 
 def _add_workload_arguments(command: argparse.ArgumentParser) -> None:
