@@ -1,6 +1,7 @@
 """Deterministic DNA channel simulator for software experiments."""
 
 from __future__ import annotations
+
 import random
 from dataclasses import dataclass
 
@@ -18,7 +19,9 @@ class SimulationConfig:
 
     def validate(self) -> None:
         for name, value in vars(self).items():
-            if name != "seed" and not 0.0 <= value <= 1.0:
+            if name == "seed":
+                continue
+            if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
 
 
@@ -30,7 +33,8 @@ def _mutate(sequence: str, cfg: SimulationConfig, rng: random.Random) -> str:
         if rng.random() < cfg.insertion_rate:
             out.append(rng.choice(DNA))
         if rng.random() < cfg.substitution_rate:
-            out.append(rng.choice(DNA.replace(base, "")))
+            choices = DNA.replace(base, "")
+            out.append(rng.choice(choices))
         else:
             out.append(base)
     if rng.random() < cfg.insertion_rate:
@@ -45,7 +49,8 @@ def simulate_channel(strands: list[str], cfg: SimulationConfig) -> list[str]:
     for strand in strands:
         if rng.random() < cfg.dropout_rate:
             continue
-        reads.append(_mutate(strand, cfg, rng))
+        mutated = _mutate(strand, cfg, rng)
+        reads.append(mutated)
         if rng.random() < cfg.duplicate_rate:
             reads.append(_mutate(strand, cfg, rng))
     rng.shuffle(reads)
