@@ -145,7 +145,7 @@ def optimize_archive_plan(
         seeds=seeds,
     )
     config = optimization.best_config
-    constraints = {
+    constraints: dict[str, object] = {
         "min_gc_fraction": config.min_gc_fraction,
         "max_gc_fraction": config.max_gc_fraction,
         "max_homopolymer": config.max_homopolymer,
