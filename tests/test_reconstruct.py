@@ -1,7 +1,10 @@
 from oligoark.reconstruct import (
     GraphConsensusReconstructor,
     ReconstructionResult,
+    alignment_consensus,
+    build_similarity_graph,
     edit_distance,
+    global_align,
     graph_cluster_consensus,
     normalized_similarity,
 )
@@ -17,11 +20,35 @@ def test_edit_distance() -> None:
     assert normalized_similarity("ACGT", "ACCT") == 0.75
 
 
+def test_explicit_graph_has_edges_and_components() -> None:
+    reads = ["ACGTACGT", "ACGTACGA", "TTTTGGGG", "TTTTGGGA"]
+    graph = build_similarity_graph(reads, threshold=0.80)
+    assert len(graph.nodes) == 4
+    assert len(graph.edges) == 2
+    assert sorted(len(component) for component in graph.connected_components()) == [2, 2]
+
+
 def test_graph_cluster_consensus_groups_similar_reads() -> None:
     reads = ["ACGTACGT", "ACGTACGA", "TTTTGGGG", "TTTTGGGA"]
     result = graph_cluster_consensus(reads, threshold=0.80)
     assert sorted(result.cluster_sizes) == [2, 2]
-    assert len(result.consensus_reads) == 2
+    assert result.edge_count == 2
+    assert result.component_count == 2
+
+
+def test_alignment_consensus_repairs_simple_indels() -> None:
+    original = "ACGTACGT"
+    reads = [
+        original,
+        "ACGTTACGT",
+        "ACGACGT",
+        original,
+        original,
+    ]
+    assert alignment_consensus(reads) == original
+    aligned_reference, aligned_query = global_align(original, "ACGTTACGT")
+    assert len(aligned_reference) == len(aligned_query)
+    assert "-" in aligned_reference
 
 
 def test_custom_edge_scorer_extension_point() -> None:
@@ -31,6 +58,7 @@ def test_custom_edge_scorer_extension_point() -> None:
         scorer=ConstantEdgeScorer(),
         qgram_width=2,
         use_qgram_prefilter=False,
+        consensus_mode="medoid",
     )
     result = reconstructor.reconstruct(reads)
     assert result.cluster_sizes == [2]
