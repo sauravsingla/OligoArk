@@ -45,8 +45,11 @@ The following works are comparison points and scientific context; OligoArk is in
 - Goldman et al., *Towards practical, high-capacity, low-maintenance information storage in synthesized DNA*, Nature (2013). DOI: `10.1038/nature11875`.
 - Grass et al., *Robust Chemical Preservation of Digital Information on DNA in Silica with Error-Correcting Codes*, Angewandte Chemie International Edition (2015). DOI: `10.1002/anie.201411378`.
 - Erlich & Zielinski, *DNA Fountain enables a robust and efficient storage architecture*, Science (2017). DOI: `10.1126/science.aaj2038`. OligoArk's LT-style fountain code is not an implementation of DNA Fountain.
+- Bornholt et al., *A DNA-Based Archival Storage System*, ASPLOS (2016). DOI: `10.1145/2872362.2872397`. This is prior archival-system architecture work, not OligoArk tiering.
 - Organick et al., *Random access in large-scale DNA data storage*, Nature Biotechnology (2018). DOI: `10.1038/nbt.4079`.
+- Ceze, Nivala & Strauss, *Molecular digital data storage using DNA*, Nature Reviews Genetics (2019). DOI: `10.1038/s41576-019-0125-3`. This review frames DNA as an archival medium and discusses systems challenges.
 - Press et al., *HEDGES error-correcting code for DNA storage corrects indels and allows sequence constraints*, PNAS (2020). DOI: `10.1073/pnas.2004821117`. OligoArk does not implement HEDGES.
+- Matange, Tuck & Keung, *DNA stability: a central design consideration for DNA data storage systems*, Nature Communications (2021). DOI: `10.1038/s41467-021-21587-5`. OligoArk does not translate this literature into built-in lifetime/energy numbers.
 - Welzel et al., *DNA-Aeon provides flexible arithmetic coding for constraint adherence and error correction in DNA storage*, Nature Communications (2023). DOI: `10.1038/s41467-023-36297-3`.
 - Sabary et al., *Reconstruction algorithms for DNA-storage systems*, Scientific Reports (2024). DOI: `10.1038/s41598-024-51730-3`. This formalizes reconstruction from multiple traces with insertion, deletion, and substitution errors.
 - Schwarz & Freisleben, *Data recovery methods for DNA storage based on fountain codes*, Computational and Structural Biotechnology Journal (2024). DOI: `10.1016/j.csbj.2024.04.048`.
