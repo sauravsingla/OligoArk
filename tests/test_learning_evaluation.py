@@ -18,10 +18,11 @@ def _record(
     parity: int,
     overhead: float,
     runtime: float,
+    scenario: str = "sub",
 ) -> ExperimentRecord:
     return ExperimentRecord(
         strategy=strategy,
-        scenario="sub",
+        scenario=scenario,
         seed=seed,
         payload_size=128,
         payload_sha256="0" * 64,
@@ -109,3 +110,32 @@ def test_learning_rejects_insufficient_and_malformed_model_state() -> None:
         LinearUtilityPolicyModel().fit([observation])
     with pytest.raises(ValueError, match="Unsupported serialized"):
         LinearUtilityPolicyModel.from_dict({"model": "unknown"})
+
+
+def test_learning_can_hold_out_unseen_channel_regimes() -> None:
+    records = [
+        _record("fixed", 1, True, 96, 8, 8, 1.5, 0.1, scenario="train"),
+        _record("adaptive", 1, True, 96, 8, 8, 1.6, 0.11, scenario="train"),
+        _record("fixed", 2, False, 96, 8, 8, 1.5, 0.1, scenario="unseen"),
+        _record("adaptive", 2, True, 64, 16, 8, 1.9, 0.2, scenario="unseen"),
+        _record("combined", 2, True, 64, 16, 8, 1.8, 0.18, scenario="unseen"),
+    ]
+    result = evaluate_learning_from_records(
+        records,
+        training_seeds=(1,),
+        test_seeds=(2,),
+        training_scenarios=("train",),
+        test_scenarios=("unseen",),
+    )
+    assert result.training_scenarios == ("train",)
+    assert result.test_scenarios == ("unseen",)
+    assert result.test_groups == 1
+
+    with pytest.raises(ValueError, match="scenarios must be disjoint"):
+        evaluate_learning_from_records(
+            records,
+            training_seeds=(1,),
+            test_seeds=(2,),
+            training_scenarios=("train",),
+            test_scenarios=("train",),
+        )
