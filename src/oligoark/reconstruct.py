@@ -190,7 +190,7 @@ def build_similarity_graph(
     resolved_scorer = scorer or LevenshteinEdgeScorer()
     nodes = tuple(reads)
     signatures = [_qgrams(read, qgram_width) for read in nodes]
-    prefilter_threshold = max(0.05, threshold - 0.45)
+    prefilter_threshold = max(0.02, threshold - 0.60)
     edges: list[GraphEdge] = []
 
     if use_qgram_prefilter:
