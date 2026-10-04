@@ -78,19 +78,18 @@ class EconomicAssumptions:
             raise ValueError(
                 "Economic assumptions require storage_cost_index and retrieval_cost_index objects"
             )
-        try:
-            assumptions = cls(
-                storage_cost_index={
-                    str(key): float(value)
-                    for key, value in cast(dict[object, object], storage).items()
-                },
-                retrieval_cost_index={
-                    str(key): float(value)
-                    for key, value in cast(dict[object, object], retrieval).items()
-                },
-            )
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Economic assumption values must be numeric") from exc
+        def numeric_mapping(raw: dict[object, object]) -> dict[str, float]:
+            converted: dict[str, float] = {}
+            for key, value in raw.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError("Economic assumption values must be numeric")
+                converted[str(key)] = float(value)
+            return converted
+
+        assumptions = cls(
+            storage_cost_index=numeric_mapping(cast(dict[object, object], storage)),
+            retrieval_cost_index=numeric_mapping(cast(dict[object, object], retrieval)),
+        )
         assumptions.validate()
         return assumptions
 
@@ -171,7 +170,7 @@ def recommend_storage_tier(
             score -= 0.25 * profile.retrieval_urgency + 0.20 * profile.mutability
         scores[name] = round(max(0.0, score), 4)
 
-    winner = max(scores, key=scores.get)
+    winner = max(scores, key=lambda tier_name: scores[tier_name])
     rationale = (
         f"retention horizon normalized to {retention_need:.2f}",
         f"access intensity normalized to {access_need:.2f}",
