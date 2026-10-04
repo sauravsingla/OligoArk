@@ -1,9 +1,6 @@
 name: Publication experiments
 
 on:
-  push:
-    branches:
-      - "feat/v0.6-indel-generalization"
   workflow_dispatch:
 
 permissions:
