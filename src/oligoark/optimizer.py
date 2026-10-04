@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
@@ -34,6 +35,35 @@ class OptimizationWeights:
             raise ValueError("optimization weights must be non-negative")
         if sum(vars(self).values()) <= 0:
             raise ValueError("at least one optimization weight must be positive")
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, object]) -> "OptimizationWeights":
+        defaults = cls()
+        allowed = set(vars(defaults))
+        unknown = sorted(set(values) - allowed)
+        if unknown:
+            raise ValueError(f"Unknown optimization weight(s): {unknown}")
+
+        def number(name: str) -> float:
+            value = values.get(name, getattr(defaults, name))
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"Optimization weight {name} must be numeric")
+            return float(value)
+
+        result = cls(
+            recovery=number("recovery"),
+            overhead=number("overhead"),
+            redundancy=number("redundancy"),
+            runtime=number("runtime"),
+            retrieval=number("retrieval"),
+            durability=number("durability"),
+            lifecycle_storage_cost=number("lifecycle_storage_cost"),
+            lifecycle_retrieval_cost=number("lifecycle_retrieval_cost"),
+            lifecycle_energy=number("lifecycle_energy"),
+            lifecycle_latency=number("lifecycle_latency"),
+        )
+        result.validate()
+        return result
 
 
 @dataclass(frozen=True)
