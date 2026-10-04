@@ -77,7 +77,7 @@ class EmpiricalPolicyModel:
             counts[key] = counts.get(key, 0) + 1
             policies[key] = obs.policy
 
-        winner = max(scores, key=scores.get)
+        winner = max(scores, key=lambda policy_key: scores[policy_key])
         total_magnitude = sum(abs(value) for value in scores.values()) or 1.0
         confidence = min(1.0, abs(scores[winner]) / total_magnitude)
         rationale = (
