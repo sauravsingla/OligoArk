@@ -1,0 +1,136 @@
+"""Aggregate deterministic publication shards into one analysis artifact."""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from typing import cast
+
+from oligoark.experiments import (
+    ExperimentRecord,
+    aggregate_experiments,
+    paired_strategy_effects,
+)
+from run_experiments import write_plots
+
+
+def _record(raw: dict[str, object]) -> ExperimentRecord:
+    return ExperimentRecord(
+        strategy=str(raw["strategy"]),
+        scenario=str(raw["scenario"]),
+        seed=int(cast(int, raw["seed"])),
+        payload_size=int(cast(int, raw["payload_size"])),
+        payload_sha256=str(raw["payload_sha256"]),
+        recovered=bool(raw["recovered"]),
+        encoded_nucleotides=int(cast(int, raw["encoded_nucleotides"])),
+        overhead_ratio=float(cast(float, raw["overhead_ratio"])),
+        strand_count=int(cast(int, raw["strand_count"])),
+        read_count=int(cast(int, raw["read_count"])),
+        runtime_seconds=float(cast(float, raw["runtime_seconds"])),
+        graph_reconstruction_used=bool(raw["graph_reconstruction_used"]),
+        redundancy_scheme=str(raw["redundancy_scheme"]),
+        rs_nsym=int(cast(int, raw["rs_nsym"])),
+        chunk_size=int(cast(int, raw["chunk_size"])),
+        parity_group_size=int(cast(int, raw["parity_group_size"])),
+        adaptive_masks=bool(raw["adaptive_masks"]),
+        substitution_rate=float(cast(float, raw["substitution_rate"])),
+        insertion_rate=float(cast(float, raw["insertion_rate"])),
+        deletion_rate=float(cast(float, raw["deletion_rate"])),
+        dropout_rate=float(cast(float, raw["dropout_rate"])),
+        duplicate_rate=float(cast(float, raw["duplicate_rate"])),
+        calibration_seeds=tuple(
+            int(value) for value in cast(list[int], raw.get("calibration_seeds", []))
+        ),
+        selection_score=(
+            float(cast(float, raw["selection_score"]))
+            if raw.get("selection_score") is not None
+            else None
+        ),
+        selection_search_method=(
+            str(raw["selection_search_method"])
+            if raw.get("selection_search_method") is not None
+            else None
+        ),
+    )
+
+
+def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def main() -> None:
+    root = Path("publication-shards")
+    raw_paths = sorted(root.glob("**/raw.json"))
+    metadata_paths = sorted(root.glob("**/metadata.json"))
+    if not raw_paths:
+        raise ValueError("no publication shard raw.json files were found")
+
+    raw_rows: list[dict[str, object]] = []
+    for path in raw_paths:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, list):
+            raise ValueError(f"{path} must contain a list")
+        raw_rows.extend(cast(list[dict[str, object]], value))
+
+    records = [_record(row) for row in raw_rows]
+    summaries = aggregate_experiments(records)
+    effects = paired_strategy_effects(records)
+    summary_rows = [item.to_dict() for item in summaries]
+    effect_rows = [item.to_dict() for item in effects]
+
+    metadata_values = [
+        json.loads(path.read_text(encoding="utf-8")) for path in metadata_paths
+    ]
+    if not metadata_values:
+        raise ValueError("publication shard metadata is missing")
+    first = metadata_values[0]
+    payload_sizes = sorted(
+        {
+            int(size)
+            for metadata in metadata_values
+            for size in metadata.get("payload_sizes", [])
+        }
+    )
+    metadata = {
+        **first,
+        "payload_sizes": payload_sizes,
+        "shard_count": len(raw_paths),
+        "raw_trial_count": len(records),
+        "aggregation": "merged from payload-size shards without dropping failures",
+    }
+
+    output = Path("publication-results")
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "raw.json").write_text(json.dumps(raw_rows, indent=2), encoding="utf-8")
+    (output / "summary.json").write_text(
+        json.dumps(summary_rows, indent=2), encoding="utf-8"
+    )
+    (output / "paired-effects.json").write_text(
+        json.dumps(effect_rows, indent=2), encoding="utf-8"
+    )
+    (output / "metadata.json").write_text(
+        json.dumps(metadata, indent=2), encoding="utf-8"
+    )
+    _write_csv(output / "raw.csv", raw_rows)
+    _write_csv(output / "summary.csv", summary_rows)
+    _write_csv(output / "paired-effects.csv", effect_rows)
+    write_plots(raw_rows, summary_rows, effect_rows, output)
+    print(
+        json.dumps(
+            {
+                "shards": len(raw_paths),
+                "raw_trials": len(records),
+                "summaries": len(summary_rows),
+                "effects": len(effect_rows),
+            },
+            indent=2,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()
