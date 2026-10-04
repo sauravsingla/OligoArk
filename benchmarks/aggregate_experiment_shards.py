@@ -7,12 +7,13 @@ import json
 from pathlib import Path
 from typing import cast
 
+from run_experiments import write_plots
+
 from oligoark.experiments import (
     ExperimentRecord,
     aggregate_experiments,
     paired_strategy_effects,
 )
-from run_experiments import write_plots
 
 
 def _record(raw: dict[str, object]) -> ExperimentRecord:
