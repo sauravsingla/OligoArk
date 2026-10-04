@@ -35,7 +35,7 @@ class EmpiricalPolicyModel:
     def __init__(self) -> None:
         self._observations: list[PolicyObservation] = []
 
-    def fit(self, observations: list[PolicyObservation]) -> "EmpiricalPolicyModel":
+    def fit(self, observations: list[PolicyObservation]) -> EmpiricalPolicyModel:
         if not observations:
             raise ValueError("At least one policy observation is required")
         self._observations = list(observations)
