@@ -17,6 +17,12 @@
 - Payload-sharded publication workflow with merged 90-day artifacts.
 - CLI/API controls for calibration/evaluation seeds, search method/seed, objective weights, and reconstruction diagnostics.
 
+### Validation
+- Executed the publication workflow on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569`: 960 held-out trials, 576 retained calibration-candidate evaluations, 3 payload sizes, 8 channel regimes, 5 strategies, disjoint calibration/evaluation seeds, paired effects, Wilson intervals, graph-rescue diagnostics, and held-out policy-learning outputs.
+- Best overall held-out recovery in this software experiment was adaptive+fountain/hybrid at 66.7% (128/192; Wilson 95% CI 59.7–73.0%). Combined measured search recovered 57.3% (110/192) and did not outperform the simpler redundancy baseline.
+- Controlled alignment-graph reconstruction rescued 2/2 direct-failure cases; medoid consensus also rescued the substitution case but failed the insertion/deletion case that alignment consensus recovered.
+- Ridge policy learning matched the heuristic on the unseen seed/channel split (41.7% recovery each) rather than outperforming it; negative results are retained.
+
 ### Changed
 - Version advanced to 0.5.0.
 - Publication evaluation seeds are explicitly disjoint from optimizer calibration seeds.
