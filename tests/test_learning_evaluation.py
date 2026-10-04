@@ -1,7 +1,11 @@
 import pytest
 
 from oligoark.experiments import ExperimentRecord
-from oligoark.learning import LinearUtilityPolicyModel, PolicyObservation
+from oligoark.learning import (
+    KernelUtilityPolicyModel,
+    LinearUtilityPolicyModel,
+    PolicyObservation,
+)
 from oligoark.learning_eval import (
     evaluate_learning_from_records,
     policy_observations_from_records,
@@ -79,6 +83,7 @@ def test_held_out_learning_pipeline_reports_regret_and_baselines() -> None:
             [
                 _record("fixed", seed, False, 96, 8, 8, 1.5, 0.1),
                 _record("adaptive", seed, True, 64, 16, 8, 1.8, 0.2),
+                _record("adaptive_fountain", seed, True, 64, 16, 8, 2.1, 0.22),
                 _record("combined", seed, True, 64, 16, 8, 1.7, 0.18),
             ]
         )
@@ -88,7 +93,14 @@ def test_held_out_learning_pipeline_reports_regret_and_baselines() -> None:
         test_seeds=(3, 4),
     )
     methods = {summary.method for summary in result.summaries}
-    assert methods == {"heuristic", "empirical", "linear", "measured_search"}
+    assert methods == {
+        "heuristic",
+        "empirical",
+        "linear",
+        "kernel",
+        "adaptive_fountain",
+        "measured_search",
+    }
     assert result.training_seeds == (1, 2)
     assert result.test_seeds == (3, 4)
     assert result.test_groups == 2
@@ -118,6 +130,17 @@ def test_learning_can_hold_out_unseen_channel_regimes() -> None:
         _record("adaptive", 1, True, 96, 8, 8, 1.6, 0.11, scenario="train"),
         _record("fixed", 2, False, 96, 8, 8, 1.5, 0.1, scenario="unseen"),
         _record("adaptive", 2, True, 64, 16, 8, 1.9, 0.2, scenario="unseen"),
+        _record(
+            "adaptive_fountain",
+            2,
+            True,
+            64,
+            16,
+            8,
+            2.1,
+            0.22,
+            scenario="unseen",
+        ),
         _record("combined", 2, True, 64, 16, 8, 1.8, 0.18, scenario="unseen"),
     ]
     result = evaluate_learning_from_records(
@@ -139,3 +162,20 @@ def test_learning_can_hold_out_unseen_channel_regimes() -> None:
             training_scenarios=("train",),
             test_scenarios=("train",),
         )
+
+
+def test_kernel_policy_model_is_deterministic_and_serializable() -> None:
+    lean = CodecPolicy(96, 8, 8, True, ("lean",))
+    robust = CodecPolicy(64, 16, 5, True, ("robust",))
+    observations = [
+        PolicyObservation(ChannelProfile(), lean, True, 100, 0.1),
+        PolicyObservation(ChannelProfile(0.01, 0, 0, 0), robust, True, 140, 0.2),
+        PolicyObservation(ChannelProfile(0.02, 0, 0, 0), lean, False, 100, 0.1),
+    ]
+    model = KernelUtilityPolicyModel(0.01).fit(observations)
+    first = model.recommend(ChannelProfile(0.012, 0, 0, 0))
+    second = model.recommend(ChannelProfile(0.012, 0, 0, 0))
+    assert first.policy == second.policy
+    state = model.to_dict()
+    assert state["model"] == "rbf-kernel-utility"
+    assert len(state["observations"]) == 3
