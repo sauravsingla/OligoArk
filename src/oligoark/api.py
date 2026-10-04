@@ -14,9 +14,13 @@ except ImportError as exc:  # pragma: no cover
 from . import __version__
 from .archive import ArchiveConfig, DNAArchive, archive_bytes, recover_bytes, recover_from_reads
 from .config import RuntimeConfig
-from .intelligence import optimize_archive_plan, plan_archive
+from .intelligence import (
+    evaluate_optimized_archive_plan,
+    optimize_archive_plan,
+    plan_archive,
+)
 from .logging_utils import configure_logging
-from .optimizer import CodecSearchSpace
+from .optimizer import CodecSearchSpace, OptimizationWeights
 from .policy import ChannelProfile, PolicyObjective, recommend_codec_policy
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import (
@@ -25,6 +29,7 @@ from .tiering import (
     WorkloadProfile,
     recommend_storage_tier,
 )
+from .validation import compare_reconstruction_modes
 
 RUNTIME_CONFIG = RuntimeConfig.from_environment()
 configure_logging(RUNTIME_CONFIG.log_level)
@@ -56,6 +61,10 @@ class RecoverReadsRequest(BaseModel):
         ge=0,
         le=1,
     )
+
+
+class ReconstructionDiagnosticsRequest(RecoverReadsRequest):
+    pass
 
 
 class SimulateRequest(BaseModel):
@@ -117,10 +126,29 @@ class PlanRequest(TierRequest):
     dropout_rate: float = Field(default=0.0, ge=0, le=1)
 
 
+class OptimizationWeightsRequest(BaseModel):
+    recovery: float = Field(default=0.40, ge=0)
+    overhead: float = Field(default=0.15, ge=0)
+    redundancy: float = Field(default=0.10, ge=0)
+    runtime: float = Field(default=0.08, ge=0)
+    retrieval: float = Field(default=0.07, ge=0)
+    durability: float = Field(default=0.10, ge=0)
+    lifecycle_storage_cost: float = Field(default=0.04, ge=0)
+    lifecycle_retrieval_cost: float = Field(default=0.02, ge=0)
+    lifecycle_energy: float = Field(default=0.02, ge=0)
+    lifecycle_latency: float = Field(default=0.02, ge=0)
+
+
 class OptimizePlanRequest(PlanRequest):
     data_b64: str
-    seeds: list[int] = Field(default_factory=lambda: [2026, 2027])
-    max_candidates: int = Field(default=24, ge=1, le=128)
+    seeds: list[int] | None = None
+    calibration_seeds: list[int] = Field(default_factory=lambda: [2026, 2027])
+    evaluation_seeds: list[int] | None = None
+    duplicate_rate: float = Field(default=0.0, ge=0, le=1)
+    max_candidates: int = Field(default=24, ge=1, le=256)
+    search_method: str = "balanced"
+    search_seed: int = 5050
+    weights: OptimizationWeightsRequest | None = None
 
 
 def _archive_from_mapping(value: dict[str, object]) -> DNAArchive:
@@ -146,10 +174,7 @@ def _economics(value: EconomicRequest | None) -> EconomicAssumptions | None:
 def _lifecycle(value: LifecycleRequest | None) -> LifecycleAssumptions | None:
     if value is None:
         return None
-    raw = {
-        tier: assumptions.model_dump()
-        for tier, assumptions in value.tiers.items()
-    }
+    raw = {tier: assumptions.model_dump() for tier, assumptions in value.tiers.items()}
     return LifecycleAssumptions.from_mapping(raw)
 
 
@@ -177,6 +202,14 @@ def _channel(req: PlanRequest) -> ChannelProfile:
     )
 
 
+def _weights(req: OptimizationWeightsRequest | None) -> OptimizationWeights | None:
+    if req is None:
+        return None
+    result = OptimizationWeights(**req.model_dump())
+    result.validate()
+    return result
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "oligoark", "version": __version__}
@@ -186,19 +219,21 @@ def health() -> dict[str, str]:
 def encode(req: EncodeRequest) -> dict[str, object]:
     try:
         raw = _decode_payload(req.data_b64)
-        config = ArchiveConfig(
-            chunk_size=req.chunk_size,
-            rs_nsym=req.rs_nsym,
-            parity_group_size=req.parity_group_size,
-            adaptive_masks=True,
-            redundancy_scheme=req.redundancy_scheme,
-            fountain_redundancy=req.fountain_redundancy,
-            min_gc_fraction=req.min_gc_fraction,
-            max_gc_fraction=req.max_gc_fraction,
-            max_homopolymer=req.max_homopolymer,
-            mask_search_limit=req.mask_search_limit,
+        archive = archive_bytes(
+            raw,
+            ArchiveConfig(
+                chunk_size=req.chunk_size,
+                rs_nsym=req.rs_nsym,
+                parity_group_size=req.parity_group_size,
+                adaptive_masks=True,
+                redundancy_scheme=req.redundancy_scheme,
+                fountain_redundancy=req.fountain_redundancy,
+                min_gc_fraction=req.min_gc_fraction,
+                max_gc_fraction=req.max_gc_fraction,
+                max_homopolymer=req.max_homopolymer,
+                mask_search_limit=req.mask_search_limit,
+            ),
         )
-        archive = archive_bytes(raw, config)
         return {"metadata": archive.metadata, "strands": archive.strands}
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -226,6 +261,18 @@ def recover_reads(req: RecoverReadsRequest) -> dict[str, object]:
             "data_b64": base64.b64encode(raw).decode("ascii"),
             "report": report.to_dict(),
         }
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/reconstruction-diagnostics")
+def reconstruction_diagnostics(req: ReconstructionDiagnosticsRequest) -> dict[str, object]:
+    try:
+        return compare_reconstruction_modes(
+            _archive_from_mapping(req.archive),
+            req.reads,
+            threshold=req.similarity_threshold,
+        ).to_dict()
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -258,18 +305,19 @@ def recommend(req: TierRequest) -> dict[str, object]:
 
 @app.post("/policy")
 def policy(req: PolicyRequest) -> dict[str, object]:
-    channel = ChannelProfile(
-        req.substitution_rate,
-        req.insertion_rate,
-        req.deletion_rate,
-        req.dropout_rate,
-    )
-    objective = PolicyObjective(
-        req.durability_priority,
-        req.storage_overhead_priority,
-        req.retrieval_speed_priority,
-    )
-    return recommend_codec_policy(channel, objective).to_dict()
+    return recommend_codec_policy(
+        ChannelProfile(
+            req.substitution_rate,
+            req.insertion_rate,
+            req.deletion_rate,
+            req.dropout_rate,
+        ),
+        PolicyObjective(
+            req.durability_priority,
+            req.storage_overhead_priority,
+            req.retrieval_speed_priority,
+        ),
+    ).to_dict()
 
 
 @app.post("/plan")
@@ -286,15 +334,34 @@ def plan(req: PlanRequest) -> dict[str, object]:
 def optimize_plan(req: OptimizePlanRequest) -> dict[str, object]:
     try:
         payload = _decode_payload(req.data_b64)
-        search = CodecSearchSpace(max_candidates=req.max_candidates)
+        calibration = tuple(req.seeds or req.calibration_seeds)
+        search = CodecSearchSpace(
+            max_candidates=req.max_candidates,
+            search_method=req.search_method,
+            search_seed=req.search_seed,
+        )
+        common = {
+            "economics": _economics(req.economics),
+            "lifecycle": _lifecycle(req.lifecycle),
+            "search_space": search,
+            "weights": _weights(req.weights),
+        }
+        if req.evaluation_seeds:
+            return evaluate_optimized_archive_plan(
+                payload,
+                _workload(req),
+                _channel(req),
+                calibration_seeds=calibration,
+                evaluation_seeds=tuple(req.evaluation_seeds),
+                duplicate_rate=req.duplicate_rate,
+                **common,
+            ).to_dict()
         return optimize_archive_plan(
             payload,
             _workload(req),
             _channel(req),
-            economics=_economics(req.economics),
-            lifecycle=_lifecycle(req.lifecycle),
-            search_space=search,
-            seeds=tuple(req.seeds),
+            seeds=calibration,
+            **common,
         ).to_dict()
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
