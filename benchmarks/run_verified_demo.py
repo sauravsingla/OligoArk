@@ -1,4 +1,4 @@
-"""Verified adaptive optimisation -> corruption -> graph/alignment recovery demonstration."""
+"""Verified adaptive optimisation -> corruption -> graph/alignment -> recovery demo."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import random
 from pathlib import Path
 
-from oligoark.archive import archive_bytes, recover_from_reads
+from oligoark.archive import archive_bytes, recover_bytes
 from oligoark.optimizer import CodecSearchSpace, optimize_codec
 from oligoark.policy import ChannelProfile
 from oligoark.reconstruct import GraphConsensusReconstructor
@@ -81,27 +81,36 @@ def main() -> None:
                 seed=EVALUATION_SEED,
             ),
         )
-        recovered = False
-        graph_used = False
+
+        direct_recovery = False
+        try:
+            direct_recovery = recover_bytes(archive, reads) == payload
+        except ValueError:
+            direct_recovery = False
+
+        reconstructor = GraphConsensusReconstructor(
+            threshold=0.88,
+            consensus_mode="alignment",
+        )
+        reconstruction = reconstructor.reconstruct(reads)
+        augmented_reads = reads + reconstruction.consensus_reads
+
+        graph_verified_recovery = False
         failure: str | None = None
         try:
-            decoded, report = recover_from_reads(
-                archive,
-                reads,
-                reconstructor=GraphConsensusReconstructor(
-                    threshold=0.88,
-                    consensus_mode="alignment",
-                ),
-            )
-            recovered = decoded == payload
-            graph_used = report.graph_reconstruction_used
+            graph_verified_recovery = recover_bytes(archive, augmented_reads) == payload
         except ValueError as exc:
             failure = str(exc)
+
         results.append(
             {
                 "scenario": name,
-                "sha256_verified_recovery": recovered,
-                "graph_reconstruction_used": graph_used,
+                "direct_sha256_verified_recovery": direct_recovery,
+                "graph_alignment_executed": True,
+                "graph_edge_count": reconstruction.edge_count,
+                "graph_component_count": reconstruction.component_count,
+                "consensus_read_count": len(reconstruction.consensus_reads),
+                "sha256_verified_recovery_after_graph": graph_verified_recovery,
                 "selected_redundancy_scheme": optimization.best_config.redundancy_scheme,
                 "selected_rs_nsym": optimization.best_config.rs_nsym,
                 "selected_chunk_size": optimization.best_config.chunk_size,
