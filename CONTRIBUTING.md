@@ -10,3 +10,6 @@ Thank you for improving OligoArk.
 6. Cite external algorithms/papers and avoid copying code from repositories with incompatible licenses.
 
 For research contributions, include a reproducible command, explicit calibration/training and evaluation/test seed sets, dataset/source description, search method/seed, machine-readable raw output, and the exact commit. Calibration/training data must be disjoint from final evaluation/test data unless the contribution explicitly studies resubstitution bias.
+
+
+For physical-data contributions, include the dataset DOI/accession, license or data-availability statement, exact reference-oligo source, preprocessing commands, read-assignment rule, and a clear distinction between reference reconstruction and end-to-end OligoArk archive recovery. Do not commit third-party sequencing data unless redistribution rights are explicit.
