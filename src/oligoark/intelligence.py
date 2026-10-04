@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from .learning import EmpiricalPolicyModel
 from .optimizer import (
     CodecSearchSpace,
+    LifecycleObjectiveInputs,
     OptimizationResult,
     OptimizationWeights,
     optimize_codec,
@@ -136,6 +137,15 @@ def optimize_archive_plan(
     workload.validate()
     channel.validate()
     tier = recommend_storage_tier(workload, economics, lifecycle)
+    lifecycle_objective: LifecycleObjectiveInputs | None = None
+    if tier.lifecycle_estimates is not None:
+        estimate = tier.lifecycle_estimates[tier.recommended_tier]
+        lifecycle_objective = LifecycleObjectiveInputs(
+            storage_cost=estimate.total_storage_cost,
+            retrieval_cost=estimate.total_retrieval_cost,
+            energy_kwh=estimate.total_energy_kwh,
+            retrieval_latency_hours=estimate.expected_retrieval_latency_hours,
+        )
     optimization = optimize_codec(
         payload,
         channel,
@@ -143,6 +153,7 @@ def optimize_archive_plan(
         search_space=search_space,
         weights=weights,
         seeds=seeds,
+        lifecycle=lifecycle_objective,
     )
     config = optimization.best_config
     constraints: dict[str, object] = {
@@ -160,6 +171,11 @@ def optimize_archive_plan(
             "constraints="
             f"GC[{config.min_gc_fraction:.2f},{config.max_gc_fraction:.2f}], "
             f"homopolymer<={config.max_homopolymer}"
+        ),
+        (
+            "codec objective includes caller-supplied lifecycle terms for selected tier"
+            if lifecycle_objective is not None
+            else "codec objective omits lifecycle physical terms because none were supplied"
         ),
         "all recovery successes are SHA-256-verified software results",
     )
