@@ -164,6 +164,135 @@ def _solve_linear_system(matrix: list[list[float]], vector: list[float]) -> list
     return [augmented[row][-1] for row in range(size)]
 
 
+class KernelUtilityPolicyModel:
+    """Deterministic RBF-kernel utility baseline over reproducible observations.
+
+    The model stores no proprietary state and performs a transparent weighted average
+    over observed channel/policy utilities. It is stronger than nearest-neighbor
+    ranking because all observations contribute smoothly to each candidate estimate.
+    """
+
+    def __init__(self, bandwidth: float = 0.02) -> None:
+        if bandwidth <= 0:
+            raise ValueError("bandwidth must be positive")
+        self.bandwidth = bandwidth
+        self._observations: list[PolicyObservation] = []
+        self._max_nucleotides = 1.0
+        self._max_runtime = 1.0
+
+    def fit(self, observations: list[PolicyObservation]) -> KernelUtilityPolicyModel:
+        if len(observations) < 2:
+            raise ValueError("KernelUtilityPolicyModel requires at least two observations")
+        self._observations = list(observations)
+        self._max_nucleotides = float(
+            max(max(1, observation.encoded_nucleotides) for observation in observations)
+        )
+        self._max_runtime = max(
+            1e-9,
+            max(observation.runtime_seconds for observation in observations),
+        )
+        return self
+
+    @staticmethod
+    def _channel_vector(channel: ChannelProfile) -> tuple[float, float, float, float]:
+        return (
+            channel.substitution_rate,
+            channel.insertion_rate,
+            channel.deletion_rate,
+            channel.dropout_rate,
+        )
+
+    def _utility(self, observation: PolicyObservation) -> float:
+        recovery = 1.0 if observation.recovered else 0.0
+        overhead = observation.encoded_nucleotides / self._max_nucleotides
+        runtime = observation.runtime_seconds / self._max_runtime
+        return recovery - 0.20 * overhead - 0.05 * runtime
+
+    def predict_utility(self, channel: ChannelProfile, policy: CodecPolicy) -> float:
+        if not self._observations:
+            raise ValueError("Model must be fit before prediction")
+        channel.validate()
+        target = self._channel_vector(channel)
+        key = _policy_key(policy)
+        numerator = 0.0
+        denominator = 0.0
+        for observation in self._observations:
+            if _policy_key(observation.policy) != key:
+                continue
+            source = self._channel_vector(observation.channel)
+            distance_sq = sum(
+                (left - right) ** 2 for left, right in zip(target, source, strict=True)
+            )
+            weight = math.exp(-distance_sq / (2.0 * self.bandwidth**2))
+            numerator += weight * self._utility(observation)
+            denominator += weight
+        if denominator <= 1e-15:
+            return -1_000_000.0
+        return numerator / denominator
+
+    def recommend(
+        self,
+        channel: ChannelProfile,
+        candidates: list[CodecPolicy] | None = None,
+    ) -> LinearPolicyRecommendation:
+        if not self._observations:
+            raise ValueError("Model must be fit before recommendation")
+        resolved = candidates or list(
+            {
+                _policy_key(observation.policy): observation.policy
+                for observation in self._observations
+            }.values()
+        )
+        if not resolved:
+            raise ValueError("At least one candidate policy is required")
+        scored = sorted(
+            (
+                (self.predict_utility(channel, policy), policy)
+                for policy in resolved
+            ),
+            key=lambda item: (
+                item[0],
+                item[1].rs_nsym,
+                -item[1].chunk_size,
+            ),
+            reverse=True,
+        )
+        best_score, best_policy = scored[0]
+        second_score = scored[1][0] if len(scored) > 1 else best_score
+        margin = max(0.0, best_score - second_score)
+        return LinearPolicyRecommendation(
+            policy=best_policy,
+            predicted_utility=round(best_score, 6),
+            margin=round(1.0 - math.exp(-margin), 6),
+            candidate_count=len(resolved),
+            rationale=(
+                "deterministic Gaussian-kernel utility regression",
+                "all matching-policy observations contribute by channel similarity",
+                "margin is relative separation, not a calibrated probability",
+            ),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        if not self._observations:
+            raise ValueError("Model must be fit before serialization")
+        return {
+            "model": "rbf-kernel-utility",
+            "bandwidth": self.bandwidth,
+            "max_nucleotides": self._max_nucleotides,
+            "max_runtime": self._max_runtime,
+            "observations": [
+                {
+                    "channel": asdict(observation.channel),
+                    "policy": asdict(observation.policy),
+                    "recovered": observation.recovered,
+                    "encoded_nucleotides": observation.encoded_nucleotides,
+                    "runtime_seconds": observation.runtime_seconds,
+                }
+                for observation in self._observations
+            ],
+        }
+
+
 class LinearUtilityPolicyModel:
     """Ridge-regression utility model trained only from caller-supplied observations.
 
