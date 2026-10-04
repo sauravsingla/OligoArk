@@ -293,11 +293,17 @@ See [`docs/benchmarking.md`](docs/benchmarking.md) for interpretation rules.
 
 ## Research Validation
 
-OligoArk v0.5 separates **optimizer calibration** from **final evaluation**. The publication profile uses four calibration seeds, eight disjoint evaluation seeds, three payload sizes, eight channel regimes, and five core system strategies. The combined optimizer uses canonical order-independent candidate enumeration plus deterministic balanced sampling (or explicit full-grid mode), then evaluates the frozen winner on unseen channel realizations.
+The v0.5 publication workflow was executed on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569` with Python 3.13.15 on Linux. It evaluated **960 held-out trials**: 3 payload sizes (512, 2048 and 8192 bytes) × 8 channel regimes × 5 strategies × 8 evaluation seeds. The combined optimizer used calibration seeds `9201..9204`, completely disjoint from evaluation seeds `2026..2033`, and evaluated 24 deterministically balanced candidates from a 360-candidate logical search space per payload/regime. The artifact also preserves 576 calibration-candidate evaluations and their objective breakdowns.
 
-Controlled reconstruction experiments separately require the exact chain **direct failure → explicit graph construction → consensus generation → ordinary archive/ECC/CRC recovery → original SHA-256 verification**. Held-out policy learning is trained from experiment records and reports recovery, overhead, runtime, selection accuracy and regret without hiding negative results.
+Across all 192 held-out trials per strategy, SHA-256-verified recovery was: **adaptive+fountain/hybrid 66.7%** (95% Wilson CI 59.7–73.0%), **adaptive 59.9%** (52.8–66.6%), **adaptive+graph 59.9%** (52.8–66.6%), **combined measured optimizer 57.3%** (50.2–64.1%), and **fixed 45.8%** (38.9–52.9%). Mean encoded-overhead ratios were 2.114, 1.557, 1.557, 1.895 and 1.492 respectively; mean software runtimes were 0.959 s, 0.728 s, 3.379 s, 1.841 s and 0.036 s in that run environment. These runtimes are not cross-machine performance claims.
 
-Actual release findings are reported from the executed publication artifact; smoke tests are not treated as statistically significant evidence.
+The result is deliberately reported even where it is negative. The combined optimizer improved over fixed overall, but **did not beat adaptive+fountain/hybrid** and showed calibration-to-held-out degradation in dropout, indel and mixed regimes. For example, at 10% configured dropout it selected a low-overhead XOR configuration after 100% calibration recovery, but held-out recovery fell with payload size; this is an observed generalization limitation of the current calibration budget rather than a hidden success.
+
+Controlled reconstruction produced the required verified rescue chain in **2/2 constructed cases**. In both cases direct recovery failed, an explicit 7-node/21-edge graph formed one component, consensus was generated, and normal archive recovery passed SHA-256. In the substitution case both medoid and alignment consensus rescued recovery; in the insertion/deletion case **medoid failed while alignment-aware consensus succeeded**. In the broader 960-trial publication sweep, however, graph reconstruction did not produce additional direct-failure rescues, so the controlled rescue result is evidence of capability rather than evidence of broad superiority.
+
+Held-out policy learning trained on seeds 2026–2029 and the first four channel regimes, then tested on seeds 2030–2033 and four unseen channel regimes. On 48 held-out groups, the heuristic and ridge model each recovered **41.7%** with mean regret 0.0520; the empirical model recovered **37.5%** with regret 0.0740; and the measured-search result recovered **39.6%** with regret 0.1630. The learned ridge baseline therefore did **not** outperform the heuristic in this experiment.
+
+All numbers above are software/simulation results from the preserved GitHub Actions publication artifact, not wet-lab DNA-storage measurements or physical-media claims.
 
 ## Tests and quality gates
 
