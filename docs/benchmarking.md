@@ -81,7 +81,7 @@ python benchmarks/run_learning_evaluation.py \
   --output-dir learning-results
 ```
 
-The learning pipeline converts reproducible experiment records into `PolicyObservation` data, splits evaluation seeds into disjoint training/test sets, fits both the instance-based empirical model and the deterministic ridge-regression utility model, and compares them with the deterministic heuristic and the measured combined-search result.
+The learning pipeline converts reproducible experiment records into `PolicyObservation` data, splits evaluation seeds into disjoint training/test sets **and** holds out a disjoint subset of channel scenarios, fits both the instance-based empirical model and the deterministic ridge-regression utility model, and compares them with the deterministic heuristic and the measured combined-search result.
 
 Reported metrics include:
 
