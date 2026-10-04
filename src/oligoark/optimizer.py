@@ -369,6 +369,13 @@ def _simulate_once(
 
 
 def _redundancy_ratio(config: ArchiveConfig) -> float:
+    """Return an explicit software redundancy proxy used by the objective.
+
+    This combines frame-level Reed-Solomon parity with archive-level XOR/fountain
+    redundancy. It is an optimization feature, not a physical synthesis overhead metric.
+    """
+    protected_payload_bytes = max(1, config.chunk_size + 18)
+    rs_component = config.rs_nsym / protected_payload_bytes
     xor_component = 0.0
     if config.redundancy_scheme in {"xor", "hybrid"}:
         xor_component = 1.0 / config.parity_group_size
@@ -377,7 +384,7 @@ def _redundancy_ratio(config: ArchiveConfig) -> float:
         if config.redundancy_scheme in {"fountain", "hybrid"}
         else 0.0
     )
-    return xor_component + fountain_component
+    return rs_component + xor_component + fountain_component
 
 
 def optimize_codec(
