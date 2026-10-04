@@ -54,7 +54,9 @@ The aggregation artifact contains:
 - `raw.json` / `raw.csv`: every held-out strategy trial;
 - `summary.json` / `summary.csv`: Wilson 95% recovery intervals, mean overhead/runtime, graph-rescue rate;
 - `paired-effects.json` / `paired-effects.csv`: paired differences versus the fixed strategy on identical seed/scenario/payload realizations;
-- `metadata.json`: commit, Python/platform information, calibration/evaluation seeds, search method/seed, payload sizes and claim scope;
+- `calibration.json`: selected optimizer plans and the complete nested candidate evaluations for each payload/scenario calibration;
+- `calibration-candidates.csv`: flattened candidate configurations, objective contributions, rejected-candidate reasons, and selected-winner flags;
+- `metadata.json`: commit, Python/platform information, calibration/evaluation seeds, calibration payload limit, search method/seed, payload sizes and claim scope;
 - plots for recovery vs configured error rate, overhead vs recovery, runtime vs recovery, strategy ablation, graph rescue, and calibration-to-held-out optimizer generalization.
 
 ## Controlled graph-rescue evidence
