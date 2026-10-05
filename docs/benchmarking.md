@@ -30,7 +30,7 @@ The publication profile is defined in `oligoark.experiments.publication_profile(
 - three independent calibration payload contents, up to 512 bytes;
 - payload sizes `512, 2048, 8192` bytes;
 - clean, 1% substitution, low indel, moderate indel at two coverage levels, two dropout regimes, and mixed noise;
-- fixed, heuristic adaptive, adaptive+hybrid redundancy, adaptive+graph/alignment, adaptive+iterative-trace, and combined robust-search strategies;
+- fixed, heuristic adaptive, adaptive+hybrid redundancy, adaptive+medoid graph consensus, adaptive+graph/alignment, adaptive+iterative-trace, and combined robust-search strategies;
 - explicit per-strand read coverage from 1 to 8 traces depending on regime.
 
 The combined optimizer is calibrated **only** on calibration seeds, frozen, and then evaluated on untouched evaluation seeds. Its budgeted candidate search is deterministic and order-independent. `balanced_robust` distributes coverage across redundancy/reconstruction groups and subtracts a cross-seed fold-instability penalty; `full_grid` evaluates the complete valid grid when practical. The publication profile sets runtime and retrieval objective weights to zero during candidate selection so repeated calibration on different GitHub runners cannot change the frozen winner through wall-clock jitter; runtime is still measured and reported as an outcome.
