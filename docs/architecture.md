@@ -92,7 +92,7 @@ Each strand contains a reversible mask identifier plus a Reed-Solomon-protected 
 
 `recover_from_reads()` first attempts direct normal recovery. On failure, the default `GraphConsensusReconstructor` constructs the explicit graph, finds connected components, produces alignment consensus candidates, appends those candidates to the noisy reads, and retries the **same normal decoder**. Its report includes whether direct decoding failed, whether graph reconstruction was used, node/pair/edge/component counts, cluster sizes, consensus lengths, reconstruction runtime, and whether reconstruction changed failure into verified success.
 
-`compare_reconstruction_modes()` runs direct, graph+medoid, and graph+alignment paths on the same read set for controlled ablation.
+`compare_reconstruction_modes()` runs direct, graph+medoid, graph+alignment, and iterative multi-threshold trace paths on the same read set for controlled ablation. In the executed v0.6 publication study, alignment and trace each rescued 46/63 direct-adaptive failures overall and all 38/38 direct failures across the two moderate-indel regimes, with no paired regressions; trace achieved the same recovery as alignment but at substantially higher software runtime.
 
 ## Measured optimization
 
@@ -130,10 +130,10 @@ The learning path is:
 ```text
 experiment records
   -> PolicyObservation dataset
-  -> deterministic empirical + ridge fit
-  -> disjoint held-out prediction
+  -> empirical + ridge + deterministic RBF-kernel fit
+  -> train / validation / disjoint-scenario test split
   -> recovery / overhead / runtime / selection accuracy / regret
-  -> serialized interpretable ridge model
+  -> serialized linear and kernel model state
 ```
 
-Negative results are retained rather than tuned away.
+Negative results are retained rather than tuned away. In the executed v0.6 split, the empirical, ridge and kernel learners did not improve held-out recovery over the heuristic, while measured search reached 100% recovery at materially higher runtime/utility cost.
