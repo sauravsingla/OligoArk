@@ -45,7 +45,7 @@ jobs:
             --seed-shard-count 2 
             --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}
       - name: Upload baseline publication shard
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}
           path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}/
@@ -85,7 +85,7 @@ jobs:
             --strategies combined 
             --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined
       - name: Upload combined publication shard
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined
           path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined/
@@ -141,7 +141,7 @@ jobs:
           test -s learning-results/kernel-model.json
           test -s graph-rescue-results.json
       - name: Upload publication validation artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oligoark-publication-validation
           path: |

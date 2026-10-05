@@ -35,7 +35,7 @@ jobs:
           python -m pip check
           oligoark --help
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oligoark-dist
           path: dist/
