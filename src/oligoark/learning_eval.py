@@ -229,11 +229,18 @@ def evaluate_learning_from_records(
             linear_candidate = LinearUtilityPolicyModel(ridge=ridge).fit(
                 training_observations
             )
+
+            def linear_selector(
+                channel: ChannelProfile,
+                candidates: list[CodecPolicy],
+                *,
+                model: LinearUtilityPolicyModel = linear_candidate,
+            ) -> CodecPolicy:
+                return model.recommend(channel, candidates=candidates).policy
+
             regret = _selector_validation_regret(
                 validation_records,
-                lambda channel, candidates, model=linear_candidate: model.recommend(
-                    channel, candidates=candidates
-                ).policy,
+                linear_selector,
             )
             ridge_scores.append((regret, ridge))
         selected_ridge = min(ridge_scores)[1]
@@ -245,11 +252,18 @@ def evaluate_learning_from_records(
             kernel_candidate = KernelUtilityPolicyModel(bandwidth=bandwidth).fit(
                 training_observations
             )
+
+            def kernel_selector(
+                channel: ChannelProfile,
+                candidates: list[CodecPolicy],
+                *,
+                model: KernelUtilityPolicyModel = kernel_candidate,
+            ) -> CodecPolicy:
+                return model.recommend(channel, candidates=candidates).policy
+
             regret = _selector_validation_regret(
                 validation_records,
-                lambda channel, candidates, model=kernel_candidate: model.recommend(
-                    channel, candidates=candidates
-                ).policy,
+                kernel_selector,
             )
             bandwidth_scores.append((regret, bandwidth))
         selected_bandwidth = min(bandwidth_scores)[1]
