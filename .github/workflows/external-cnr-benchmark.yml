@@ -101,6 +101,8 @@ jobs:
             --subset-size 96 \
             --coverages 1 5 10 \
             --seed 20261005 \
+            --calibration-size 48 \
+            --calibration-seed 20261006 \
             --bbs-repeats 5 \
             --output-dir external-cnr-results
 
@@ -112,6 +114,10 @@ jobs:
           test -s external-cnr-results/raw-results.csv
           test -s external-cnr-results/paired-comparisons.csv
           test -s external-cnr-results/bbs-repeat-summaries.csv
+          test -s external-cnr-results/calibration.json
+          test -s external-cnr-results/calibration-clusters.json
+          test -s external-cnr-results/calibration-candidates.csv
+          test -s external-cnr-results/calibration-summary.csv
           test -s external-cnr-results/metadata.json
           python -m json.tool external-cnr-results/summary.json > /dev/null
 
