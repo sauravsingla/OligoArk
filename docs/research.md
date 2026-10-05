@@ -18,47 +18,48 @@ OligoArk is a software research framework, not a wet-lab DNA-storage system. v0.
 
 ## Validation design
 
-The v0.5 publication profile uses separate seed sets:
+The executed v0.6 publication study uses seed sets untouched by v0.5. Optimizer calibration uses seeds `9401–9406`; final evaluation uses `31001–31010`. Calibration rotates across three independently generated payload contents and uses up to 512 bytes. `balanced_robust` uses deterministic candidate sampling plus a cross-seed instability penalty. Publication selection disables wall-clock runtime/retrieval terms so runner-speed jitter cannot change the frozen winner; runtime remains a reported outcome.
 
-- **Calibration seeds:** used only to select the combined optimizer configuration.
-- **Evaluation seeds:** unseen by the optimizer and used to measure final recovery/overhead/runtime behavior.
-- **Learning split:** publication evaluation records are further split into disjoint training and held-out test subsets for the empirical and ridge-regression policy models.
+The channel model separates deterministic multi-read coverage from optional extra duplication. `copies_per_strand` emits independently corrupted traces for every surviving strand while `duplicate_rate` retains the legacy probability of one additional trace. The publication profile spans three payload sizes, eight channel/coverage regimes, seven strategies and ten untouched evaluation seeds: **1,680 held-out trials**. The aggregate also retains 24 optimizer calibration records and 864 candidate evaluations. Calibration/evaluation seed sets are disjoint and failed trials are never removed.
 
-Publication artifacts preserve the exact git commit, Python/platform metadata, calibration seeds, evaluation seeds, payload sizes, search method/seed, raw trials, aggregate summaries, paired differences, policy-model state, and graph-rescue diagnostics.
+## Measured v0.6 publication results
 
-## Measured v0.5 publication results
+The final v0.6 validation artifact was produced from the unchanged scientific implementation merged in PR #11 and records publication commit `5c1330de9e1a3bfde0ed05cd31aa30033cba0065`, Python 3.13.15 and Linux. The long 8192-byte moderate-indel baseline shards were completed through execution-only recovery sharding; scientific profile, seeds, channel settings and strategies were unchanged.
 
-The publication workflow completed successfully on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569`. It produced 960 held-out trials, 576 retained calibration-candidate evaluations, paired effects, Wilson confidence intervals, graph-rescue diagnostics, learned-policy outputs and plots.
-
-Overall SHA-256-verified recovery across 192 held-out trials per strategy was:
+Overall SHA-256-verified recovery across 240 held-out trials per strategy was:
 
 | Strategy | Recovery | 95% Wilson CI | Mean encoded overhead | Mean runtime |
 | --- | ---: | ---: | ---: | ---: |
-| adaptive + fountain/hybrid | 66.7% | 59.7–73.0% | 2.114× | 0.959 s |
-| heuristic adaptive | 59.9% | 52.8–66.6% | 1.557× | 0.728 s |
-| adaptive + graph/alignment | 59.9% | 52.8–66.6% | 1.557× | 3.379 s |
-| combined measured optimizer | 57.3% | 50.2–64.1% | 1.895× | 1.841 s |
-| fixed | 45.8% | 38.9–52.9% | 1.492× | 0.036 s |
+| adaptive + graph/alignment | **92.9% (223/240)** | 89.0–95.5% | 1.557× | 36.080 s |
+| adaptive + iterative trace | **92.9% (223/240)** | 89.0–95.5% | 1.557× | 763.326 s |
+| combined robust optimizer | **92.1% (221/240)** | 88.0–94.9% | 1.710× | 33.645 s |
+| adaptive + fountain/hybrid | 83.3% (200/240) | 78.1–87.5% | 2.114× | 1.251 s |
+| heuristic adaptive | 73.8% (177/240) | 67.8–78.9% | 1.557× | 0.943 s |
+| adaptive + medoid | 73.8% (177/240) | 67.8–78.9% | 1.557× | 29.880 s |
+| fixed | 61.7% (148/240) | 55.4–67.6% | 1.492× | 0.058 s |
 
-The paired recovery-rate differences versus fixed, evaluated on identical simulated channel realizations, were +20.8 percentage points for adaptive+fountain/hybrid, +14.1 points for heuristic adaptive, +14.1 points for adaptive+graph/alignment, and +11.5 points for the combined optimizer. The combined optimizer had two paired regressions versus fixed and did not outperform the simpler adaptive+fountain/hybrid strategy overall.
+Runtime values are GitHub-hosted software wall-clock measurements, not physical DNA-system latency and not cross-machine performance claims. In particular, iterative trace reconstruction is substantially more expensive than alignment reconstruction in the 8192-byte high-coverage regime.
 
-Regime-level results are also mixed and therefore informative. All strategies recovered 100% in clean and 0.1% substitution regimes. At 1% substitution, fixed recovered 4.2%, adaptive/adaptive+fountain/adaptive+graph each recovered 100%, and the combined optimizer recovered 79.2%. At 10% dropout, adaptive+fountain recovered 87.5%, adaptive/adaptive+graph 62.5%, fixed 45.8%, and combined 41.7%. No strategy recovered the moderate-indel regime. In the low-indel regime, combined recovered 29.2%, adaptive+fountain 25.0%, and fixed/adaptive/adaptive+graph 12.5%.
+The main v0.6 scientific result is the moderate-indel reconstruction improvement on untouched held-out trials. Aggregated over all three payload sizes:
 
-The measured search therefore demonstrates a real, inspectable optimization mechanism, but its current four-seed/256-byte calibration budget can overfit stochastic conditions. This is reported as a **negative generalization result**, not tuned away after observing the held-out test set. A future optimizer study should increase calibration diversity or use sequential/uncertainty-aware search with a new untouched evaluation set.
+| Regime | Direct adaptive | Medoid | Adaptive + fountain | Graph/alignment | Iterative trace | Combined |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| moderate indel, 5 copies/strand | 7/30 | 7/30 | 11/30 | **30/30** | **30/30** | **30/30** |
+| moderate indel, 8 copies/strand | 15/30 | 15/30 | 23/30 | **30/30** | **30/30** | **30/30** |
 
-The controlled graph-rescue experiment independently establishes capability. Both constructed cases started with direct decode failure and formed an explicit 7-node, 21-edge, one-component graph. In the substitution case, medoid and alignment consensus both produced verified recovery. In the insertion/deletion case, medoid failed while alignment-aware consensus produced a consensus of length 280 and recovered through the normal decoder with SHA-256 verification. In the larger publication sweep, graph reconstruction produced no additional direct-failure rescues, so OligoArk does not claim broad graph superiority from this release.
+At 8192 bytes specifically, direct adaptive recovered 0/10 in the five-copy regime and 1/10 in the eight-copy regime, while graph/alignment and iterative trace each recovered 10/10 in both. Paired on identical realizations, graph and trace each rescued **38/38 direct failures across the two moderate-indel regimes with zero regressions**. Across all eight publication regimes they each rescued **46/63** direct-adaptive failures: 5 low-indel, 23 moderate-indel, 15 high-coverage moderate-indel and 3 mixed-noise rescues, with no paired regression.
 
-The policy-learning evaluation used disjoint seed and channel splits: training seeds 2026–2029 on clean, 0.1% substitution, 1% substitution and low-indel regimes; test seeds 2030–2033 on moderate-indel, 2% dropout, 10% dropout and mixed regimes. Across 48 held-out groups, the heuristic and ridge model each recovered 41.7% with mean regret 0.0520; empirical recovered 37.5% with regret 0.0740; measured search recovered 39.6% with regret 0.1630. The learned ridge baseline did not beat the heuristic.
+The combined optimizer also improved substantially over v0.5, but its calibration is not perfectly predictive. Every selected winner achieved 6/6 calibration recovery in all 24 payload×scenario cells. On untouched held-out seeds, 19/24 cells remained perfect and aggregate recovery was 221/240. It achieved 30/30 in both moderate-indel regimes, 30/30 in low-indel and mixed noise, but only 14/30 at 10% dropout versus 21/30 for adaptive+fountain, and 28/30 at 1% substitution versus 30/30 for adaptive+fountain. The calibration-to-held-out gap is therefore retained as a negative generalization result.
 
-All of these are software/simulation results. Runtime values are specific to the recorded GitHub Actions environment and must not be interpreted as physical DNA-system latency.
+The controlled graph-rescue experiment independently remains positive. Both constructed cases start from direct failure. Alignment and iterative trace recover both with the normal integrity gate; medoid recovers the substitution case but fails the insertion/deletion case. Unlike v0.5, the v0.6 publication sweep now shows broad verified rescues outside the controlled examples.
 
-## v0.6 untouched evaluation design
+The held-out policy-learning evaluation uses training seeds `31001–31004`, validation seeds `31005–31006`, and test seeds `31007–31010`. Training scenarios are clean, 10% dropout, 2% dropout and low-indel; test scenarios are moderate-indel, high-coverage moderate-indel, mixed and 1% substitution. Across 48 test groups: heuristic recovery was 68.8% with mean regret 0.0378; empirical recovery 47.9% with regret 0.2037; linear-ridge recovery 47.9% with regret 0.1923; RBF-kernel recovery 47.9% with regret 0.1923; adaptive+fountain recovery 77.1% with regret 0.1163; and measured search recovery 100% with mean regret 1.4279 because its measured runtime/utility cost was much higher. Linear and kernel selection accuracy was 79.2%, but neither learned model improved held-out recovery over the heuristic. These negative learning results are retained.
 
-The v0.6 simulation study uses seed sets not used in the v0.5 publication study. Optimizer calibration uses seeds `9401–9406`; final evaluation uses `31001–31010`. Calibration rotates across three independently generated payload contents and uses up to 512 bytes rather than the earlier 256-byte limit. `balanced_robust` retains deterministic, order-independent sampling but penalizes disagreement between alternating calibration-seed folds. For the sharded publication study, wall-clock runtime/retrieval terms are excluded from candidate selection so runner-speed noise cannot change the frozen winner; runtime remains a reported metric.
+## Historical v0.5 baseline
 
-The channel model now separates **coverage** from extra stochastic duplication. `copies_per_strand` produces a declared number of independently corrupted traces for every surviving strand, while `duplicate_rate` preserves the legacy probability of one additional trace. This is still a software model, but it allows graph/trace reconstruction to be tested on genuine multi-read clusters rather than one or two traces.
+The v0.5 workflow evaluated 960 held-out trials on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569`. Its best overall strategy was adaptive+fountain/hybrid at 66.7% (128/192; Wilson 95% CI 59.7–73.0%); combined measured search recovered 57.3% (110/192). No v0.5 strategy recovered the moderate-indel regime. The controlled alignment graph rescued 2/2 constructed direct-failure cases, but the broader v0.5 sweep showed no additional direct-failure rescues. v0.6 therefore addresses the specific moderate-indel and broad-rescue gaps while retaining optimizer, learned-policy, runtime and physical-validation limitations.
 
-The v0.6 publication profile contains three payload sizes, eight channel/coverage regimes, seven strategies and ten untouched evaluation seeds. It includes both moderate-indel coverage levels so the effect of trace count can be measured rather than assumed.
+All results in this section are software/simulation measurements. They do not establish sequencing-platform fidelity, synthesis performance, wet-lab recovery, or physical-media economics.
 
 ## Physical-data pathway
 
