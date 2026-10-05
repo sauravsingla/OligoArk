@@ -204,6 +204,23 @@ def main() -> None:
     }
     if len(calibration_seed_sets) != 1:
         raise ValueError("publication shards disagree on calibration seeds")
+    strategy_order = (
+        "fixed",
+        "adaptive",
+        "adaptive_fountain",
+        "adaptive_medoid",
+        "adaptive_graph",
+        "adaptive_trace",
+        "combined",
+    )
+    observed_strategies = {
+        str(strategy)
+        for metadata in metadata_values
+        for strategy in metadata.get("strategies", [])
+    }
+    strategies = [
+        strategy for strategy in strategy_order if strategy in observed_strategies
+    ]
     scenario_by_name: dict[str, object] = {}
     for metadata in metadata_values:
         for scenario in metadata.get("scenarios", []):
@@ -212,6 +229,7 @@ def main() -> None:
     metadata = {
         **first,
         "payload_sizes": payload_sizes,
+        "strategies": strategies,
         "evaluation_seeds": evaluation_seeds,
         "calibration_seeds": list(next(iter(calibration_seed_sets))),
         "seed_shard_index": None,
