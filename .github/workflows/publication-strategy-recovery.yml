@@ -1,0 +1,157 @@
+name: Publication experiments strategy recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  heavy-strategy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.ref == 'refs/heads/main' &&
+       contains(github.event.head_commit.message, '[publication-v0.6-strategy-recovery]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - indel-moderate
+          - indel-moderate-highcoverage
+        seed-shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        strategy:
+          - fixed
+          - adaptive
+          - adaptive_fountain
+          - adaptive_medoid
+          - adaptive_graph
+          - adaptive_trace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run one-seed one-strategy heavy baseline shard
+        run: |
+          python benchmarks/run_experiments.py \
+            --profile publication \
+            --payload-size 8192 \
+            --scenario ${{ matrix.scenario }} \
+            --strategies ${{ matrix.strategy }} \
+            --seed-shard-index ${{ matrix.seed-shard }} \
+            --seed-shard-count 10 \
+            --output-dir publication-8192-${{ matrix.scenario }}-${{ matrix.strategy }}-r${{ matrix.seed-shard }}
+      - name: Upload heavy strategy shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-publication-8192-${{ matrix.scenario }}-${{ matrix.strategy }}-r${{ matrix.seed-shard }}
+          path: publication-8192-${{ matrix.scenario }}-${{ matrix.strategy }}-r${{ matrix.seed-shard }}/
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.ref == 'refs/heads/main' &&
+       contains(github.event.head_commit.message, '[publication-v0.6-strategy-recovery]'))
+    needs: [heavy-strategy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Download replacement strategy shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: oligoark-publication-8192-*-r*
+          path: publication-shards/recovery
+      - name: Download completed publication shards from original run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p publication-shards/original
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/37273611718/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.id, .name] | @tsv' |
+          while IFS=$'\t' read -r artifact_id artifact_name; do
+            case "${artifact_name}" in
+              oligoark-publication-8192-indel-moderate-baseline-s0|\
+              oligoark-publication-8192-indel-moderate-baseline-s1|\
+              oligoark-publication-8192-indel-moderate-highcoverage-baseline-s0|\
+              oligoark-publication-8192-indel-moderate-highcoverage-baseline-s1)
+                continue
+                ;;
+              oligoark-publication-*)
+                zip_path="/tmp/${artifact_id}.zip"
+                target="publication-shards/original/${artifact_name}"
+                mkdir -p "${target}"
+                gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${zip_path}"
+                unzip -q "${zip_path}" -d "${target}"
+                ;;
+            esac
+          done
+          test "$(find publication-shards -name raw.json | wc -l)" -eq 188
+      - name: Aggregate untouched held-out experiment shards
+        run: python benchmarks/aggregate_experiment_shards.py
+      - name: Validate exact publication dimensions
+        run: |
+          python - <<'PY'
+          import json
+          m = json.load(open("publication-results/metadata.json"))
+          assert m["raw_trial_count"] == 1680, m
+          assert m["calibration_record_count"] == 24, m
+          assert m["calibration_candidate_count"] == 864, m
+          assert m["evaluation_seeds"] == list(range(31001, 31011)), m
+          assert m["calibration_seeds"] == list(range(9401, 9407)), m
+          PY
+      - name: Evaluate learned policies on unseen seeds and regimes
+        run: |
+          python benchmarks/run_learning_evaluation.py \
+            --experiment-dir publication-results \
+            --output-dir learning-results
+      - name: Run controlled graph rescue validation
+        run: python benchmarks/run_graph_rescue.py
+      - name: Validate publication artifacts
+        run: |
+          test -s publication-results/raw.json
+          test -s publication-results/raw.csv
+          test -s publication-results/summary.json
+          test -s publication-results/summary.csv
+          test -s publication-results/paired-effects.json
+          test -s publication-results/paired-effects.csv
+          test -s publication-results/calibration.json
+          test -s publication-results/calibration-candidates.csv
+          test -s publication-results/metadata.json
+          test -s publication-results/recovery_vs_error_rate.png
+          test -s publication-results/overhead_vs_recovery.png
+          test -s publication-results/runtime_vs_recovery.png
+          test -s publication-results/strategy_ablation.png
+          test -s publication-results/graph_rescue_rate.png
+          test -s publication-results/optimizer_generalization.png
+          test -s learning-results/evaluation.json
+          test -s learning-results/summary.csv
+          test -s learning-results/linear-model.json
+          test -s learning-results/kernel-model.json
+          test -s graph-rescue-results.json
+      - name: Upload publication validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-publication-validation-strategy-recovery
+          path: |
+            publication-results/
+            learning-results/
+            graph-rescue-results.json
+          if-no-files-found: error
+          retention-days: 90
