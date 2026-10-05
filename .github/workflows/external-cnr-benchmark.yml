@@ -101,6 +101,7 @@ jobs:
             --subset-size 96 \
             --coverages 1 5 10 \
             --seed 20261005 \
+            --bbs-repeats 5 \
             --output-dir external-cnr-results
 
       - name: Validate benchmark outputs
@@ -110,6 +111,7 @@ jobs:
           test -s external-cnr-results/raw-results.json
           test -s external-cnr-results/raw-results.csv
           test -s external-cnr-results/paired-comparisons.csv
+          test -s external-cnr-results/bbs-repeat-summaries.csv
           test -s external-cnr-results/metadata.json
           python -m json.tool external-cnr-results/summary.json > /dev/null
 
