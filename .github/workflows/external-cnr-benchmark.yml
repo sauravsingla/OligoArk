@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Check out OligoArk
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -51,6 +53,10 @@ jobs:
             "2d72f78cd86f2172578aaae297113a4baa14975c"
           test "$(git -C .external/cnr hash-object Clusters.txt)" = \
             "95a71c77cb82f6d501d6aa99c7415591565c5ae3"
+          test "$(sha256sum .external/cnr/Centers.txt | cut -d' ' -f1)" = \
+            "b70e723ef0d83a88f7b3e483b932b0279628a0eae39cb4e41d99b9e367c5341e"
+          test "$(sha256sum .external/cnr/Clusters.txt | cut -d' ' -f1)" = \
+            "7c2e27b497762ed3bb01a2d27ed09ca2291d590a0a7534a25307876d76b6ca22"
           sha256sum .external/cnr/Centers.txt .external/cnr/Clusters.txt
 
       - name: Check out pinned BBS baseline
