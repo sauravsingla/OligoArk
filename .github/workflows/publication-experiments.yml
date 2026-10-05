@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  shard:
+  baseline-shard:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -31,25 +31,65 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -U pip
       - run: pip install -e ".[bench]"
-      - name: Run publication shard
+      - name: Run baseline publication shard
         run: |
           python benchmarks/run_experiments.py \
             --profile publication \
             --payload-size ${{ matrix.payload-size }} \
             --scenario ${{ matrix.scenario }} \
+            --strategies fixed,adaptive,adaptive_fountain,adaptive_medoid,adaptive_graph,adaptive_trace \
             --seed-shard-index ${{ matrix.seed-shard }} \
             --seed-shard-count 2 \
-            --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-s${{ matrix.seed-shard }}
-      - name: Upload publication shard
+            --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}
+      - name: Upload baseline publication shard
         uses: actions/upload-artifact@v4
         with:
-          name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-s${{ matrix.seed-shard }}
-          path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-s${{ matrix.seed-shard }}/
+          name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}
+          path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}/
+          if-no-files-found: error
+          retention-days: 90
+
+  combined-shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        payload-size: [512, 2048, 8192]
+        scenario:
+          - clean
+          - substitution-1pct
+          - indel-low
+          - indel-moderate
+          - indel-moderate-highcoverage
+          - dropout-2pct
+          - dropout-10pct
+          - mixed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run combined optimizer publication shard
+        run: |
+          python benchmarks/run_experiments.py \
+            --profile publication \
+            --payload-size ${{ matrix.payload-size }} \
+            --scenario ${{ matrix.scenario }} \
+            --strategies combined \
+            --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined
+      - name: Upload combined publication shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined
+          path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined/
           if-no-files-found: error
           retention-days: 90
 
   aggregate:
-    needs: shard
+    needs: [baseline-shard, combined-shard]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
