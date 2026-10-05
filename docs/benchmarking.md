@@ -201,3 +201,5 @@ python benchmarks/run_physical_dataset.py \
 ```
 
 The checked DNA-Aeon manifest records public SRA provenance only. The evaluator does not infer another project's archive format and does not turn reference-reconstruction accuracy into an OligoArk end-to-end decoding claim.
+
+A separate reproducible external benchmark now uses Microsoft's physical Clustered Nanopore Reads dataset with explicit 110-base references and the pinned external Bidirectional Beam Search (BBS) implementation. On the deterministic 96-cluster subset, BBS recovered 73/96 references at five reads and 93/96 at ten reads, versus 33/96 and 65/96 for OligoArk graph/alignment and 44/96 and 63/96 for iterative trace. These paired differences are statistically significant at both multi-read coverages. See [external-cnr-benchmark.md](external-cnr-benchmark.md) for the design, result table, limitations and claim boundary.
