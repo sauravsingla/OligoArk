@@ -58,7 +58,7 @@ The v0.6 simulation study uses seed sets not used in the v0.5 publication study.
 
 The channel model now separates **coverage** from extra stochastic duplication. `copies_per_strand` produces a declared number of independently corrupted traces for every surviving strand, while `duplicate_rate` preserves the legacy probability of one additional trace. This is still a software model, but it allows graph/trace reconstruction to be tested on genuine multi-read clusters rather than one or two traces.
 
-The v0.6 publication profile contains three payload sizes, eight channel/coverage regimes, six strategies and ten untouched evaluation seeds. It includes both moderate-indel coverage levels so the effect of trace count can be measured rather than assumed.
+The v0.6 publication profile contains three payload sizes, eight channel/coverage regimes, seven strategies and ten untouched evaluation seeds. It includes both moderate-indel coverage levels so the effect of trace count can be measured rather than assumed.
 
 ## Physical-data pathway
 
