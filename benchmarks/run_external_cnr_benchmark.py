@@ -21,6 +21,7 @@ from oligoark.reconstruct import (
     global_align,
     iterative_trace_consensus,
     medoid_consensus,
+    multistart_trace_consensus,
 )
 
 DATASET_NAME = "Microsoft Clustered Nanopore Reads (CNR)"
@@ -34,7 +35,53 @@ TARGET_LENGTH = 110
 DEFAULT_SUBSET_SIZE = 96
 DEFAULT_COVERAGES = (1, 5, 10)
 DEFAULT_SEED = 20261005
-OLIGOARK_METHODS = ("direct", "medoid", "graph_alignment", "iterative_trace")
+DEFAULT_CALIBRATION_SEED = 20261006
+DEFAULT_CALIBRATION_SIZE = 48
+CALIBRATION_COVERAGES = (5, 10)
+MULTISTART_CANDIDATES: tuple[dict[str, object], ...] = (
+    {
+        "name": "a1-r2-bi",
+        "anchors": 1,
+        "rounds": 2,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+    },
+    {
+        "name": "a2-r1-bi",
+        "anchors": 2,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+    },
+    {
+        "name": "a2-r2-bi",
+        "anchors": 2,
+        "rounds": 2,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+    },
+    {
+        "name": "a3-r1-bi",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+    },
+    {
+        "name": "a2-r2-forward",
+        "anchors": 2,
+        "rounds": 2,
+        "bidirectional": False,
+        "length_penalty": 1.0,
+    },
+)
+OLIGOARK_METHODS = (
+    "direct",
+    "medoid",
+    "graph_alignment",
+    "iterative_trace",
+    "multistart_trace",
+)
 
 
 def _sha256_file(path: Path) -> str:
@@ -109,8 +156,14 @@ def select_subset(
     subset_size: int,
     max_coverage: int,
     seed: int,
+    excluded_indices: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    eligible = [index for index, cluster in enumerate(clusters) if len(cluster) >= max_coverage]
+    excluded = excluded_indices or set()
+    eligible = [
+        index
+        for index, cluster in enumerate(clusters)
+        if len(cluster) >= max_coverage and index not in excluded
+    ]
     if len(eligible) < subset_size:
         raise ValueError(
             f"only {len(eligible)} clusters have at least {max_coverage} reads; "
@@ -166,7 +219,11 @@ def _choose_graph_candidate(reads: list[str]) -> str:
     return result.consensus_reads[best_index]
 
 
-def _reconstruct(method: str, reads: list[str]) -> str:
+def _reconstruct(
+    method: str,
+    reads: list[str],
+    consensus_config: dict[str, object] | None = None,
+) -> str:
     if method == "direct":
         return reads[0]
     if method == "medoid":
@@ -175,6 +232,17 @@ def _reconstruct(method: str, reads: list[str]) -> str:
         return _choose_graph_candidate(reads)
     if method == "iterative_trace":
         return iterative_trace_consensus(reads, rounds=3)
+    if method == "multistart_trace":
+        if consensus_config is None:
+            raise ValueError("multistart_trace requires a frozen consensus_config")
+        return multistart_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            anchors=int(consensus_config["anchors"]),
+            rounds=int(consensus_config["rounds"]),
+            bidirectional=bool(consensus_config["bidirectional"]),
+            length_penalty=float(consensus_config["length_penalty"]),
+        )
     raise ValueError(f"unknown worker method: {method}")
 
 
@@ -203,10 +271,11 @@ def _case_record(
 def run_worker(method: str, subset_json: Path, output: Path) -> None:
     payload = json.loads(subset_json.read_text(encoding="utf-8"))
     coverage = int(payload["coverage"])
+    consensus_config = payload.get("consensus_config")
     rows: list[dict[str, Any]] = []
     for record in payload["records"]:
         reads = [str(read) for read in record["reads"]]
-        reconstruction = _reconstruct(method, reads)
+        reconstruction = _reconstruct(method, reads, consensus_config)
         rows.append(
             _case_record(
                 method,
