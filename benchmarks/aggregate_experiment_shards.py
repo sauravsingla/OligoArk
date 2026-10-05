@@ -226,10 +226,20 @@ def main() -> None:
         for scenario in metadata.get("scenarios", []):
             if isinstance(scenario, dict) and isinstance(scenario.get("name"), str):
                 scenario_by_name[str(scenario["name"])] = scenario
+    calibration_payload_limit = max(
+        int(metadata.get("calibration_payload_limit_bytes", 0))
+        for metadata in metadata_values
+    )
+    calibration_payload_variants = max(
+        int(metadata.get("calibration_payload_variants", 0))
+        for metadata in metadata_values
+    )
     metadata = {
         **first,
         "payload_sizes": payload_sizes,
         "strategies": strategies,
+        "calibration_payload_limit_bytes": calibration_payload_limit,
+        "calibration_payload_variants": calibration_payload_variants,
         "evaluation_seeds": evaluation_seeds,
         "calibration_seeds": list(next(iter(calibration_seed_sets))),
         "seed_shard_index": None,
