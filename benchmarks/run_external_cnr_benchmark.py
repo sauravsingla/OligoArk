@@ -824,6 +824,22 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 len(cluster) >= max_coverage for cluster in clusters
             ),
         },
+        "calibration": {
+            "selection": (
+                "separate deterministic SHA-256 ranked clusters with all held-out "
+                "cluster IDs excluded before parameter selection"
+            ),
+            "seed": args.calibration_seed,
+            "subset_size": args.calibration_size,
+            "coverages": list(CALIBRATION_COVERAGES),
+            "held_out_overlap_count": 0,
+            "baseline": calibration_baseline,
+            "candidates": calibration_candidates,
+            "winner": calibration_winner,
+            "runtime_budget_rule": (
+                "candidate runtime <= max(4x iterative baseline, baseline + 2 seconds)"
+            ),
+        },
         "claim_scope": (
             "physical-read trace reconstruction against explicit reference oligos; "
             "not OligoArk end-to-end archive decoding"
@@ -875,11 +891,21 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "The benchmark preserves the official source and records repeated executions "
             "instead of modifying its tie behavior."
         ),
+        (
+            "The multistart configuration is selected on one disjoint CNR calibration "
+            "subset and may not generalize to other physical DNA-storage channels."
+        ),
     ]
 
     error_profile = _error_profile(selected, max_coverage)
     summary_payload = {
         "metadata": metadata,
+        "calibration": {
+            "baseline": calibration_baseline,
+            "candidates": calibration_candidates,
+            "winner": calibration_winner,
+            "held_out_overlap_count": 0,
+        },
         "raw_read_error_profile_on_selected_max_coverage_reads": error_profile,
         "summaries": summaries,
         "paired_exact_recovery_comparisons_vs_bbs": comparisons,
@@ -897,6 +923,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
     _write_csv(output_dir / "summary.csv", summaries)
     _write_csv(output_dir / "paired-comparisons.csv", comparisons)
     _write_csv(output_dir / "bbs-repeat-summaries.csv", bbs_repeat_summaries)
+    _write_csv(output_dir / "calibration-candidates.csv", calibration_candidates)
+    _write_csv(
+        output_dir / "calibration-summary.csv",
+        [calibration_baseline, calibration_winner],
+    )
     (output_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
@@ -912,6 +943,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subset-size", type=int, default=DEFAULT_SUBSET_SIZE)
     parser.add_argument("--coverages", type=int, nargs="+", default=list(DEFAULT_COVERAGES))
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--calibration-seed",
+        type=int,
+        default=DEFAULT_CALIBRATION_SEED,
+    )
+    parser.add_argument(
+        "--calibration-size",
+        type=int,
+        default=DEFAULT_CALIBRATION_SIZE,
+    )
     parser.add_argument("--bbs-repeats", type=int, default=5)
     parser.add_argument("--worker-method", choices=OLIGOARK_METHODS)
     parser.add_argument("--subset-json")
