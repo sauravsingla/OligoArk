@@ -16,7 +16,7 @@ OligoArk converts digital data into DNA-like sequences, simulates errors such as
 - Moderate-indel recovery: **30/30** at both tested read-coverage levels.
 - Graph/trace reconstruction rescued **38/38** paired direct-method failures in the two moderate-indel regimes, with **0 regressions**.
 - Combined robust optimizer: **221/240 = 92.1%** overall recovery.
-- Physical CNR benchmark: lightweight multi-start trace improved to **53/96 at 5 reads** and **80/96 at 10 reads**, versus BBS **73/96** and **93/96** in the first frozen-baseline run.
+- Physical CNR benchmark: lightweight multi-start trace improved to **53/96 at 5 reads** and **80/96 at 10 reads**, versus BBS **72–73/96** and **93/96** across five repetitions.
 
 The physical result narrows the external gap but does **not** establish state-of-the-art performance; BBS remains significantly stronger on exact recovery. End-to-end decoding of an external DNA archive has not been validated.
 
