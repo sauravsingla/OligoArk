@@ -238,6 +238,7 @@ def main() -> None:
     parser.add_argument("--output-dir", default="experiment-results")
     parser.add_argument("--payload-size", type=int)
     parser.add_argument("--scenario")
+    parser.add_argument("--strategies")
     parser.add_argument("--seed-shard-index", type=int)
     parser.add_argument("--seed-shard-count", type=int)
     args = parser.parse_args()
@@ -254,6 +255,16 @@ def main() -> None:
         if not selected:
             raise ValueError("requested scenario is not part of the selected profile")
         profile = replace(profile, scenarios=selected)
+    if args.strategies is not None:
+        requested_strategies = tuple(
+            item.strip() for item in args.strategies.split(",") if item.strip()
+        )
+        if not requested_strategies:
+            raise ValueError("at least one strategy must be requested")
+        unknown = sorted(set(requested_strategies) - set(profile.strategies))
+        if unknown:
+            raise ValueError(f"unknown requested strategy or strategies: {unknown}")
+        profile = replace(profile, strategies=requested_strategies)
     if (args.seed_shard_index is None) != (args.seed_shard_count is None):
         raise ValueError("seed shard index and count must be supplied together")
     if args.seed_shard_count is not None:
@@ -287,13 +298,16 @@ def main() -> None:
     (output / "paired-effects.json").write_text(
         json.dumps(effect_rows, indent=2), encoding="utf-8"
     )
-    (output / "calibration.json").write_text(
-        json.dumps(calibration_rows, indent=2), encoding="utf-8"
-    )
+    if calibration_rows:
+        (output / "calibration.json").write_text(
+            json.dumps(calibration_rows, indent=2), encoding="utf-8"
+        )
     _write_csv(output / "raw.csv", raw_rows)
     _write_csv(output / "summary.csv", summary_rows)
-    _write_csv(output / "paired-effects.csv", effect_rows)
-    _write_csv(output / "calibration-candidates.csv", calibration_candidate_rows)
+    if effect_rows:
+        _write_csv(output / "paired-effects.csv", effect_rows)
+    if calibration_candidate_rows:
+        _write_csv(output / "calibration-candidates.csv", calibration_candidate_rows)
 
     metadata = {
         "oligoark_version": __version__,
