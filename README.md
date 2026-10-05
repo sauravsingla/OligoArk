@@ -17,7 +17,7 @@ OligoArk converts digital data into DNA-like sequences, simulates errors such as
 - Graph/trace reconstruction rescued **38/38** paired direct-method failures in the two moderate-indel regimes, with **0 regressions**.
 - Combined robust optimizer: **221/240 = 92.1%** overall recovery.
 
-The iterative-trace method is substantially slower, learned policies did not outperform the simpler heuristic on the held-out split, and external physical DNA decoding has not yet been validated.
+The iterative-trace method is substantially slower, learned policies did not outperform the simpler heuristic, and a physical-read CNR benchmark found the external BBS method stronger than OligoArk reconstruction at 5- and 10-read coverage. End-to-end decoding of an external DNA archive has not been validated.
 
 ## Install
 
