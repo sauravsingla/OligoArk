@@ -36,13 +36,13 @@ jobs:
       - run: pip install -e ".[bench]"
       - name: Run baseline publication shard
         run: |
-          python benchmarks/run_experiments.py \
-            --profile publication \
-            --payload-size ${{ matrix.payload-size }} \
-            --scenario ${{ matrix.scenario }} \
-            --strategies fixed,adaptive,adaptive_fountain,adaptive_medoid,adaptive_graph,adaptive_trace \
-            --seed-shard-index ${{ matrix.seed-shard }} \
-            --seed-shard-count 2 \
+          python benchmarks/run_experiments.py 
+            --profile publication 
+            --payload-size ${{ matrix.payload-size }} 
+            --scenario ${{ matrix.scenario }} 
+            --strategies fixed,adaptive,adaptive_fountain,adaptive_medoid,adaptive_graph,adaptive_trace 
+            --seed-shard-index ${{ matrix.seed-shard }} 
+            --seed-shard-count 2 
             --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-baseline-s${{ matrix.seed-shard }}
       - name: Upload baseline publication shard
         uses: actions/upload-artifact@v4
@@ -78,11 +78,11 @@ jobs:
       - run: pip install -e ".[bench]"
       - name: Run combined optimizer publication shard
         run: |
-          python benchmarks/run_experiments.py \
-            --profile publication \
-            --payload-size ${{ matrix.payload-size }} \
-            --scenario ${{ matrix.scenario }} \
-            --strategies combined \
+          python benchmarks/run_experiments.py 
+            --profile publication 
+            --payload-size ${{ matrix.payload-size }} 
+            --scenario ${{ matrix.scenario }} 
+            --strategies combined 
             --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-combined
       - name: Upload combined publication shard
         uses: actions/upload-artifact@v4
@@ -113,8 +113,8 @@ jobs:
         run: python benchmarks/aggregate_experiment_shards.py
       - name: Evaluate learned policies on unseen seeds and regimes
         run: |
-          python benchmarks/run_learning_evaluation.py \
-            --experiment-dir publication-results \
+          python benchmarks/run_learning_evaluation.py 
+            --experiment-dir publication-results 
             --output-dir learning-results
       - name: Run controlled graph rescue validation
         run: python benchmarks/run_graph_rescue.py
