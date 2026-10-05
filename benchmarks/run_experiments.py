@@ -294,7 +294,10 @@ def main() -> None:
         "optimizer_search_method": profile.optimizer_search_method,
         "optimizer_search_seed": profile.optimizer_search_seed,
         "optimizer_max_candidates": profile.optimizer_max_candidates,
-        "calibration_payload_limit_bytes": 1024,
+        "calibration_payload_limit_bytes": max(
+            (item.calibration_payload_size for item in calibrations),
+            default=0,
+        ),
         "calibration_payload_variants": 3,
         "calibration_record_count": len(calibrations),
         "scenarios": [asdict(scenario) for scenario in profile.scenarios],
