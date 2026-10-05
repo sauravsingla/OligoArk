@@ -310,7 +310,7 @@ def mcnemar_exact(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> di
         "left_only_successes": left_only,
         "right_only_successes": right_only,
         "discordant_pairs": discordant,
-        "two_sided_exact_p": round(p_value, 8),
+        "two_sided_exact_p": p_value,
     }
 
 
