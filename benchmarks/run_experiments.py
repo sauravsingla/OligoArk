@@ -238,6 +238,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="experiment-results")
     parser.add_argument("--payload-size", type=int)
     parser.add_argument("--scenario")
+    parser.add_argument("--seed-shard-index", type=int)
+    parser.add_argument("--seed-shard-count", type=int)
     args = parser.parse_args()
 
     profile = smoke_profile() if args.profile == "smoke" else publication_profile()
@@ -252,6 +254,21 @@ def main() -> None:
         if not selected:
             raise ValueError("requested scenario is not part of the selected profile")
         profile = replace(profile, scenarios=selected)
+    if (args.seed_shard_index is None) != (args.seed_shard_count is None):
+        raise ValueError("seed shard index and count must be supplied together")
+    if args.seed_shard_count is not None:
+        if args.seed_shard_count < 1:
+            raise ValueError("seed shard count must be positive")
+        if args.seed_shard_index is None or not 0 <= args.seed_shard_index < args.seed_shard_count:
+            raise ValueError("seed shard index must be within the shard count")
+        selected_seeds = tuple(
+            seed
+            for index, seed in enumerate(profile.evaluation_seeds)
+            if index % args.seed_shard_count == args.seed_shard_index
+        )
+        if not selected_seeds:
+            raise ValueError("seed shard selected no evaluation seeds")
+        profile = replace(profile, seeds=selected_seeds)
     bundle = run_experiment_bundle(profile)
     records = list(bundle.records)
     calibrations = list(bundle.calibrations)
@@ -286,6 +303,8 @@ def main() -> None:
         "profile": args.profile,
         "calibration_seeds": list(profile.calibration_seeds),
         "evaluation_seeds": list(profile.evaluation_seeds),
+        "seed_shard_index": args.seed_shard_index,
+        "seed_shard_count": args.seed_shard_count,
         "seed_sets_disjoint": not bool(
             set(profile.calibration_seeds) & set(profile.evaluation_seeds)
         ),
