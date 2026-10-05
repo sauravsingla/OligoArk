@@ -433,7 +433,7 @@ class TraceConsensusReconstructor:
     frame CRC, ECC, and archive SHA-256 verification remain the acceptance gate.
     """
 
-    thresholds: tuple[float, ...] = (0.96, 0.93, 0.90)
+    thresholds: tuple[float, ...] = (0.94, 0.90, 0.86)
     scorer: EdgeScorer = field(default_factory=LevenshteinEdgeScorer)
     qgram_width: int = 5
     use_qgram_prefilter: bool = True
