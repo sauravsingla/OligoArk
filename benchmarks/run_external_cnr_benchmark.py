@@ -776,6 +776,70 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 }
             )
 
+
+    prior_comparisons: list[dict[str, Any]] = []
+    for coverage in coverages:
+        multistart_rows = [
+            row
+            for row in all_rows
+            if row["method"] == "multistart_trace" and row["coverage"] == coverage
+        ]
+        multistart_summary = next(
+            row
+            for row in summaries
+            if row["method"] == "multistart_trace" and row["coverage"] == coverage
+        )
+        for baseline_method in ("iterative_trace", "graph_alignment"):
+            baseline_rows = [
+                row
+                for row in all_rows
+                if row["method"] == baseline_method and row["coverage"] == coverage
+            ]
+            baseline_summary = next(
+                row
+                for row in summaries
+                if row["method"] == baseline_method and row["coverage"] == coverage
+            )
+            paired = mcnemar_exact(multistart_rows, baseline_rows)
+            lower_edit = 0
+            equal_edit = 0
+            higher_edit = 0
+            baseline_by_cluster = {
+                int(row["cluster_index"]): int(row["edit_distance"])
+                for row in baseline_rows
+            }
+            for row in multistart_rows:
+                cluster_index = int(row["cluster_index"])
+                candidate_distance = int(row["edit_distance"])
+                baseline_distance = baseline_by_cluster[cluster_index]
+                if candidate_distance < baseline_distance:
+                    lower_edit += 1
+                elif candidate_distance == baseline_distance:
+                    equal_edit += 1
+                else:
+                    higher_edit += 1
+            prior_comparisons.append(
+                {
+                    "coverage": coverage,
+                    "method": "multistart_trace",
+                    "baseline": baseline_method,
+                    "exact_recovery_rate_difference": round(
+                        float(multistart_summary["exact_recovery_rate"])
+                        - float(baseline_summary["exact_recovery_rate"]),
+                        8,
+                    ),
+                    "mean_edit_distance_difference": round(
+                        float(multistart_summary["mean_edit_distance"])
+                        - float(baseline_summary["mean_edit_distance"]),
+                        8,
+                    ),
+                    "lower_edit_distance_pairs": lower_edit,
+                    "equal_edit_distance_pairs": equal_edit,
+                    "higher_edit_distance_pairs": higher_edit,
+                    **paired,
+                }
+            )
+
     empty_clusters = sum(not cluster for cluster in clusters)
     dataset_metadata = {
         "name": DATASET_NAME,
@@ -909,6 +973,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "raw_read_error_profile_on_selected_max_coverage_reads": error_profile,
         "summaries": summaries,
         "paired_exact_recovery_comparisons_vs_bbs": comparisons,
+        "paired_improvements_vs_prior_oligoark": prior_comparisons,
         "bbs_repeat_summaries": bbs_repeat_summaries,
         "not_applicable": not_applicable,
         "limitations": limitations,
@@ -922,6 +987,10 @@ def run_benchmark(args: argparse.Namespace) -> None:
     _write_csv(output_dir / "raw-results.csv", all_rows)
     _write_csv(output_dir / "summary.csv", summaries)
     _write_csv(output_dir / "paired-comparisons.csv", comparisons)
+    _write_csv(
+        output_dir / "paired-improvements-vs-prior.csv",
+        prior_comparisons,
+    )
     _write_csv(output_dir / "bbs-repeat-summaries.csv", bbs_repeat_summaries)
     _write_csv(output_dir / "calibration-candidates.csv", calibration_candidates)
     _write_csv(
