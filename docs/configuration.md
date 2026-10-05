@@ -137,6 +137,8 @@ oligoark optimize-plan payload.bin \
 
 Calibration and evaluation sets must be disjoint.
 
+The executed v0.6 publication profile used calibration seeds `9401..9406`, evaluation seeds `31001..31010`, `balanced_robust`, search seed `6060`, at most 36 candidates, three calibration payload variants, and reconstruction modes `direct,graph,trace`. Those settings produced 24 calibration records and 864 candidate evaluations. All 24 selected winners were perfect on calibration, but only 19/24 payload×scenario cells stayed perfect on untouched held-out seeds; this distinction is part of the reported result and should be preserved in downstream experiments.
+
 ## Optimization weights
 
 A JSON file can override any `OptimizationWeights` field:
