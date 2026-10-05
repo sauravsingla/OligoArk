@@ -39,3 +39,20 @@ The raw-read profile additionally measures substitution, insertion and deletion 
 ## Claim boundary
 
 This is a **physical-read reference-reconstruction benchmark**, not an end-to-end OligoArk archive decode. CNR does not contain a file encoded with OligoArk framing, ECC or redundancy, so file-level SHA-256 recovery, OligoArk fountain/hybrid recovery and the combined archive optimizer are not applicable. The benchmark instead hashes the ordered reference subset and reconstructed subset to provide an exact aggregate integrity check.
+
+
+## Executed v0.6 result
+
+The fast held-out physical-read benchmark uses 96 deterministically selected clusters from 8,978 CNR clusters having at least 10 reads and evaluates nested coverages of 1, 5 and 10 reads. The selected 10-read subset contained 960 physical reads. Against the known references, the descriptive raw-read profile measured 2.23% substitutions, 1.65% insertions and 1.92% deletions per aligned reference base.
+
+| Reads / strand | Direct | Medoid | OligoArk graph/alignment | OligoArk iterative trace | External BBS |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 2/96 (2.1%) |
+| 5 | 1/96 (1.0%) | 6/96 (6.3%) | 33/96 (34.4%) | 44/96 (45.8%) | **73/96 (76.0%)** |
+| 10 | 1/96 (1.0%) | 10/96 (10.4%) | 65/96 (67.7%) | 63/96 (65.6%) | **93/96 (96.9%)** |
+
+At one read, exact-recovery differences versus BBS were not statistically significant. At five reads, BBS exceeded graph/alignment by 40 paired successes versus one graph-only success (exact two-sided McNemar p = 1.96e-11) and exceeded iterative trace by 29 net paired successes (31 BBS-only versus two trace-only; p = 1.31e-7). At ten reads, BBS exceeded graph/alignment on 28 paired clusters with no graph-only wins (p = 7.45e-9) and exceeded iterative trace on 30 paired clusters with no trace-only wins (p = 1.86e-9).
+
+Mean edit distance at five reads was 0.625 for BBS, 1.010 for iterative trace and 1.938 for graph/alignment. At ten reads it was 0.354 for BBS, 0.469 for iterative trace and 0.490 for graph/alignment. Therefore, on this single public physical CNR benchmark, the defensible result is that **OligoArk v0.6 reconstruction underperforms the external BBS baseline at useful multi-read coverage**. The result does not invalidate OligoArk's internal simulation gains; it shows that those gains do not establish external state-of-the-art performance.
+
+The benchmark intentionally reports OligoArk fountain/hybrid redundancy, the combined archive optimizer and full-file SHA-256 recovery as not applicable because the CNR strands were not encoded with OligoArk. No result is inferred for those methods.
