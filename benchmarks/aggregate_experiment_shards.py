@@ -58,6 +58,56 @@ def _record(raw: dict[str, object]) -> ExperimentRecord:
     )
 
 
+def _calibration_signature(row: dict[str, object]) -> str:
+    optimization = cast(dict[str, object], row["optimization"])
+    evaluations = cast(list[dict[str, object]], optimization["evaluations"])
+    stable = {
+        "scenario": row["scenario"],
+        "payload_size": row["payload_size"],
+        "calibration_payload_size": row["calibration_payload_size"],
+        "best_config": optimization["best_config"],
+        "reconstruction_mode": optimization["reconstruction_mode"],
+        "best_score": optimization["best_score"],
+        "search_method": optimization["search_method"],
+        "search_seed": optimization["search_seed"],
+        "calibration_seeds": optimization["calibration_seeds"],
+        "evaluations": [
+            {
+                "config": item["config"],
+                "reconstruction_mode": item["reconstruction_mode"],
+                "trials": item["trials"],
+                "verified_successes": item["verified_successes"],
+                "recovery_rate": item["recovery_rate"],
+                "fold_recovery_rates": item["fold_recovery_rates"],
+                "recovery_instability": item["recovery_instability"],
+                "encoded_nucleotides": item["encoded_nucleotides"],
+                "overhead_ratio": item["overhead_ratio"],
+                "redundancy_ratio": item["redundancy_ratio"],
+                "graph_recovery_count": item["graph_recovery_count"],
+                "score": item["score"],
+                "rejected_reason": item["rejected_reason"],
+            }
+            for item in evaluations
+        ],
+    }
+    return json.dumps(stable, sort_keys=True)
+
+
+def _candidate_signature(row: dict[str, object]) -> tuple[tuple[str, str], ...]:
+    ignored = {
+        "mean_runtime_seconds",
+        "objective_runtime_penalty",
+        "objective_retrieval_penalty",
+    }
+    return tuple(
+        sorted(
+            (key, str(value))
+            for key, value in row.items()
+            if key not in ignored
+        )
+    )
+
+
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -89,9 +139,13 @@ def main() -> None:
         for row in cast(list[dict[str, object]], value):
             key = (str(row["scenario"]), int(cast(int, row["payload_size"])))
             existing = calibration_by_key.get(key)
-            if existing is not None and existing != row:
+            if (
+                existing is not None
+                and _calibration_signature(existing) != _calibration_signature(row)
+            ):
                 raise ValueError(f"calibration shards disagree for {key}")
-            calibration_by_key[key] = row
+            if existing is None:
+                calibration_by_key[key] = row
     calibration_rows = [
         calibration_by_key[key] for key in sorted(calibration_by_key)
     ]
@@ -105,10 +159,15 @@ def main() -> None:
                     int(row["payload_size"]),
                     str(row["candidate_index"]),
                 )
+                current = dict(row)
                 existing = candidate_by_key.get(key)
-                if existing is not None and existing != row:
+                if (
+                    existing is not None
+                    and _candidate_signature(existing) != _candidate_signature(current)
+                ):
                     raise ValueError(f"calibration candidate shards disagree for {key}")
-                candidate_by_key[key] = dict(row)
+                if existing is None:
+                    candidate_by_key[key] = current
     candidate_rows = [
         candidate_by_key[key] for key in sorted(candidate_by_key)
     ]
