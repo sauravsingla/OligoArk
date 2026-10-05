@@ -364,7 +364,7 @@ def _calibrate_combined(
     scenario: ExperimentScenario,
     profile: ExperimentProfile,
 ) -> OptimizationResult:
-    calibration_size = min(1024, len(payload))
+    calibration_size = min(512, len(payload))
     variants = tuple(
         _payload(calibration_size, seed)
         for seed in profile.calibration_seeds[:3]
@@ -559,7 +559,7 @@ def run_experiment_bundle(profile: ExperimentProfile) -> ExperimentBundle:
                     CalibrationRecord(
                         scenario=scenario.name,
                         payload_size=payload_size,
-                        calibration_payload_size=min(1024, len(calibration_payload)),
+                        calibration_payload_size=min(512, len(calibration_payload)),
                         optimization=result,
                     )
                 )
