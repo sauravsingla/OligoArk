@@ -54,7 +54,7 @@ All of these are software/simulation results. Runtime values are specific to the
 
 ## v0.6 untouched evaluation design
 
-The v0.6 simulation study uses seed sets not used in the v0.5 publication study. Optimizer calibration uses seeds `9401–9406`; final evaluation uses `31001–31010`. Calibration rotates across three independently generated payload contents and uses up to 512 bytes rather than the earlier 256-byte limit. `balanced_robust` retains deterministic, order-independent sampling but penalizes disagreement between alternating calibration-seed folds.
+The v0.6 simulation study uses seed sets not used in the v0.5 publication study. Optimizer calibration uses seeds `9401–9406`; final evaluation uses `31001–31010`. Calibration rotates across three independently generated payload contents and uses up to 512 bytes rather than the earlier 256-byte limit. `balanced_robust` retains deterministic, order-independent sampling but penalizes disagreement between alternating calibration-seed folds. For the sharded publication study, wall-clock runtime/retrieval terms are excluded from candidate selection so runner-speed noise cannot change the frozen winner; runtime remains a reported metric.
 
 The channel model now separates **coverage** from extra stochastic duplication. `copies_per_strand` produces a declared number of independently corrupted traces for every surviving strand, while `duplicate_rate` preserves the legacy probability of one additional trace. This is still a software model, but it allows graph/trace reconstruction to be tested on genuine multi-read clusters rather than one or two traces.
 
