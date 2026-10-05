@@ -672,7 +672,7 @@ def optimize_codec(
             item.recovery_rate,
             -item.overhead_ratio,
             -item.redundancy_ratio,
-            -item.mean_runtime_seconds,
+            repr((item.config, item.reconstruction_mode)),
         ),
     )
     rationale = (
