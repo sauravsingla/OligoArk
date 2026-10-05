@@ -309,7 +309,7 @@ All numbers above are software/simulation results from the preserved GitHub Acti
 
 ### v0.6 validation design
 
-v0.6 deliberately does **not** reuse the v0.5 publication test seeds. The new publication profile uses calibration seeds `9401–9406`, untouched evaluation seeds `31001–31010`, three payload sizes, eight channel/coverage regimes, six strategies, three independent calibration payload contents, and `balanced_robust` candidate scoring. Moderate-indel channels are evaluated at both five-copy and eight-copy per-strand coverage so reconstruction is tested with genuine multi-trace evidence rather than only one optional duplicate.
+v0.6 deliberately does **not** reuse the v0.5 publication test seeds. The new publication profile uses calibration seeds `9401–9406`, untouched evaluation seeds `31001–31010`, three payload sizes, eight channel/coverage regimes, seven strategies, three independent calibration payload contents, and `balanced_robust` candidate scoring. Moderate-indel channels are evaluated at both five-copy and eight-copy per-strand coverage so reconstruction is tested with genuine multi-trace evidence rather than only one optional duplicate.
 
 The DNA-Aeon provenance manifest records public sequencing accessions, but the repository does not bundle a verified external read-to-reference oligo mapping. `oligoark physical-evaluate` therefore requires an explicit reference FASTA and reports only reference-reconstruction accuracy; it does not claim end-to-end decoding of an external DNA-storage system.
 
