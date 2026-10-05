@@ -16,6 +16,14 @@
 - Verified DNA-Aeon provenance manifest for DOI `10.1038/s41467-023-36297-3`, BioProject `PRJNA855029`, and the paper-listed SRA runs.
 - Strategy-partitioned publication execution: non-optimizer baselines are sharded by payload/channel/evaluation seeds, while the combined optimizer calibrates once per payload/channel before all ten untouched held-out seeds are evaluated.
 
+### Validation
+- Executed the v0.6 publication study with 1,680 untouched held-out trials, 24 optimizer calibrations and 864 calibration-candidate evaluations across 3 payload sizes, 8 regimes, 7 strategies and 10 evaluation seeds.
+- Adaptive graph/alignment and iterative trace each recovered 223/240 trials (92.9%, Wilson 95% CI 89.0–95.5%); combined robust search recovered 221/240 (92.1%, 88.0–94.9%); adaptive+fountain recovered 200/240 (83.3%, 78.1–87.5%).
+- In the two moderate-indel regimes, graph and trace each rescued all 38/38 direct-adaptive failures with zero paired regressions; at 8192 bytes direct recovered 0/10 and 1/10 at the two coverage levels while graph/trace recovered 10/10 in both.
+- The robust optimizer was 6/6 on calibration in every payload×scenario cell, but only 19/24 cells stayed perfect on untouched seeds; the dropout-10% and substitution gaps are retained as negative generalization evidence.
+- Held-out empirical, ridge and RBF-kernel policy learners did not beat the heuristic on recovery; the measured-search comparator reached 100% recovery at much higher software runtime/utility cost.
+- Public DNA-Aeon provenance was verified, but no physical end-to-end decode is claimed because the repository does not bundle an explicit reproducible read-to-reference oligo mapping.
+
 ### Changed
 - Version advanced to 0.6.0.
 - Publication optimizer calibration uses six seeds, three independent calibration payload contents, up to 512 bytes, 36 candidates and instability-aware scoring; wall-clock runtime/retrieval weights are disabled for publication selection so seed shards choose the same deterministic winner.
