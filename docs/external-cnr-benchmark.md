@@ -18,7 +18,7 @@ A separate **48-cluster calibration set** uses seed `20261006` after all 96 held
 
 The new `multistart_trace_consensus()` method ranks a small number of observed reads by agreement with the other reads, performs the existing alignment refinement from those anchors, optionally repeats refinement on reversed traces, and selects the final candidate by observed-read edit distance plus a known-length penalty. It does **not** use the unknown reference, deep learning, a GPU, BBS source code, or a new runtime dependency.
 
-Calibration selected **3 anchors, 1 refinement round, bidirectional mode, length penalty 1.0**. Across the 48 calibration clusters at 5 and 10 reads, this configuration recovered **68/96 (70.8%)** versus **53/96 (55.2%)** for the previous iterative trace baseline. Calibration runtime was 41.0 s versus 14.8 s for iterative trace, within the predeclared 4× budget.
+Calibration selected **3 anchors, 1 refinement round, bidirectional mode, length penalty 1.0**. Across the 48 calibration clusters at 5 and 10 reads, this configuration recovered **68/96 (70.8%)** versus **53/96 (55.2%)** for the previous iterative trace baseline. Calibration runtime was 43.1 s versus the iterative-trace calibration baseline, within the predeclared 4× budget.
 
 ## Executed held-out result
 
@@ -27,16 +27,16 @@ The selected held-out 10-read subset contains 960 physical reads. Its descriptiv
 | Reads / strand | Direct | Medoid | Graph/alignment | Iterative trace | **Multi-start trace** | External BBS |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1–2/96 across repeats |
-| 5 | 1/96 (1.0%) | 6/96 (6.3%) | 33/96 (34.4%) | 44/96 (45.8%) | **53/96 (55.2%)** | **72–74/96 (75.0–77.1%)**; first repeat 73/96 |
+| 5 | 1/96 (1.0%) | 6/96 (6.3%) | 33/96 (34.4%) | 44/96 (45.8%) | **53/96 (55.2%)** | **72–73/96 (75.0–76.0%)**; first repeat 73/96 |
 | 10 | 1/96 (1.0%) | 10/96 (10.4%) | 65/96 (67.7%) | 63/96 (65.6%) | **80/96 (83.3%)** | **93/96 (96.9%)** in all five repeats |
 
 The multi-start method significantly improved exact recovery over the previous OligoArk methods on the same held-out clusters. At 5 reads it had 11 exact-only wins versus 2 iterative-only wins (two-sided exact McNemar p = 0.0225), and 20 exact-only wins versus 0 graph/alignment-only wins (p = 1.91e-6). At 10 reads it had 17 exact-only wins versus 0 iterative-only wins (p = 1.53e-5), and 15 exact-only wins versus 0 graph/alignment-only wins (p = 6.10e-5).
 
-BBS remains stronger on exact recovery. At 5 reads, the frozen multi-start method had 3 exact-only wins versus 23 BBS-only wins (p = 8.80e-5). At 10 reads it had 1 exact-only win versus 14 BBS-only wins (p = 0.000977). The exact-recovery gap therefore narrowed substantially but did not close.
+BBS remains stronger on exact recovery. At 5 reads, the frozen multi-start method had 4 exact-only wins versus 24 BBS-only wins (p = 1.80e-4). At 10 reads it had 1 exact-only win versus 14 BBS-only wins (p = 0.000977). The exact-recovery gap therefore narrowed substantially but did not close.
 
 Mean edit distance at 5 reads was **0.740** for multi-start, 1.010 for iterative trace, 1.938 for graph/alignment, and 0.625 for the first BBS repeat. At 10 reads it was **0.219** for multi-start, 0.469 for iterative trace, 0.490 for graph/alignment, and 0.354 for BBS. The lower 10-read mean edit distance for multi-start does not make it superior overall: BBS still has substantially higher exact-reference recovery, while its few failures contain more edits.
 
-On the GitHub-hosted runner, multi-start took about **22.6 s** for the 96-cluster 5-read evaluation and **59.0 s** at 10 reads, with about **24 MB peak RSS**. The complete workflow—including dataset checks, pinned BBS build, calibration grid, all held-out methods, five BBS repetitions per coverage, validation, and artifact upload—completed in **8 min 8 sec**, within the 10–15 minute target.
+On the GitHub-hosted runner, multi-start took about **23.8 s** for the 96-cluster 5-read evaluation and **61.9 s** at 10 reads, with about **24 MB peak RSS**. The complete workflow—including dataset checks, pinned BBS build, calibration grid, all held-out methods, five BBS repetitions per coverage, validation, and artifact upload—completed in **6 min 58 sec**, within the 10–15 minute target.
 
 ## Metrics and artifacts
 
