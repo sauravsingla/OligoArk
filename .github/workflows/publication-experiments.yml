@@ -14,6 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         payload-size: [512, 2048, 8192]
+        seed-shard: [0, 1]
         scenario:
           - clean
           - substitution-1pct
@@ -36,12 +37,14 @@ jobs:
             --profile publication \
             --payload-size ${{ matrix.payload-size }} \
             --scenario ${{ matrix.scenario }} \
-            --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}
+            --seed-shard-index ${{ matrix.seed-shard }} \
+            --seed-shard-count 2 \
+            --output-dir publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-s${{ matrix.seed-shard }}
       - name: Upload publication shard
         uses: actions/upload-artifact@v4
         with:
-          name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}
-          path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}/
+          name: oligoark-publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-s${{ matrix.seed-shard }}
+          path: publication-${{ matrix.payload-size }}-${{ matrix.scenario }}-s${{ matrix.seed-shard }}/
           if-no-files-found: error
           retention-days: 90
 
