@@ -84,6 +84,7 @@ from .reconstruct import (
     global_align,
     iterative_trace_consensus,
     medoid_consensus,
+    multistart_trace_consensus,
 )
 from .tiering import (
     EconomicAssumptions,
@@ -169,6 +170,7 @@ __all__ = [
     "global_align",
     "iterative_trace_consensus",
     "medoid_consensus",
+    "multistart_trace_consensus",
     "objective_from_workload",
     "optimize_archive_plan",
     "optimize_codec",
