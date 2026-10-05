@@ -1,5 +1,8 @@
 from dataclasses import replace
 
+import pytest
+
+import oligoark.optimizer as optimizer_module
 from oligoark.optimizer import CodecSearchSpace, OptimizationWeights, optimize_codec
 from oligoark.policy import ChannelProfile
 from oligoark.tiering import WorkloadProfile
@@ -72,3 +75,49 @@ def test_calibration_payload_variants_must_match_size() -> None:
         assert "match the primary payload length" in str(exc)
     else:
         raise AssertionError("mismatched calibration payloads should fail")
+
+
+def test_zero_runtime_weight_makes_tie_break_wall_clock_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search = CodecSearchSpace(
+        chunk_sizes=(48,),
+        rs_nsyms=(8,),
+        redundancy_schemes=("xor",),
+        parity_group_sizes=(3,),
+        fountain_redundancies=(0.25,),
+        reconstruction_modes=("direct", "graph"),
+        max_candidates=8,
+        search_method="full_grid",
+    )
+    weights = OptimizationWeights(runtime=0.0, retrieval=0.0)
+
+    def run_with_times(direct: float, graph: float):
+        def fake_simulate(
+            payload: bytes,
+            spec: optimizer_module.CandidateSpec,
+            channel: ChannelProfile,
+            *,
+            seed: int,
+            duplicate_rate: float | None,
+            copies_per_strand: int,
+        ) -> tuple[bool, int, float, bool]:
+            del payload, channel, seed, duplicate_rate, copies_per_strand
+            elapsed = direct if spec.reconstruction_mode == "direct" else graph
+            return True, 100, elapsed, False
+
+        monkeypatch.setattr(optimizer_module, "_simulate_once", fake_simulate)
+        return optimize_codec(
+            b"runtime-independent-tie",
+            ChannelProfile(),
+            _workload(),
+            search_space=search,
+            weights=weights,
+            seeds=(9401, 9402),
+        )
+
+    slow_direct = run_with_times(10.0, 1.0)
+    fast_direct = run_with_times(1.0, 10.0)
+    assert slow_direct.best_config == fast_direct.best_config
+    assert slow_direct.reconstruction_mode == fast_direct.reconstruction_mode
+    assert slow_direct.best_score == pytest.approx(fast_direct.best_score)
