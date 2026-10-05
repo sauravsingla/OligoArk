@@ -43,7 +43,7 @@ python benchmarks/run_experiments.py \
   --output-dir publication-results
 ```
 
-GitHub Actions uses deterministic payload-size × scenario × evaluation-seed shards so trace-heavy regimes remain bounded. Each seed shard evaluates five of the ten untouched evaluation seeds while retaining the full calibration design; aggregation deduplicates identical calibration evidence and recombines every held-out trial without dropping failures:
+GitHub Actions separates the combined optimizer from the non-optimizer baselines. Baselines use deterministic payload-size × scenario × evaluation-seed shards, with five untouched seeds per shard and no repeated optimizer calibration. A separate combined job calibrates once per payload/scenario and evaluates the frozen winner on all ten untouched seeds. Aggregation recombines every held-out trial without dropping failures:
 
 ```text
 512 B shard  ─┐
