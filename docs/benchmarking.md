@@ -27,7 +27,7 @@ The publication profile is defined in `oligoark.experiments.publication_profile(
 
 - calibration seeds `9401..9406`;
 - disjoint untouched evaluation seeds `31001..31010`;
-- three independent calibration payload contents, up to 1024 bytes;
+- three independent calibration payload contents, up to 512 bytes;
 - payload sizes `512, 2048, 8192` bytes;
 - clean, 1% substitution, low indel, moderate indel at two coverage levels, two dropout regimes, and mixed noise;
 - fixed, heuristic adaptive, adaptive+hybrid redundancy, adaptive+graph/alignment, adaptive+iterative-trace, and combined robust-search strategies;
