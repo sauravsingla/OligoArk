@@ -2,12 +2,15 @@ name: Publication experiments
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
   baseline-shard:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publication-v0.6]')
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -50,6 +53,7 @@ jobs:
           retention-days: 90
 
   combined-shard:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publication-v0.6]')
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -89,6 +93,7 @@ jobs:
           retention-days: 90
 
   aggregate:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publication-v0.6]')
     needs: [baseline-shard, combined-shard]
     runs-on: ubuntu-latest
     timeout-minutes: 90
