@@ -81,17 +81,37 @@ def main() -> None:
             raise ValueError(f"{path} must contain a list")
         raw_rows.extend(cast(list[dict[str, object]], value))
 
-    calibration_rows: list[dict[str, object]] = []
+    calibration_by_key: dict[tuple[str, int], dict[str, object]] = {}
     for path in calibration_paths:
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, list):
             raise ValueError(f"{path} must contain a list")
-        calibration_rows.extend(cast(list[dict[str, object]], value))
+        for row in cast(list[dict[str, object]], value):
+            key = (str(row["scenario"]), int(cast(int, row["payload_size"])))
+            existing = calibration_by_key.get(key)
+            if existing is not None and existing != row:
+                raise ValueError(f"calibration shards disagree for {key}")
+            calibration_by_key[key] = row
+    calibration_rows = [
+        calibration_by_key[key] for key in sorted(calibration_by_key)
+    ]
 
-    candidate_rows: list[dict[str, object]] = []
+    candidate_by_key: dict[tuple[str, int, str], dict[str, object]] = {}
     for path in candidate_paths:
         with path.open(newline="", encoding="utf-8") as handle:
-            candidate_rows.extend(dict(row) for row in csv.DictReader(handle))
+            for row in csv.DictReader(handle):
+                key = (
+                    str(row["scenario"]),
+                    int(row["payload_size"]),
+                    str(row["candidate_index"]),
+                )
+                existing = candidate_by_key.get(key)
+                if existing is not None and existing != row:
+                    raise ValueError(f"calibration candidate shards disagree for {key}")
+                candidate_by_key[key] = dict(row)
+    candidate_rows = [
+        candidate_by_key[key] for key in sorted(candidate_by_key)
+    ]
 
     records = [_record(row) for row in raw_rows]
     summaries = aggregate_experiments(records)
@@ -112,6 +132,19 @@ def main() -> None:
             for size in metadata.get("payload_sizes", [])
         }
     )
+    evaluation_seeds = sorted(
+        {
+            int(seed)
+            for metadata in metadata_values
+            for seed in metadata.get("evaluation_seeds", [])
+        }
+    )
+    calibration_seed_sets = {
+        tuple(int(seed) for seed in metadata.get("calibration_seeds", []))
+        for metadata in metadata_values
+    }
+    if len(calibration_seed_sets) != 1:
+        raise ValueError("publication shards disagree on calibration seeds")
     scenario_by_name: dict[str, object] = {}
     for metadata in metadata_values:
         for scenario in metadata.get("scenarios", []):
@@ -120,6 +153,17 @@ def main() -> None:
     metadata = {
         **first,
         "payload_sizes": payload_sizes,
+        "evaluation_seeds": evaluation_seeds,
+        "calibration_seeds": list(next(iter(calibration_seed_sets))),
+        "seed_shard_index": None,
+        "seed_shard_count": max(
+            (
+                int(metadata["seed_shard_count"])
+                for metadata in metadata_values
+                if metadata.get("seed_shard_count") is not None
+            ),
+            default=1,
+        ),
         "scenarios": [
             scenario_by_name[name] for name in sorted(scenario_by_name)
         ],
@@ -127,7 +171,9 @@ def main() -> None:
         "raw_trial_count": len(records),
         "calibration_record_count": len(calibration_rows),
         "calibration_candidate_count": len(candidate_rows),
-        "aggregation": "merged from payload/scenario shards without dropping failures",
+        "aggregation": (
+            "merged from payload/scenario/evaluation-seed shards without dropping failures"
+        ),
     }
 
     output = Path("publication-results")
