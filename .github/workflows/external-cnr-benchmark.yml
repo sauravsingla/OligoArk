@@ -7,7 +7,6 @@ on:
       - "benchmarks/run_external_cnr_benchmark.py"
       - ".github/workflows/external-cnr-benchmark.yml"
       - "src/oligoark/reconstruct.py"
-      - "docs/external-cnr-benchmark.md"
 
 permissions:
   contents: read
