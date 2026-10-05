@@ -14,7 +14,7 @@
 - Held-out learning comparison against heuristic, empirical, ridge, kernel, adaptive+fountain and measured-search strategies.
 - FASTA/FASTQ/gzip physical-read reconstruction adapter with an explicit reference-oligo input.
 - Verified DNA-Aeon provenance manifest for DOI `10.1038/s41467-023-36297-3`, BioProject `PRJNA855029`, and the paper-listed SRA runs.
-- Payload-by-channel publication sharding for the heavier multi-trace v0.6 experiment.
+- Payload-by-channel-by-evaluation-seed publication sharding for the heavier multi-trace v0.6 experiment, with calibration-evidence deduplication during aggregation.
 
 ### Changed
 - Version advanced to 0.6.0.
