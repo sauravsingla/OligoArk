@@ -379,6 +379,140 @@ def iterative_trace_consensus(cluster: list[str], *, rounds: int = 3) -> str:
     return reference
 
 
+def _trace_anchor_order(
+    cluster: list[str],
+    *,
+    target_length: int | None,
+) -> list[str]:
+    """Rank unique observed traces without using the unknown reference sequence."""
+    unique = sorted(set(cluster))
+    return sorted(
+        unique,
+        key=lambda candidate: (
+            sum(edit_distance(candidate, other) for other in cluster),
+            abs(len(candidate) - target_length) if target_length is not None else 0,
+            len(candidate),
+            candidate,
+        ),
+    )
+
+
+def _refine_trace_from_anchor(
+    cluster: list[str],
+    reference: str,
+    *,
+    rounds: int,
+) -> str:
+    current = reference
+    for _ in range(rounds):
+        updated = _alignment_consensus_with_reference(cluster, current)
+        if updated == current:
+            break
+        current = updated
+    return current
+
+
+def _trace_candidate_score(
+    candidate: str,
+    cluster: list[str],
+    *,
+    target_length: int | None,
+    length_penalty: float,
+) -> tuple[float, int, int, str]:
+    """Score a candidate only from observed traces plus an optional known oligo length."""
+    length_delta = (
+        abs(len(candidate) - target_length) if target_length is not None else 0
+    )
+    trace_distance = sum(edit_distance(candidate, read) for read in cluster)
+    return (
+        trace_distance + length_penalty * length_delta * len(cluster),
+        length_delta,
+        len(candidate),
+        candidate,
+    )
+
+
+def multistart_trace_consensus(
+    cluster: list[str],
+    *,
+    target_length: int | None = None,
+    anchors: int = 2,
+    rounds: int = 2,
+    bidirectional: bool = True,
+    length_penalty: float = 1.0,
+) -> str:
+    """Low-compute multi-start trace consensus with optional bidirectional refinement.
+
+    Candidate anchors are ranked only by their agreement with the observed reads. Each
+    selected anchor is refined by the existing deterministic alignment consensus. When
+    bidirectional mode is enabled, the same procedure is repeated on reversed reads so
+    deterministic alignment tie-breaking does not always favor the same end of a strand.
+    The final candidate minimizes total edit distance to the observed reads, with an
+    optional penalty for deviating from a caller-supplied known oligo length.
+
+    This is a lightweight deterministic research baseline; it is not a copy of BBS and
+    does not use the unknown reference sequence during reconstruction.
+    """
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if anchors < 1:
+        raise ValueError("anchors must be positive")
+    if rounds < 1:
+        raise ValueError("rounds must be positive")
+    if target_length is not None and target_length < 1:
+        raise ValueError("target_length must be positive")
+    if length_penalty < 0:
+        raise ValueError("length_penalty must be non-negative")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add_candidate(candidate: str) -> None:
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    forward_anchors = _trace_anchor_order(
+        cluster,
+        target_length=target_length,
+    )[:anchors]
+    for anchor in forward_anchors:
+        add_candidate(anchor)
+        add_candidate(
+            _refine_trace_from_anchor(
+                cluster,
+                anchor,
+                rounds=rounds,
+            )
+        )
+
+    if bidirectional:
+        reversed_cluster = [read[::-1] for read in cluster]
+        reverse_anchors = _trace_anchor_order(
+            reversed_cluster,
+            target_length=target_length,
+        )[:anchors]
+        for anchor in reverse_anchors:
+            reversed_candidate = _refine_trace_from_anchor(
+                reversed_cluster,
+                anchor,
+                rounds=rounds,
+            )
+            add_candidate(reversed_candidate[::-1])
+
+    return min(
+        candidates,
+        key=lambda candidate: _trace_candidate_score(
+            candidate,
+            cluster,
+            target_length=target_length,
+            length_penalty=length_penalty,
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class GraphConsensusReconstructor:
     """Explicit similarity graph + connected components + deterministic consensus."""
