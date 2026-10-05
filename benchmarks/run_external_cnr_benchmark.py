@@ -608,6 +608,33 @@ def run_benchmark(args: argparse.Namespace) -> None:
         max_coverage=max_coverage,
         seed=args.seed,
     )
+    held_out_zero_based = {
+        int(record["cluster_index"]) - 1
+        for record in selected
+    }
+    calibration_records = select_subset(
+        centers,
+        clusters,
+        subset_size=args.calibration_size,
+        max_coverage=max_coverage,
+        seed=args.calibration_seed,
+        excluded_indices=held_out_zero_based,
+    )
+    calibration_ids = {
+        int(record["cluster_index"])
+        for record in calibration_records
+    }
+    held_out_ids = {
+        int(record["cluster_index"])
+        for record in selected
+    }
+    if calibration_ids & held_out_ids:
+        raise RuntimeError("calibration and held-out cluster IDs must be disjoint")
+
+    calibration_winner, calibration_baseline, calibration_candidates = (
+        _calibrate_multistart(calibration_records)
+    )
+    frozen_multistart_config = dict(calibration_winner["config"])
 
     selected_metadata = [
         {
@@ -617,8 +644,31 @@ def run_benchmark(args: argparse.Namespace) -> None:
         }
         for record in selected
     ]
+    calibration_metadata = [
+        {
+            "cluster_index": int(record["cluster_index"]),
+            "available_reads": int(record["available_reads"]),
+            "reference_sha256": _sha256_text(str(record["reference"])),
+        }
+        for record in calibration_records
+    ]
     (output_dir / "selected-clusters.json").write_text(
         json.dumps(selected_metadata, indent=2), encoding="utf-8"
+    )
+    (output_dir / "calibration-clusters.json").write_text(
+        json.dumps(calibration_metadata, indent=2), encoding="utf-8"
+    )
+    (output_dir / "calibration.json").write_text(
+        json.dumps(
+            {
+                "baseline": calibration_baseline,
+                "candidates": calibration_candidates,
+                "winner": calibration_winner,
+                "held_out_overlap_count": 0,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
     )
 
     all_rows: list[dict[str, Any]] = []
@@ -633,7 +683,13 @@ def run_benchmark(args: argparse.Namespace) -> None:
         coverage_records = _records_for_coverage(selected, coverage)
         subset_json = output_dir / f"subset-coverage-{coverage}.json"
         subset_json.write_text(
-            json.dumps({"coverage": coverage, "records": coverage_records}),
+            json.dumps(
+                {
+                    "coverage": coverage,
+                    "records": coverage_records,
+                    "consensus_config": frozen_multistart_config,
+                }
+            ),
             encoding="utf-8",
         )
         clusters_subset = output_dir / f"clusters-coverage-{coverage}.txt"
