@@ -1,0 +1,136 @@
+name: External CNR benchmark
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "benchmarks/run_external_cnr_benchmark.py"
+      - ".github/workflows/external-cnr-benchmark.yml"
+      - "src/oligoark/reconstruct.py"
+      - "docs/external-cnr-benchmark.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-cnr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out OligoArk
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install OligoArk
+        run: |
+          python -m pip install -U pip
+          pip install -e .
+
+      - name: Check out pinned Microsoft CNR dataset
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/clustered-nanopore-reads-dataset
+          ref: 6938f44796185902a08381943c2895782886c5c3
+          path: .external/cnr
+          fetch-depth: 1
+
+      - name: Verify CNR provenance and Git blob checksums
+        run: |
+          test "$(git -C .external/cnr rev-parse HEAD)" = \
+            "6938f44796185902a08381943c2895782886c5c3"
+          test "$(git -C .external/cnr hash-object Centers.txt)" = \
+            "2d72f78cd86f2172578aaae297113a4baa14975c"
+          test "$(git -C .external/cnr hash-object Clusters.txt)" = \
+            "95a71c77cb82f6d501d6aa99c7415591565c5ae3"
+          sha256sum .external/cnr/Centers.txt .external/cnr/Clusters.txt
+
+      - name: Check out pinned BBS baseline
+        uses: actions/checkout@v4
+        with:
+          repository: GZHoffie/bbs
+          ref: 3e4ab46871929819e4f3e34a831c57cac88bb456
+          path: .external/bbs
+          fetch-depth: 1
+
+      - name: Pin Rust toolchain
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup default 1.85.1
+          rustc --version
+          cargo --version
+
+      - name: Cache BBS build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .external/bbs/target
+          key: ${{ runner.os }}-bbs-3e4ab468-rust-1.85.1
+
+      - name: Build BBS from pinned source
+        run: |
+          test "$(git -C .external/bbs rev-parse HEAD)" = \
+            "3e4ab46871929819e4f3e34a831c57cac88bb456"
+          cargo build \
+            --manifest-path .external/bbs/Cargo.toml \
+            --release \
+            --locked
+          .external/bbs/target/release/bbs --version
+
+      - name: Run fast physical-read benchmark
+        run: |
+          python benchmarks/run_external_cnr_benchmark.py \
+            --centers .external/cnr/Centers.txt \
+            --clusters .external/cnr/Clusters.txt \
+            --bbs-bin .external/bbs/target/release/bbs \
+            --subset-size 96 \
+            --coverages 1 5 10 \
+            --seed 20261005 \
+            --output-dir external-cnr-results
+
+      - name: Validate benchmark outputs
+        run: |
+          test -s external-cnr-results/summary.json
+          test -s external-cnr-results/summary.csv
+          test -s external-cnr-results/raw-results.json
+          test -s external-cnr-results/raw-results.csv
+          test -s external-cnr-results/paired-comparisons.csv
+          test -s external-cnr-results/metadata.json
+          python -m json.tool external-cnr-results/summary.json > /dev/null
+
+      - name: Show concise result table
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("external-cnr-results/summary.json").read_text())
+          for row in data["summaries"]:
+              print(
+                  row["method"],
+                  "coverage=", row["coverage"],
+                  "exact=", f'{row["successes"]}/{row["trials"]}',
+                  "rate=", row["exact_recovery_rate"],
+                  "mean_ed=", row["mean_edit_distance"],
+                  "seconds=", row["elapsed_seconds"],
+                  "rss_mb=", row["peak_rss_mb"],
+              )
+          PY
+
+      - name: Upload external benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-cnr-bbs-benchmark
+          path: external-cnr-results/
+          if-no-files-found: error
+          retention-days: 90
