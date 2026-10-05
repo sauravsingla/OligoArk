@@ -288,6 +288,111 @@ def run_worker(method: str, subset_json: Path, output: Path) -> None:
     output.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
+
+def _evaluate_calibration_method(
+    records: list[dict[str, Any]],
+    *,
+    coverages: tuple[int, ...],
+    method: str,
+    consensus_config: dict[str, object] | None = None,
+) -> dict[str, Any]:
+    """Evaluate a candidate only on the disjoint calibration references."""
+    started = time.perf_counter()
+    successes = 0
+    distances: list[int] = []
+    per_coverage: list[dict[str, Any]] = []
+    for coverage in coverages:
+        coverage_successes = 0
+        coverage_distances: list[int] = []
+        for record in _records_for_coverage(records, coverage):
+            reads = [str(read) for read in record["reads"]]
+            reference = str(record["reference"])
+            reconstructed = _reconstruct(method, reads, consensus_config)
+            distance = edit_distance(reference, reconstructed)
+            coverage_successes += int(reconstructed == reference)
+            coverage_distances.append(distance)
+        successes += coverage_successes
+        distances.extend(coverage_distances)
+        per_coverage.append(
+            {
+                "coverage": coverage,
+                "successes": coverage_successes,
+                "trials": len(records),
+                "mean_edit_distance": round(
+                    statistics.fmean(coverage_distances),
+                    8,
+                ),
+            }
+        )
+    elapsed = time.perf_counter() - started
+    return {
+        "method": method,
+        "config": consensus_config,
+        "successes": successes,
+        "trials": len(records) * len(coverages),
+        "exact_recovery_rate": round(
+            successes / max(1, len(records) * len(coverages)),
+            8,
+        ),
+        "mean_edit_distance": round(statistics.fmean(distances), 8),
+        "runtime_seconds": round(elapsed, 6),
+        "per_coverage": per_coverage,
+    }
+
+
+def _calibrate_multistart(
+    records: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Choose the lightweight configuration before touching held-out references."""
+    baseline = _evaluate_calibration_method(
+        records,
+        coverages=CALIBRATION_COVERAGES,
+        method="iterative_trace",
+    )
+    candidates = [
+        _evaluate_calibration_method(
+            records,
+            coverages=CALIBRATION_COVERAGES,
+            method="multistart_trace",
+            consensus_config=dict(config),
+        )
+        for config in MULTISTART_CANDIDATES
+    ]
+    runtime_budget = max(
+        float(baseline["runtime_seconds"]) * 4.0,
+        float(baseline["runtime_seconds"]) + 2.0,
+    )
+    practical = [
+        candidate
+        for candidate in candidates
+        if float(candidate["runtime_seconds"]) <= runtime_budget
+    ]
+    if not practical:
+        raise RuntimeError("all multistart calibration candidates exceeded the runtime budget")
+    winner = min(
+        practical,
+        key=lambda candidate: (
+            -int(candidate["successes"]),
+            float(candidate["mean_edit_distance"]),
+            float(candidate["runtime_seconds"]),
+            str(candidate["config"]),
+        ),
+    )
+    improved = (
+        int(winner["successes"]) > int(baseline["successes"])
+        or (
+            int(winner["successes"]) == int(baseline["successes"])
+            and float(winner["mean_edit_distance"])
+            < float(baseline["mean_edit_distance"])
+        )
+    )
+    if not improved:
+        raise RuntimeError(
+            "no lightweight multistart candidate improved calibration accuracy/edit distance"
+        )
+    return winner, baseline, candidates
+
+
 def _timed_subprocess(command: list[str], timing_path: Path) -> tuple[float, float | None]:
     gnu_time = Path("/usr/bin/time")
     if gnu_time.exists():
