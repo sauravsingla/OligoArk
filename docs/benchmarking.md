@@ -43,7 +43,7 @@ python benchmarks/run_experiments.py \
   --output-dir publication-results
 ```
 
-GitHub Actions uses deterministic payload-size × scenario shards so trace-heavy regimes remain bounded. Each shard runs the same seed/scenario/strategy design for one payload size, uploads its raw artifact, and the aggregation job combines all trials without dropping failures:
+GitHub Actions uses deterministic payload-size × scenario × evaluation-seed shards so trace-heavy regimes remain bounded. Each seed shard evaluates five of the ten untouched evaluation seeds while retaining the full calibration design; aggregation deduplicates identical calibration evidence and recombines every held-out trial without dropping failures:
 
 ```text
 512 B shard  ─┐
