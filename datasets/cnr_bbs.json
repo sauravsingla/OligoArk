@@ -1,0 +1,34 @@
+{
+  "dataset": "Microsoft Clustered Nanopore Reads (CNR)",
+  "dataset_repository": "https://github.com/microsoft/clustered-nanopore-reads-dataset",
+  "dataset_commit": "6938f44796185902a08381943c2895782886c5c3",
+  "paper": "Trellis BMA: coded trace reconstruction on IDS channels for DNA storage",
+  "paper_url": "https://arxiv.org/abs/2107.06440",
+  "license": "MIT",
+  "sequencing_platform": "Oxford Nanopore MinION",
+  "reference_length_nt": 110,
+  "reference_count": 10000,
+  "read_count": 269709,
+  "centers": {
+    "path": "Centers.txt",
+    "size_bytes": 1120000,
+    "git_blob_sha1": "2d72f78cd86f2172578aaae297113a4baa14975c",
+    "url": "https://raw.githubusercontent.com/microsoft/clustered-nanopore-reads-dataset/6938f44796185902a08381943c2895782886c5c3/Centers.txt"
+  },
+  "clusters": {
+    "path": "Clusters.txt",
+    "size_bytes": 30452518,
+    "git_blob_sha1": "95a71c77cb82f6d501d6aa99c7415591565c5ae3",
+    "url": "https://raw.githubusercontent.com/microsoft/clustered-nanopore-reads-dataset/6938f44796185902a08381943c2895782886c5c3/Clusters.txt"
+  },
+  "external_baseline": {
+    "name": "Bidirectional Beam Search (BBS)",
+    "repository": "https://github.com/GZHoffie/bbs",
+    "commit": "3e4ab46871929819e4f3e34a831c57cac88bb456",
+    "paper": "Efficient trace reconstruction in DNA storage systems using bidirectional beam search",
+    "paper_doi": "10.1016/j.isci.2025.113791",
+    "license": "MIT"
+  },
+  "dataset_note": "CNR provides explicit centers and clustered physical nanopore reads in matching order. The dataset README notes a 2024-discovered long-range dependency in the generated centers and possible malformed clusters; the benchmark preserves failures and does not claim the centers are uniformly random.",
+  "claim_scope": "Physical-read trace reconstruction only. The external strands were not encoded by OligoArk, so OligoArk archive-level fountain/hybrid redundancy, combined optimizer, payload SHA-256 decoding, synthesis overhead and end-to-end file recovery are not applicable."
+}
