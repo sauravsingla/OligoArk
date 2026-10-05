@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 - 2026-10-04
+## 0.6.0 - 2026-10-05
 
 ### Added
 - Iterative medoid-refined trace consensus for insertion/deletion-heavy read clusters.
