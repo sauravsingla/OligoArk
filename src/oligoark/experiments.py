@@ -17,7 +17,7 @@ from .optimizer import (
     optimize_codec,
 )
 from .policy import ChannelProfile, recommend_codec_policy
-from .reconstruct import TraceConsensusReconstructor
+from .reconstruct import GraphConsensusReconstructor, TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
 from .tiering import WorkloadProfile
 
@@ -45,6 +45,7 @@ class ExperimentProfile:
         "fixed",
         "adaptive",
         "adaptive_fountain",
+        "adaptive_medoid",
         "adaptive_graph",
         "adaptive_trace",
         "combined",
@@ -76,6 +77,7 @@ class ExperimentProfile:
             "fixed",
             "adaptive",
             "adaptive_fountain",
+            "adaptive_medoid",
             "adaptive_graph",
             "adaptive_trace",
             "combined",
@@ -239,6 +241,7 @@ def smoke_profile() -> ExperimentProfile:
             "fixed",
             "adaptive",
             "adaptive_fountain",
+            "adaptive_medoid",
             "adaptive_graph",
             "adaptive_trace",
             "combined",
@@ -309,6 +312,7 @@ def publication_profile() -> ExperimentProfile:
             "fixed",
             "adaptive",
             "adaptive_fountain",
+            "adaptive_medoid",
             "adaptive_graph",
             "adaptive_trace",
             "combined",
@@ -426,6 +430,14 @@ def _strategy_config(
             None,
             None,
         )
+    if strategy == "adaptive_medoid":
+        return (
+            _adaptive_config(scenario.channel, redundancy_scheme="xor"),
+            "medoid",
+            None,
+            None,
+            None,
+        )
     if strategy == "adaptive_graph":
         return (
             _adaptive_config(scenario.channel, redundancy_scheme="xor"),
@@ -498,7 +510,14 @@ def _run_one(
     recovered = False
     graph_rescue = False
     try:
-        if reconstruction_mode == "graph":
+        if reconstruction_mode == "medoid":
+            decoded, report = recover_from_reads(
+                archive,
+                reads,
+                reconstructor=GraphConsensusReconstructor(consensus_mode="medoid"),
+            )
+            graph_rescue = report.rescue_changed_result
+        elif reconstruction_mode == "graph":
             decoded, report = recover_from_reads(archive, reads)
             graph_rescue = report.rescue_changed_result
         elif reconstruction_mode == "trace":
