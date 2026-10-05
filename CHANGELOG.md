@@ -10,8 +10,8 @@
 ### Validation
 - Calibration selected the 3-anchor, 1-round bidirectional configuration at 68/96 exact reconstructions across 5- and 10-read calibration trials versus 53/96 for the prior iterative trace baseline, within the predeclared 4× runtime budget.
 - On the unchanged 96-cluster physical CNR held-out set, multi-start trace improved exact recovery from 44/96 to 53/96 versus iterative trace at five reads, and from 63/96 to 80/96 at ten reads; it also exceeded graph/alignment's 33/96 and 65/96.
-- BBS remained stronger at 73/96 and 93/96 in the first baseline repeat at five and ten reads, so no state-of-the-art claim is made.
-- Multi-start peak RSS was about 24 MB and measured held-out runtimes were 22.6 s at five reads and 59.0 s at ten reads. The complete CPU-only GitHub workflow finished in 8 min 8 sec.
+- BBS remained stronger at 72–73/96 across five five-read repetitions and 93/96 in all five ten-read repetitions, so no state-of-the-art claim is made.
+- Multi-start peak RSS was about 24 MB and measured held-out runtimes were 23.8 s at five reads and 61.9 s at ten reads. The final complete CPU-only GitHub workflow finished in 6 min 58 sec.
 
 ## 0.6.0 - 2026-10-05
 
