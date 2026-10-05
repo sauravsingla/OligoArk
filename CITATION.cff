@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 title: "OligoArk: AI-Native DNA Archival Storage"
 message: "If you use OligoArk in research, please cite this software and the specific git commit or release used."
-type: software
+type: software\nabstract: "OligoArk 0.6.0 is a simulation-first research framework for adaptive DNA archival coding and deterministic multi-read reconstruction. Its executed v0.6 study contains 1,680 untouched held-out software-channel trials; graph/alignment and iterative-trace reconstruction each achieved 92.9% overall recovery and rescued all direct failures in the two moderate-indel regimes. No wet-lab or external physical end-to-end decode is claimed."
 authors:
   - family-names: Singla
     given-names: Saurav
