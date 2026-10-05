@@ -10,7 +10,12 @@ import time
 from dataclasses import asdict, dataclass
 
 from .archive import ArchiveConfig, archive_bytes, recover_bytes, recover_from_reads
-from .optimizer import CodecSearchSpace, OptimizationResult, optimize_codec
+from .optimizer import (
+    CodecSearchSpace,
+    OptimizationResult,
+    OptimizationWeights,
+    optimize_codec,
+)
 from .policy import ChannelProfile, recommend_codec_policy
 from .reconstruct import TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
@@ -374,6 +379,7 @@ def _calibrate_combined(
         scenario.channel,
         _workload(len(payload)),
         search_space=_optimizer_search(profile),
+        weights=OptimizationWeights(runtime=0.0, retrieval=0.0),
         seeds=profile.calibration_seeds,
         duplicate_rate=scenario.duplicate_rate,
         calibration_payloads=variants,
