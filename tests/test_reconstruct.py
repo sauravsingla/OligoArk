@@ -6,6 +6,7 @@ from oligoark.reconstruct import (
     edit_distance,
     global_align,
     graph_cluster_consensus,
+    multistart_trace_consensus,
     normalized_similarity,
 )
 
@@ -98,3 +99,42 @@ def test_qgram_index_reduces_unrelated_graph_candidates() -> None:
     assert {(edge.left, edge.right) for edge in indexed.edges} == {
         (edge.left, edge.right) for edge in exhaustive.edges
     }
+
+def test_multistart_trace_consensus_repairs_anchor_bias() -> None:
+    original = (
+        "TTAGTTGTGCCGCAGCGAAGTAGTGCTTGAAATATGCGACCCCTAAGTAGGAGCGTATGCGCCC"
+        "AGTAACCAATGCCTGTTGAGATGCCAGACGCGTAACCAAAACATAG"
+    )
+    reads = [
+        "TTAGTTGTGCCGTAGTGAAGTAGTGCTTAGAAATAATGCGACCCCTAAGTAGGAGCGTATGCGCCCAGTAACCAATGCTTGTTGGGATGCCAGCCGCGTAACCAAAACATAG",
+        "TTAGTTGTGCCGCAGCTAGAGTAGTGCTTGAAATTGCGACCCCTAAGTGGGAGCGTATGCGCCCAGAACAATGCCTGTTGAGATGCCAAGACGCGTAACCAAAACATAG",
+        "TTAGTTGTGCCGCAGCGAAGTCAGTGCTTGAAGATGCACCCCTAAGTAGGAGCTATGCGCCCAGTAACCATTGCCTGTTGAGATGCAGACGCGTAGCCAAAACATAG",
+        "TTAGTTGTGCCGCAGCAAGTAGTGCTTGAAATATGCGAGCCCCTAAGGGAAGCGTATGCGCCCAGTAACCAATGCCTGTTGAGATGCCATACGCGTAACCAAAACATAG",
+        "TTAGTTGTGCCGGCAGCGAAGTAGTGCTTGAAATATAGCGACCCCCTAAGTAGGAGCTGTATGCGCCCAGTAACCAAATGCCTGTTGATATCCCAGACGCGTAACCAATAACATAG",
+    ]
+    result = multistart_trace_consensus(
+        reads,
+        target_length=len(original),
+        anchors=2,
+        rounds=1,
+        bidirectional=True,
+        length_penalty=1.0,
+    )
+    assert result == original
+
+
+def test_multistart_trace_consensus_validates_configuration() -> None:
+    reads = ["ACGT", "ACGA"]
+    for kwargs in (
+        {"anchors": 0},
+        {"rounds": 0},
+        {"target_length": 0},
+        {"length_penalty": -0.1},
+    ):
+        try:
+            multistart_trace_consensus(reads, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"configuration should fail: {kwargs}")
+
