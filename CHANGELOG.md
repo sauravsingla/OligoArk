@@ -18,7 +18,7 @@
 
 ### Changed
 - Version advanced to 0.6.0.
-- Publication optimizer calibration uses six seeds, three independent calibration payload contents, up to 512 bytes, 36 candidates and instability-aware scoring.
+- Publication optimizer calibration uses six seeds, three independent calibration payload contents, up to 512 bytes, 36 candidates and instability-aware scoring; wall-clock runtime/retrieval weights are disabled for publication selection so seed shards choose the same deterministic winner.
 - Publication experiments now include an explicit iterative-trace strategy and two moderate-indel coverage levels.
 - Physical sequencing data remains claim-limited: public reads may be evaluated only with an explicit reproducible reference mapping; no external archive format is inferred.
 
