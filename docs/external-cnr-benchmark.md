@@ -1,58 +1,49 @@
 # Fast external physical-read benchmark
 
-This benchmark evaluates OligoArk v0.6 reconstruction methods on one public physical DNA-storage dataset and compares them with one recent external trace-reconstruction baseline that runs on a standard GitHub-hosted CPU runner.
+This benchmark evaluates OligoArk reconstruction on one public physical DNA-storage dataset and compares it with a recent external trace-reconstruction baseline while staying practical on a standard GitHub-hosted CPU runner.
 
-## Dataset
+## Dataset and external baseline
 
-The benchmark uses Microsoft's **Clustered Nanopore Reads (CNR)** dataset released with *Trellis BMA: coded trace reconstruction on IDS channels for DNA storage* (ISIT 2021). It contains 10,000 reference strands of length 110 and 269,709 clustered Oxford Nanopore MinION reads. `Centers.txt` is the explicit ground truth and the clusters in `Clusters.txt` are in the same order as those references.
+The benchmark uses Microsoft's **Clustered Nanopore Reads (CNR)** dataset released with *Trellis BMA: coded trace reconstruction on IDS channels for DNA storage* (ISIT 2021). It contains 10,000 explicit 110-base reference strands and 269,709 clustered Oxford Nanopore MinION reads. The clusters in `Clusters.txt` map in order to `Centers.txt`. The workflow pins dataset commit `6938f44796185902a08381943c2895782886c5c3` and verifies both Git blob and SHA-256 checksums.
 
-The workflow pins dataset commit `6938f44796185902a08381943c2895782886c5c3` and verifies the Git blob checksums for both data files before running. The benchmark also records SHA-256 hashes of the checked-out files in its metadata.
+The external baseline is **Bidirectional Beam Search (BBS)** from Gu et al., *Efficient trace reconstruction in DNA storage systems using bidirectional beam search* (iScience, 2025). The workflow builds the official Rust implementation at commit `3e4ab46871929819e4f3e34a831c57cac88bb456` with locked dependencies and uses one CPU thread. HEDGES is not included because the CNR strands were not encoded with HEDGES; retrofitting a codec would change the physical experiment rather than compare reconstruction on identical reads.
 
-The CNR maintainers added an important limitation in 2024: the generated centers contain unintended long-range dependencies, and some recovered clusters may therefore be malformed. OligoArk preserves this limitation in every benchmark artifact and does not generalize this dataset to all physical DNA-storage channels.
+The CNR maintainers note that the generated centers contain unintended long-range dependencies and that some recovered clusters may be malformed. This limitation is retained.
 
-## External baseline
+## Leakage-controlled low-compute improvement
 
-The external baseline is **Bidirectional Beam Search (BBS)** from Gu et al., *Efficient trace reconstruction in DNA storage systems using bidirectional beam search* (iScience, 2025). BBS directly supports the Microsoft CNR cluster format, has an open-source Rust implementation, and is practical on CPU-only CI. The workflow builds the official source at commit `3e4ab46871929819e4f3e34a831c57cac88bb456` with its locked dependencies and runs it with its default algorithm settings on one CPU thread.
+The original **96-cluster held-out set is unchanged**: clusters with at least 10 reads are SHA-256 ranked with seed `20261005`, and the same nested 1-, 5-, and 10-read subsets are used for every method.
 
-HEDGES is not included in this same-read benchmark because HEDGES is an encoding plus decoding code: the CNR physical strands were not synthesized with HEDGES. Retrofitting HEDGES would change the encoded data rather than compare reconstruction on identical reads. The same restriction applies to OligoArk fountain/hybrid redundancy and the combined archive optimizer, so those are explicitly reported as not applicable rather than assigned invented scores.
+A separate **48-cluster calibration set** uses seed `20261006` after all 96 held-out cluster IDs have been excluded. Five fixed low-compute multi-start configurations are evaluated only on calibration references at 5 and 10 reads. Candidate runtime is limited to at most `max(4 × iterative baseline, baseline + 2 s)`. The winner is frozen before the held-out references are scored.
 
-## Fast deterministic design
+The new `multistart_trace_consensus()` method ranks a small number of observed reads by agreement with the other reads, performs the existing alignment refinement from those anchors, optionally repeats refinement on reversed traces, and selects the final candidate by observed-read edit distance plus a known-length penalty. It does **not** use the unknown reference, deep learning, a GPU, BBS source code, or a new runtime dependency.
 
-To keep the workflow suitable for ordinary GitHub-hosted runners, it selects 96 clusters from those having at least 10 physical reads. Selection is deterministic: eligible cluster indexes are ranked by SHA-256 with seed `20261005`; reconstruction quality and reference content are never used for selection. Within each chosen cluster, reads are independently SHA-256 ranked before taking nested coverages of 1, 5 and 10 reads. Every reconstruction method therefore receives the exact same reads and reference strand at a given coverage.
+Calibration selected **3 anchors, 1 refinement round, bidirectional mode, length penalty 1.0**. Across the 48 calibration clusters at 5 and 10 reads, this configuration recovered **68/96 (70.8%)** versus **53/96 (55.2%)** for the previous iterative trace baseline. Calibration runtime was 41.0 s versus 14.8 s for iterative trace, within the predeclared 4× budget.
 
-The evaluated methods are:
+## Executed held-out result
 
-- OligoArk direct: the first deterministically selected physical read;
-- OligoArk medoid consensus;
-- OligoArk graph/alignment using the v0.6 default graph settings and the largest graph component without reference-guided candidate selection;
-- OligoArk iterative trace consensus with the frozen v0.6 three-round setting;
-- external BBS from the pinned official implementation.
+The selected held-out 10-read subset contains 960 physical reads. Its descriptive raw-read profile measured about 2.23% substitutions, 1.65% insertions and 1.92% deletions per aligned reference base.
 
-No method is calibrated on the evaluation references. The reference is used only after reconstruction to score accuracy.
+| Reads / strand | Direct | Medoid | Graph/alignment | Iterative trace | **Multi-start trace** | External BBS |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1–2/96 across repeats |
+| 5 | 1/96 (1.0%) | 6/96 (6.3%) | 33/96 (34.4%) | 44/96 (45.8%) | **53/96 (55.2%)** | **72–74/96 (75.0–77.1%)**; first repeat 73/96 |
+| 10 | 1/96 (1.0%) | 10/96 (10.4%) | 65/96 (67.7%) | 63/96 (65.6%) | **80/96 (83.3%)** | **93/96 (96.9%)** in all five repeats |
 
-## Metrics
+The multi-start method significantly improved exact recovery over the previous OligoArk methods on the same held-out clusters. At 5 reads it had 11 exact-only wins versus 2 iterative-only wins (two-sided exact McNemar p = 0.0225), and 20 exact-only wins versus 0 graph/alignment-only wins (p = 1.91e-6). At 10 reads it had 17 exact-only wins versus 0 iterative-only wins (p = 1.53e-5), and 15 exact-only wins versus 0 graph/alignment-only wins (p = 6.10e-5).
 
-For each method and coverage, the workflow reports exact-reference recovery with Wilson 95% confidence intervals, edit distance, normalized edit distance, CPU-runner wall time, per-cluster time, process peak RSS, and deterministic subset SHA-256 comparison. Pairwise exact-recovery differences against BBS use a two-sided exact McNemar test on the same clusters. Raw per-cluster CSV/JSON, summaries, paired comparisons, timing records, deterministic subset files and environment/provenance metadata are uploaded as a 90-day GitHub Actions artifact.
+BBS remains stronger on exact recovery. At 5 reads, the frozen multi-start method had 3 exact-only wins versus 23 BBS-only wins (p = 8.80e-5). At 10 reads it had 1 exact-only win versus 14 BBS-only wins (p = 0.000977). The exact-recovery gap therefore narrowed substantially but did not close.
 
-The raw-read profile additionally measures substitution, insertion and deletion counts against the known references on the selected 10-read subset. The full-dataset empty-cluster rate is reported as the observable strand/dropout analogue. These are descriptive measurements of this dataset, not universal sequencing error rates.
+Mean edit distance at 5 reads was **0.740** for multi-start, 1.010 for iterative trace, 1.938 for graph/alignment, and 0.625 for the first BBS repeat. At 10 reads it was **0.219** for multi-start, 0.469 for iterative trace, 0.490 for graph/alignment, and 0.354 for BBS. The lower 10-read mean edit distance for multi-start does not make it superior overall: BBS still has substantially higher exact-reference recovery, while its few failures contain more edits.
+
+On the GitHub-hosted runner, multi-start took about **22.6 s** for the 96-cluster 5-read evaluation and **59.0 s** at 10 reads, with about **24 MB peak RSS**. The complete workflow—including dataset checks, pinned BBS build, calibration grid, all held-out methods, five BBS repetitions per coverage, validation, and artifact upload—completed in **8 min 8 sec**, within the 10–15 minute target.
+
+## Metrics and artifacts
+
+The workflow reports exact-reference recovery with Wilson 95% intervals, edit and normalized-edit distance, wall time, peak RSS, deterministic subset hashes, paired exact McNemar tests versus BBS and prior OligoArk methods, calibration candidates, raw per-cluster CSV/JSON, BBS repeat variability, timing records, and provenance metadata. Failures are retained.
 
 ## Claim boundary
 
-This is a **physical-read reference-reconstruction benchmark**, not an end-to-end OligoArk archive decode. CNR does not contain a file encoded with OligoArk framing, ECC or redundancy, so file-level SHA-256 recovery, OligoArk fountain/hybrid recovery and the combined archive optimizer are not applicable. The benchmark instead hashes the ordered reference subset and reconstructed subset to provide an exact aggregate integrity check.
+This is a **physical-read reference-reconstruction benchmark**, not an end-to-end OligoArk archive decode. CNR does not contain a file encoded with OligoArk framing, ECC, fountain/hybrid redundancy, or the combined optimizer, so those archive-level results and original-file SHA-256 recovery are not applicable.
 
-
-## Executed v0.6 result
-
-The fast held-out physical-read benchmark uses 96 deterministically selected clusters from 8,978 CNR clusters having at least 10 reads and evaluates nested coverages of 1, 5 and 10 reads. The selected 10-read subset contained 960 physical reads. Against the known references, the descriptive raw-read profile measured 2.23% substitutions, 1.65% insertions and 1.92% deletions per aligned reference base.
-
-| Reads / strand | Direct | Medoid | OligoArk graph/alignment | OligoArk iterative trace | External BBS |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) | 1/96 (1.0%) in the exact-head run |
-| 5 | 1/96 (1.0%) | 6/96 (6.3%) | 33/96 (34.4%) | 44/96 (45.8%) | **73/96 (76.0%)** |
-| 10 | 1/96 (1.0%) | 10/96 (10.4%) | 65/96 (67.7%) | 63/96 (65.6%) | **93/96 (96.9%)** |
-
-At one read, exact-recovery differences versus BBS were not statistically significant. An earlier identical official-code BBS execution produced 2/96 instead of 1/96 because the upstream implementation does not define deterministic tie-breaking for equal-score candidates stored in randomized Rust `HashMap`s. The workflow therefore records five unmodified BBS repetitions per coverage so this implementation-level variability remains visible. At five reads, BBS exceeded graph/alignment by 40 paired successes versus one graph-only success (exact two-sided McNemar p = 1.96e-11) and exceeded iterative trace by 29 net paired successes (31 BBS-only versus two trace-only; p = 1.31e-7). At ten reads, BBS exceeded graph/alignment on 28 paired clusters with no graph-only wins (p = 7.45e-9) and exceeded iterative trace on 30 paired clusters with no trace-only wins (p = 1.86e-9).
-
-Mean edit distance at five reads was 0.625 for BBS, 1.010 for iterative trace and 1.938 for graph/alignment. At ten reads it was 0.354 for BBS, 0.469 for iterative trace and 0.490 for graph/alignment. Therefore, on this single public physical CNR benchmark, the defensible result is that **OligoArk v0.6 reconstruction underperforms the external BBS baseline at useful multi-read coverage**. The result does not invalidate OligoArk's internal simulation gains; it shows that those gains do not establish external state-of-the-art performance.
-
-The benchmark intentionally reports OligoArk fountain/hybrid redundancy, the combined archive optimizer and full-file SHA-256 recovery as not applicable because the CNR strands were not encoded with OligoArk. No result is inferred for those methods.
+The defensible conclusion is: **the lightweight multi-start refinement materially improves OligoArk on unseen physical nanopore reads and narrows the gap to BBS, especially at 10-read coverage, but OligoArk still underperforms BBS on exact reconstruction and is not state of the art on this benchmark.**
