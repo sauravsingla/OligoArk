@@ -449,6 +449,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     all_rows: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
+    bbs_repeat_summaries: list[dict[str, Any]] = []
+    if args.bbs_repeats < 1:
+        raise ValueError("--bbs-repeats must be positive")
     timing_dir = output_dir / "timing"
     timing_dir.mkdir(exist_ok=True)
 
@@ -481,23 +484,28 @@ def run_benchmark(args: argparse.Namespace) -> None:
             all_rows.extend(rows)
             summaries.append(summarize_rows(rows, elapsed, peak_rss))
 
-        bbs_output = output_dir / f"bbs-coverage-{coverage}.csv"
-        elapsed, peak_rss = _timed_subprocess(
-            [
-                str(bbs_bin),
-                str(clusters_subset),
-                "-l",
-                str(TARGET_LENGTH),
-                "-t",
-                "1",
-                "-o",
-                str(bbs_output),
-            ],
-            timing_dir / f"external-bbs-coverage-{coverage}.txt",
-        )
-        bbs_rows = _parse_bbs_output(bbs_output, coverage_records, coverage)
-        all_rows.extend(bbs_rows)
-        summaries.append(summarize_rows(bbs_rows, elapsed, peak_rss))
+        for repeat in range(1, args.bbs_repeats + 1):
+            bbs_output = output_dir / f"bbs-coverage-{coverage}-repeat-{repeat}.csv"
+            elapsed, peak_rss = _timed_subprocess(
+                [
+                    str(bbs_bin),
+                    str(clusters_subset),
+                    "-l",
+                    str(TARGET_LENGTH),
+                    "-t",
+                    "1",
+                    "-o",
+                    str(bbs_output),
+                ],
+                timing_dir / f"external-bbs-coverage-{coverage}-repeat-{repeat}.txt",
+            )
+            bbs_rows = _parse_bbs_output(bbs_output, coverage_records, coverage)
+            bbs_summary = summarize_rows(bbs_rows, elapsed, peak_rss)
+            bbs_summary["repeat"] = repeat
+            bbs_repeat_summaries.append(bbs_summary)
+            if repeat == 1:
+                all_rows.extend(bbs_rows)
+                summaries.append(bbs_summary)
 
     comparisons: list[dict[str, Any]] = []
     for coverage in coverages:
@@ -565,6 +573,13 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "repository": BBS_REPOSITORY,
             "commit": BBS_COMMIT,
             "configuration": "official defaults, one CPU thread, target length 110",
+            "repeats_per_coverage": args.bbs_repeats,
+            "reproducibility_note": (
+                "The official implementation uses randomized Rust HashMap iteration and "
+                "does not define a deterministic tie-break for equal-score candidates. "
+                "Repeated official-code executions are therefore recorded without patching "
+                "the external algorithm."
+            ),
         },
         "subset": {
             "selection": (
@@ -624,6 +639,12 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "Codec-specific methods such as HEDGES cannot be fairly retrofitted onto these "
             "already synthesized CNR strands without changing the encoded data."
         ),
+        (
+            "The official BBS implementation can choose different equal-score candidates "
+            "across processes because its Rust HashMap iteration order is randomized. "
+            "The benchmark preserves the official source and records repeated executions "
+            "instead of modifying its tie behavior."
+        ),
     ]
 
     error_profile = _error_profile(selected, max_coverage)
@@ -632,6 +653,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "raw_read_error_profile_on_selected_max_coverage_reads": error_profile,
         "summaries": summaries,
         "paired_exact_recovery_comparisons_vs_bbs": comparisons,
+        "bbs_repeat_summaries": bbs_repeat_summaries,
         "not_applicable": not_applicable,
         "limitations": limitations,
     }
@@ -644,6 +666,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     _write_csv(output_dir / "raw-results.csv", all_rows)
     _write_csv(output_dir / "summary.csv", summaries)
     _write_csv(output_dir / "paired-comparisons.csv", comparisons)
+    _write_csv(output_dir / "bbs-repeat-summaries.csv", bbs_repeat_summaries)
     (output_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
@@ -659,6 +682,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subset-size", type=int, default=DEFAULT_SUBSET_SIZE)
     parser.add_argument("--coverages", type=int, nargs="+", default=list(DEFAULT_COVERAGES))
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--bbs-repeats", type=int, default=5)
     parser.add_argument("--worker-method", choices=OLIGOARK_METHODS)
     parser.add_argument("--subset-json")
     parser.add_argument("--worker-output")
