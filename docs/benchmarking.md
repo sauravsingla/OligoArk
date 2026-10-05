@@ -61,6 +61,33 @@ The aggregation artifact contains:
 - `metadata.json`: commit, Python/platform information, calibration/evaluation seeds, calibration payload limit, search method/seed, payload sizes and claim scope;
 - plots for recovery vs configured error rate, overhead vs recovery, runtime vs recovery, strategy ablation, graph rescue, and calibration-to-held-out optimizer generalization.
 
+## Executed v0.6 results
+
+The v0.6 publication validation completed with **1,680 held-out trials** (3 payload sizes × 8 regimes × 7 strategies × 10 untouched evaluation seeds), 24 optimizer calibration records and **864 calibration-candidate evaluations**. The aggregate artifact records publication commit `5c1330de9e1a3bfde0ed05cd31aa30033cba0065`, Python 3.13.15 and Linux. Execution-only recovery sharding was used to finish the longest 8192-byte moderate-indel baselines without changing any scientific settings.
+
+| Strategy | Successes / trials | Recovery | 95% Wilson CI | Mean overhead | Mean runtime |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fixed | 148 / 240 | 61.7% | 55.4–67.6% | 1.492× | 0.058 s |
+| heuristic adaptive | 177 / 240 | 73.8% | 67.8–78.9% | 1.557× | 0.943 s |
+| adaptive + fountain/hybrid | 200 / 240 | 83.3% | 78.1–87.5% | 2.114× | 1.251 s |
+| adaptive + medoid | 177 / 240 | 73.8% | 67.8–78.9% | 1.557× | 29.880 s |
+| adaptive + graph/alignment | 223 / 240 | **92.9%** | 89.0–95.5% | 1.557× | 36.080 s |
+| adaptive + iterative trace | 223 / 240 | **92.9%** | 89.0–95.5% | 1.557× | 763.326 s |
+| combined robust optimizer | 221 / 240 | **92.1%** | 88.0–94.9% | 1.710× | 33.645 s |
+
+The two moderate-indel regimes provide the key reconstruction ablation:
+
+| Regime | Direct adaptive | Medoid | Adaptive + fountain | Graph/alignment | Trace | Combined |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.15% insertion + 0.15% deletion, 5 copies/strand | 7/30 | 7/30 | 11/30 | **30/30** | **30/30** | **30/30** |
+| same indel rate, 8 copies/strand | 15/30 | 15/30 | 23/30 | **30/30** | **30/30** | **30/30** |
+
+Graph/alignment and iterative trace each rescued **38/38** direct-adaptive failures across these two moderate-indel regimes with zero paired regressions. Across all eight regimes, each rescued **46/63** direct failures (5 low-indel, 23 moderate-indel, 15 high-coverage moderate-indel and 3 mixed-noise cases), again with no paired regression. `graph_reconstruction_used` counts a verified change from direct failure to integrity-checked success, not merely invocation of a reconstruction strategy.
+
+The combined robust optimizer selected winners that were 6/6 on calibration in all 24 payload×scenario cells. On untouched held-out seeds, **19/24 cells stayed at 100%** and aggregate recovery was 221/240. Generalization was strong in indel regimes but imperfect elsewhere: 10% dropout recovered 14/30 versus 21/30 for adaptive+fountain, and 1% substitution recovered 28/30 versus 30/30. Calibration success should therefore not be reported as an unbiased estimate of held-out recovery.
+
+Runtime is a software measurement from the recorded GitHub-hosted environment. The very high iterative-trace mean runtime is a real computational-cost result, especially at 8192-byte high coverage; it must not be hidden when comparing reconstruction methods.
+
 ## Executed v0.5 results
 
 The publication workflow completed successfully on commit `180618c9f5bdc1260d00c0b60a09dd6442c1a569` and uploaded a 90-day validation artifact. The merged design contains **960 held-out trials** and **576 calibration-candidate evaluations**.
@@ -128,7 +155,7 @@ Reported metrics include:
 - mean utility regret;
 - serialized ridge coefficient/model state for reproducibility.
 
-The executed held-out learning result used training seeds 2026–2029 on four channel regimes and test seeds 2030–2033 on four unseen regimes. Across 48 test groups: heuristic recovery was 41.7% with mean regret 0.0520; empirical recovery was 37.5% with regret 0.0740; ridge recovery was 41.7% with regret 0.0520; measured-search recovery was 39.6% with regret 0.1630. The ridge model therefore matched but did not outperform the heuristic, and the empirical/search baselines were worse on this split. These negative results are retained rather than hidden.
+The executed v0.6 held-out learning result used training seeds `31001–31004`, validation seeds `31005–31006`, and test seeds `31007–31010`. Training scenarios were clean, 10% dropout, 2% dropout and low-indel; test scenarios were moderate-indel, high-coverage moderate-indel, mixed and 1% substitution. Across 48 test groups: heuristic recovery was **68.8%** with mean regret 0.0378; empirical recovery was **47.9%** with regret 0.2037; linear-ridge and RBF-kernel recovery were each **47.9%** with regret 0.1923; adaptive+fountain recovered **77.1%** with regret 0.1163; measured search recovered **100%** but with 66.6 s mean software runtime and mean utility regret 1.4279. Linear and kernel selection accuracy was 79.2%, but neither learned model improved recovery over the heuristic. These negative learned-policy results and the measured-search cost trade-off are retained rather than hidden.
 
 ## Metrics
 
