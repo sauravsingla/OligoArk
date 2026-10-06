@@ -779,6 +779,68 @@ def run_benchmark(args: argparse.Namespace) -> None:
     if calibration_ids & held_out_ids:
         raise RuntimeError("calibration and held-out cluster IDs must be disjoint")
 
+    if args.calibration_only:
+        frozen_multistart_config = dict(CURRENT_MULTISTART_CONFIG)
+        baseline = _evaluate_calibration_method(
+            calibration_records,
+            coverages=CALIBRATION_COVERAGES,
+            method="multistart_trace",
+            consensus_config=frozen_multistart_config,
+        )
+        baseline_rows = _calibration_case_rows(
+            calibration_records,
+            method="multistart_trace",
+            consensus_config=frozen_multistart_config,
+        )
+        calibration_metadata = [
+            {
+                "cluster_index": int(record["cluster_index"]),
+                "available_reads": int(record["available_reads"]),
+                "reference_sha256": _sha256_text(str(record["reference"])),
+            }
+            for record in calibration_records
+        ]
+        (output_dir / "calibration-clusters.json").write_text(
+            json.dumps(calibration_metadata, indent=2),
+            encoding="utf-8",
+        )
+        for coverage in CALIBRATION_COVERAGES:
+            (output_dir / f"calibration-subset-coverage-{coverage}.json").write_text(
+                json.dumps(
+                    {
+                        "coverage": coverage,
+                        "records": _records_for_coverage(
+                            calibration_records,
+                            coverage,
+                        ),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        failure_analysis = {
+            "baseline_failure_classes": _failure_class_counts(baseline_rows),
+            "baseline_10_read_failure_classes": _failure_class_counts(
+                [row for row in baseline_rows if int(row["coverage"]) == 10]
+            ),
+        }
+        _write_csv(
+            output_dir / "calibration-baseline-cases.csv",
+            baseline_rows,
+        )
+        payload = {
+            "mode": "calibration_only",
+            "baseline": baseline,
+            "failure_analysis": failure_analysis,
+            "held_out_overlap_count": 0,
+        }
+        (output_dir / "calibration-only-summary.json").write_text(
+            json.dumps(payload, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(payload, indent=2))
+        return
+
     calibration_winner, calibration_baseline, calibration_candidates = (
         _calibrate_robust_consensus(calibration_records)
     )
