@@ -707,10 +707,25 @@ def run_benchmark(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
     if raw_rows:
+        fieldnames = sorted(
+            {key for row in raw_rows for key in row},
+            key=lambda key: (
+                key
+                not in {
+                    "method",
+                    "method_family",
+                    "coverage",
+                    "cluster_index",
+                    "exact",
+                    "edit_distance",
+                },
+                key,
+            ),
+        )
         with (output_dir / "raw-results.csv").open(
             "w", encoding="utf-8", newline=""
         ) as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(raw_rows[0]))
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(raw_rows)
     print(json.dumps(payload, indent=2))
