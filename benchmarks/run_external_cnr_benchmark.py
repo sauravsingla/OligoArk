@@ -872,17 +872,21 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     prior_comparisons: list[dict[str, Any]] = []
     for coverage in coverages:
-        multistart_rows = [
+        targeted_rows = [
             row
             for row in all_rows
-            if row["method"] == "multistart_trace" and row["coverage"] == coverage
+            if row["method"] == "targeted_trace" and row["coverage"] == coverage
         ]
-        multistart_summary = next(
+        targeted_summary = next(
             row
             for row in summaries
-            if row["method"] == "multistart_trace" and row["coverage"] == coverage
+            if row["method"] == "targeted_trace" and row["coverage"] == coverage
         )
-        for baseline_method in ("iterative_trace", "graph_alignment"):
+        for baseline_method in (
+            "multistart_trace",
+            "iterative_trace",
+            "graph_alignment",
+        ):
             baseline_rows = [
                 row
                 for row in all_rows
@@ -893,15 +897,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 for row in summaries
                 if row["method"] == baseline_method and row["coverage"] == coverage
             )
-            paired = mcnemar_exact(multistart_rows, baseline_rows)
-            lower_edit = 0
-            equal_edit = 0
-            higher_edit = 0
+            paired = mcnemar_exact(targeted_rows, baseline_rows)
             baseline_by_cluster = {
                 int(row["cluster_index"]): int(row["edit_distance"])
                 for row in baseline_rows
             }
-            for row in multistart_rows:
+            lower_edit = 0
+            equal_edit = 0
+            higher_edit = 0
+            for row in targeted_rows:
                 cluster_index = int(row["cluster_index"])
                 candidate_distance = int(row["edit_distance"])
                 baseline_distance = baseline_by_cluster[cluster_index]
@@ -914,15 +918,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
             prior_comparisons.append(
                 {
                     "coverage": coverage,
-                    "method": "multistart_trace",
+                    "method": "targeted_trace",
                     "baseline": baseline_method,
                     "exact_recovery_rate_difference": round(
-                        float(multistart_summary["exact_recovery_rate"])
+                        float(targeted_summary["exact_recovery_rate"])
                         - float(baseline_summary["exact_recovery_rate"]),
                         8,
                     ),
                     "mean_edit_distance_difference": round(
-                        float(multistart_summary["mean_edit_distance"])
+                        float(targeted_summary["mean_edit_distance"])
                         - float(baseline_summary["mean_edit_distance"]),
                         8,
                     ),
