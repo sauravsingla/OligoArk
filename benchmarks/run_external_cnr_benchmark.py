@@ -1001,6 +1001,16 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "candidate runtime <= max(4x iterative baseline, baseline + 2 seconds)"
             ),
         },
+        "targeted_repair_calibration": {
+            "frozen_config": FROZEN_TARGETED_CONFIG,
+            "provenance": TARGETED_CALIBRATION_PROVENANCE,
+            "selection_rule": (
+                "selected only on the disjoint 48-cluster calibration split; "
+                "10-read exact recovery had to exceed 39/48, reach at least 43/48, "
+                "and 5-read exact recovery could not fall below 29/48"
+            ),
+            "held_out_used_for_parameter_selection": False,
+        },
         "claim_scope": (
             "physical-read trace reconstruction against explicit reference oligos; "
             "not OligoArk end-to-end archive decoding"
