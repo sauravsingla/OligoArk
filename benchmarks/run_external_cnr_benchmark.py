@@ -19,6 +19,7 @@ from oligoark.reconstruct import (
     GraphConsensusReconstructor,
     confidence_fusion_trace_consensus,
     edit_distance,
+    homopolymer_balance_trace_consensus,
     stability_fusion_trace_consensus,
     global_align,
     iterative_trace_consensus,
@@ -46,42 +47,39 @@ HISTORICAL_DEVELOPMENT_SIZE = 48
 DEVELOPMENT_SEED = 20261008
 DEVELOPMENT_SIZE = 64
 DEVELOPMENT_COVERAGES = (5, 10)
-STABILITY_CANDIDATES: tuple[dict[str, object], ...] = (
+BALANCE_CANDIDATES: tuple[dict[str, object], ...] = (
     {
-        "name": "stability-r10-s015-c050-q025-g005-k3",
-        "top_positions": 2,
-        "max_candidates": 10,
-        "reliability_power": 1.0,
-        "support_weight": 0.15,
-        "confidence_weight": 0.50,
+        "name": "balance-r2-b6-d1-g2-h015-q025-g005",
+        "top_runs": 2,
+        "beam_width": 6,
+        "depth": 1,
+        "min_gap_support": 2,
+        "homopolymer_weight": 0.15,
         "qgram_width": 4,
         "qgram_weight": 0.25,
         "minimum_score_gain": 0.05,
-        "skip_margin": 3,
     },
     {
-        "name": "stability-r15-s025-c050-q025-g005-k3",
-        "top_positions": 2,
-        "max_candidates": 12,
-        "reliability_power": 1.5,
-        "support_weight": 0.25,
-        "confidence_weight": 0.50,
+        "name": "balance-r3-b8-d2-g2-h015-q025-g005",
+        "top_runs": 3,
+        "beam_width": 8,
+        "depth": 2,
+        "min_gap_support": 2,
+        "homopolymer_weight": 0.15,
         "qgram_width": 4,
         "qgram_weight": 0.25,
         "minimum_score_gain": 0.05,
-        "skip_margin": 3,
     },
     {
-        "name": "stability-r10-s035-c075-q025-g010-k4",
-        "top_positions": 3,
-        "max_candidates": 12,
-        "reliability_power": 1.0,
-        "support_weight": 0.35,
-        "confidence_weight": 0.75,
+        "name": "balance-r3-b10-d2-g2-h025-q025-g010",
+        "top_runs": 3,
+        "beam_width": 10,
+        "depth": 2,
+        "min_gap_support": 2,
+        "homopolymer_weight": 0.25,
         "qgram_width": 4,
         "qgram_weight": 0.25,
         "minimum_score_gain": 0.10,
-        "skip_margin": 4,
     },
 )
 FUSION_CANDIDATES: tuple[dict[str, object], ...] = (
@@ -418,6 +416,21 @@ def _reconstruct(
             minimum_score_gain=float(consensus_config["minimum_score_gain"]),
             skip_margin=int(consensus_config["skip_margin"]),
         )
+    if method == "homopolymer_balance":
+        if consensus_config is None:
+            raise ValueError("homopolymer_balance requires a development configuration")
+        return homopolymer_balance_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            top_runs=int(consensus_config["top_runs"]),
+            beam_width=int(consensus_config["beam_width"]),
+            depth=int(consensus_config["depth"]),
+            min_gap_support=int(consensus_config["min_gap_support"]),
+            homopolymer_weight=float(consensus_config["homopolymer_weight"]),
+            qgram_width=int(consensus_config["qgram_width"]),
+            qgram_weight=float(consensus_config["qgram_weight"]),
+            minimum_score_gain=float(consensus_config["minimum_score_gain"]),
+        )
     raise ValueError(f"unknown worker method: {method}")
 
 
@@ -719,10 +732,10 @@ def _run_development_only(
         float(baseline_summary["runtime_seconds"]) + 60.0,
     )
 
-    for config in STABILITY_CANDIDATES:
+    for config in BALANCE_CANDIDATES:
         summary, rows = _evaluate_development_method(
             development_records,
-            method="stability_fusion",
+            method="homopolymer_balance",
             consensus_config=dict(config),
         )
         paired_5 = _paired_development_change(rows, baseline_rows, 5)
@@ -1574,7 +1587,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--development-size", type=int, default=DEVELOPMENT_SIZE)
     parser.add_argument(
         "--worker-method",
-        choices=(*OLIGOARK_METHODS, "confidence_fusion", "stability_fusion"),
+        choices=(
+            *OLIGOARK_METHODS,
+            "confidence_fusion",
+            "stability_fusion",
+            "homopolymer_balance",
+        ),
     )
     parser.add_argument("--subset-json")
     parser.add_argument("--worker-output")
