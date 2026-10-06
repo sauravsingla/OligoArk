@@ -914,17 +914,20 @@ def run_benchmark(args: argparse.Namespace) -> None:
         raise RuntimeError("calibration and held-out cluster IDs must be disjoint")
 
     if args.calibration_only:
-        frozen_multistart_config = dict(CURRENT_MULTISTART_CONFIG)
-        baseline = _evaluate_calibration_method(
-            calibration_records,
-            coverages=CALIBRATION_COVERAGES,
-            method="multistart_trace",
-            consensus_config=frozen_multistart_config,
+        winner, baseline, candidates = _calibrate_targeted_consensus(
+            calibration_records
         )
+        frozen_multistart_config = dict(CURRENT_MULTISTART_CONFIG)
+        frozen_targeted_config = dict(winner["config"])
         baseline_rows = _calibration_case_rows(
             calibration_records,
             method="multistart_trace",
             consensus_config=frozen_multistart_config,
+        )
+        winner_rows = _calibration_case_rows(
+            calibration_records,
+            method="targeted_trace",
+            consensus_config=frozen_targeted_config,
         )
         calibration_metadata = [
             {
@@ -954,18 +957,38 @@ def run_benchmark(args: argparse.Namespace) -> None:
             )
         failure_analysis = {
             "baseline_failure_classes": _failure_class_counts(baseline_rows),
+            "winner_failure_classes": _failure_class_counts(winner_rows),
             "baseline_10_read_failure_classes": _failure_class_counts(
                 [row for row in baseline_rows if int(row["coverage"]) == 10]
+            ),
+            "winner_10_read_failure_classes": _failure_class_counts(
+                [row for row in winner_rows if int(row["coverage"]) == 10]
             ),
         }
         _write_csv(
             output_dir / "calibration-baseline-cases.csv",
             baseline_rows,
         )
+        _write_csv(
+            output_dir / "calibration-winner-cases.csv",
+            winner_rows,
+        )
+        _write_csv(
+            output_dir / "calibration-candidates.csv",
+            candidates,
+        )
         payload = {
             "mode": "calibration_only",
             "baseline": baseline,
+            "candidates": candidates,
+            "winner": winner,
             "failure_analysis": failure_analysis,
+            "acceptance": {
+                "minimum_10_read_successes": 43,
+                "minimum_5_read_successes": _coverage_successes(baseline, 5),
+                "winner_10_read_successes": _coverage_successes(winner, 10),
+                "winner_5_read_successes": _coverage_successes(winner, 5),
+            },
             "held_out_overlap_count": 0,
         }
         (output_dir / "calibration-only-summary.json").write_text(
