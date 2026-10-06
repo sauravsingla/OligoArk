@@ -790,17 +790,43 @@ def _bounded_local_candidates(
             seen.add(value)
             generated.append(value)
 
+    def ranked_insertions(
+        sequence: str,
+        votes_by_slot: list[Counter[str]],
+    ) -> list[tuple[int, int, int, str]]:
+        ranked: list[tuple[int, int, int, str]] = []
+        operations = _targeted_insertion_operations(
+            sequence,
+            votes_by_slot,
+            min_homopolymer_run=2,
+        )
+        for slot, base in operations:
+            observed_support = max(
+                (
+                    count
+                    for inserted, count in votes_by_slot[slot].items()
+                    if inserted and base in inserted
+                ),
+                default=0,
+            )
+            run_length = _homopolymer_run_after_insertion(sequence, slot, base)
+            ranked.append((-observed_support, -run_length, slot, base))
+        return sorted(set(ranked))
+
     if len(candidate) == target_length - 1:
-        ranked_insertions: list[tuple[int, int, str]] = []
-        for slot, votes in enumerate(insertion_votes):
-            for sequence, count in votes.items():
-                if not sequence:
-                    continue
-                for base in sequence:
-                    if base in "ACGT":
-                        ranked_insertions.append((-count, slot, base))
-        for _, slot, base in sorted(ranked_insertions):
+        for _, _, slot, base in ranked_insertions(candidate, insertion_votes):
             add(candidate[:slot] + base + candidate[slot:])
+        return generated
+
+    if len(candidate) == target_length - 2:
+        beam_width = max(2, min(4, top_positions + 1))
+        first_steps = ranked_insertions(candidate, insertion_votes)[:beam_width]
+        for _, _, slot, base in first_steps:
+            first = candidate[:slot] + base + candidate[slot:]
+            _, second_insertion_votes = _alignment_vote_evidence(first, cluster)
+            second_steps = ranked_insertions(first, second_insertion_votes)[:beam_width]
+            for _, _, second_slot, second_base in second_steps:
+                add(first[:second_slot] + second_base + first[second_slot:])
         return generated
 
     if len(candidate) == target_length + 1:
@@ -844,11 +870,36 @@ def _bounded_local_candidates(
         )
         if not alternatives:
             alternatives = [(0, base) for base in "ACGT" if base != candidate[position]]
-        for _, base in alternatives:
+        for _, base in alternatives[:1]:
             add(candidate[:position] + base + candidate[position + 1 :])
 
-        # Local same-length shift repair: remove the uncertain base and reinsert one
-        # position to either side using only neighboring/insertion evidence.
+    # Tiny same-length indel-pair beam. High gap support nominates a deletion;
+    # insertion evidence/homopolymer context nominates the compensating insertion.
+    ranked_deletions: list[tuple[int, int, int, int]] = []
+    for position, votes in enumerate(base_votes):
+        selected_count = votes[candidate[position]]
+        gap_count = votes["-"]
+        ranked_deletions.append(
+            (
+                selected_count - gap_count,
+                -gap_count,
+                selected_count,
+                position,
+            )
+        )
+    deletion_positions = [
+        entry[3] for entry in sorted(ranked_deletions)[:top_positions]
+    ]
+    insertion_operations = ranked_insertions(candidate, insertion_votes)[:top_positions]
+    for delete_position in deletion_positions:
+        without = candidate[:delete_position] + candidate[delete_position + 1 :]
+        for _, _, slot, base in insertion_operations:
+            adjusted_slot = slot - 1 if slot > delete_position else slot
+            adjusted_slot = max(0, min(len(without), adjusted_slot))
+            add(without[:adjusted_slot] + base + without[adjusted_slot:])
+
+    # Very local shift repair remains as a final cheap fallback.
+    for position in suspicious_positions:
         without = candidate[:position] + candidate[position + 1 :]
         for slot in (max(0, position - 1), min(len(without), position + 1)):
             suggested: set[str] = {candidate[position]}
