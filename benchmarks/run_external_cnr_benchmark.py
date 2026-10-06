@@ -386,27 +386,28 @@ def _evaluate_calibration_method(
     }
 
 
-def _calibrate_multistart(
+def _calibrate_robust_consensus(
     records: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    """Choose the lightweight configuration before touching held-out references."""
+    """Choose a robust refinement using calibration references only."""
     baseline = _evaluate_calibration_method(
         records,
         coverages=CALIBRATION_COVERAGES,
-        method="iterative_trace",
+        method="multistart_trace",
+        consensus_config=dict(CURRENT_MULTISTART_CONFIG),
     )
     candidates = [
         _evaluate_calibration_method(
             records,
             coverages=CALIBRATION_COVERAGES,
-            method="multistart_trace",
+            method="robust_multistart_trace",
             consensus_config=dict(config),
         )
-        for config in MULTISTART_CANDIDATES
+        for config in ROBUST_CANDIDATES
     ]
     runtime_budget = max(
-        float(baseline["runtime_seconds"]) * 4.0,
-        float(baseline["runtime_seconds"]) + 2.0,
+        float(baseline["runtime_seconds"]) * 2.0,
+        float(baseline["runtime_seconds"]) + 15.0,
     )
     practical = [
         candidate
@@ -414,7 +415,7 @@ def _calibrate_multistart(
         if float(candidate["runtime_seconds"]) <= runtime_budget
     ]
     if not practical:
-        raise RuntimeError("all multistart calibration candidates exceeded the runtime budget")
+        raise RuntimeError("all robust calibration candidates exceeded the runtime budget")
     winner = min(
         practical,
         key=lambda candidate: (
@@ -434,7 +435,7 @@ def _calibrate_multistart(
     )
     if not improved:
         raise RuntimeError(
-            "no lightweight multistart candidate improved calibration accuracy/edit distance"
+            "no robust candidate improved the current multistart calibration result"
         )
     return winner, baseline, candidates
 
