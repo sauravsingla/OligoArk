@@ -9,6 +9,7 @@ from oligoark.reconstruct import (
     graph_cluster_consensus,
     multistart_trace_consensus,
     normalized_similarity,
+    stability_fusion_trace_consensus,
     targeted_trace_consensus,
 )
 
@@ -236,6 +237,83 @@ def test_confidence_fusion_trace_consensus_validates_configuration() -> None:
     for kwargs in invalid:
         try:
             confidence_fusion_trace_consensus(reads, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"configuration should fail: {kwargs}")
+
+def test_stability_fusion_is_deterministic_under_read_order() -> None:
+    reads = [
+        "AAAACCCC",
+        "AAACCCC",
+        "AAAACCCC",
+        "AAAACCCC",
+        "AAAACCCA",
+    ]
+    forward = stability_fusion_trace_consensus(
+        reads,
+        target_length=8,
+        top_positions=2,
+        max_candidates=10,
+        reliability_power=1.0,
+        support_weight=0.25,
+        confidence_weight=0.5,
+        qgram_width=3,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+        skip_margin=3,
+    )
+    reverse_order = stability_fusion_trace_consensus(
+        list(reversed(reads)),
+        target_length=8,
+        top_positions=2,
+        max_candidates=10,
+        reliability_power=1.0,
+        support_weight=0.25,
+        confidence_weight=0.5,
+        qgram_width=3,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+        skip_margin=3,
+    )
+    assert forward == reverse_order
+
+
+def test_stability_fusion_preserves_strong_supported_consensus() -> None:
+    original = "ACGTACGT"
+    reads = [original] * 8 + ["ACGTTCGT", "ACGTACG"]
+    assert stability_fusion_trace_consensus(
+        reads,
+        target_length=len(original),
+        top_positions=2,
+        max_candidates=10,
+        reliability_power=1.0,
+        support_weight=0.25,
+        confidence_weight=0.5,
+        qgram_width=4,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+        skip_margin=3,
+    ) == original
+
+
+def test_stability_fusion_validates_configuration() -> None:
+    reads = ["ACGT", "ACGA"]
+    invalid = (
+        {"target_length": 0},
+        {"target_length": 4, "top_positions": 0},
+        {"target_length": 4, "max_candidates": 1},
+        {"target_length": 4, "reliability_power": -0.1},
+        {"target_length": 4, "support_weight": -0.1},
+        {"target_length": 4, "confidence_weight": -0.1},
+        {"target_length": 4, "qgram_width": 0},
+        {"target_length": 4, "qgram_weight": -0.1},
+        {"target_length": 4, "minimum_score_gain": -0.1},
+        {"target_length": 4, "skip_margin": -1},
+    )
+    for kwargs in invalid:
+        try:
+            stability_fusion_trace_consensus(reads, **kwargs)
         except ValueError:
             pass
         else:
