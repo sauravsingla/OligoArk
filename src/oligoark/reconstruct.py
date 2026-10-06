@@ -886,9 +886,8 @@ def confidence_fusion_trace_consensus(
     """Fuse low-cost consensuses and apply a bounded confidence-guided edit search.
 
     The method never uses the unknown reference. It starts from the frozen targeted
-    repair plus inexpensive consensus alternatives, adds only a tiny edit neighborhood
-    around low-confidence positions, and selects a replacement only when observed-read
-    evidence improves by a configured margin.
+    repair, adds only a tiny edit neighborhood around low-confidence positions, and
+    selects a replacement only when observed-read evidence improves by a configured margin.
     """
     if not cluster:
         raise ValueError("cluster must not be empty")
@@ -921,59 +920,21 @@ def confidence_fusion_trace_consensus(
         substitution_homopolymer_min_reads=10,
     )
 
-    seeds: list[str] = [baseline]
-    for candidate in (
-        multistart_trace_consensus(
-            cluster,
-            target_length=target_length,
-            anchors=anchors,
-            rounds=rounds,
-            bidirectional=True,
-            length_penalty=1.0,
-        ),
-        iterative_trace_consensus(cluster, rounds=3),
-        alignment_consensus(cluster),
-    ):
-        if candidate not in seeds:
-            seeds.append(candidate)
-
-    reversed_cluster = [read[::-1] for read in cluster]
-    reverse_targeted = targeted_trace_consensus(
-        reversed_cluster,
+    # The frozen targeted consensus already includes multi-start and bidirectional
+    # refinement. Keep this second-stage search deliberately tiny so the external
+    # benchmark remains CPU-friendly.
+    candidates: list[str] = [baseline]
+    seen: set[str] = {baseline}
+    for local in _bounded_local_candidates(
+        baseline,
+        cluster,
         target_length=target_length,
-        anchors=anchors,
-        rounds=rounds,
-        bidirectional=True,
-        length_penalty=1.0,
-        homopolymer_weight=0.75,
-        min_homopolymer_run=2,
-        substitution_min_gain=0.0,
-        substitution_homopolymer_weight=2.0,
-        substitution_homopolymer_min_reads=10,
-    )[::-1]
-    if reverse_targeted not in seeds:
-        seeds.append(reverse_targeted)
-
-    candidates: list[str] = []
-    seen: set[str] = set()
-    for seed in seeds:
-        if seed not in seen:
-            seen.add(seed)
-            candidates.append(seed)
-        if len(candidates) >= max_candidates:
-            break
-        for local in _bounded_local_candidates(
-            seed,
-            cluster,
-            target_length=target_length,
-            top_positions=top_positions,
-            max_candidates=max_candidates - len(candidates),
-        ):
-            if local not in seen:
-                seen.add(local)
-                candidates.append(local)
-            if len(candidates) >= max_candidates:
-                break
+        top_positions=top_positions,
+        max_candidates=max_candidates - 1,
+    ):
+        if local not in seen:
+            seen.add(local)
+            candidates.append(local)
         if len(candidates) >= max_candidates:
             break
 
