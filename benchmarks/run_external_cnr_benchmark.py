@@ -22,6 +22,7 @@ from oligoark.reconstruct import (
     iterative_trace_consensus,
     medoid_consensus,
     multistart_trace_consensus,
+    targeted_trace_consensus,
 )
 
 DATASET_NAME = "Microsoft Clustered Nanopore Reads (CNR)"
@@ -38,6 +39,28 @@ DEFAULT_SEED = 20261005
 DEFAULT_CALIBRATION_SEED = 20261006
 DEFAULT_CALIBRATION_SIZE = 48
 CALIBRATION_COVERAGES = (5, 10)
+FROZEN_TARGETED_CONFIG: dict[str, object] = {
+    "name": "targeted-hp10-w2",
+    "anchors": 3,
+    "rounds": 1,
+    "bidirectional": True,
+    "length_penalty": 1.0,
+    "homopolymer_weight": 0.75,
+    "min_homopolymer_run": 2,
+    "substitution_min_gain": 0.0,
+    "substitution_homopolymer_weight": 2.0,
+    "substitution_homopolymer_min_reads": 10,
+}
+TARGETED_CALIBRATION_PROVENANCE = {
+    "workflow_run": 37411358445,
+    "artifact_id": 11389122776,
+    "held_out_overlap_count": 0,
+    "five_read_successes": 34,
+    "five_read_trials": 48,
+    "ten_read_successes": 47,
+    "ten_read_trials": 48,
+    "ten_read_mean_edit_distance": 0.08333333,
+}
 MULTISTART_CANDIDATES: tuple[dict[str, object], ...] = (
     {
         "name": "a1-r2-bi",
@@ -81,6 +104,7 @@ OLIGOARK_METHODS = (
     "graph_alignment",
     "iterative_trace",
     "multistart_trace",
+    "targeted_trace",
 )
 
 
@@ -242,6 +266,25 @@ def _reconstruct(
             rounds=int(consensus_config["rounds"]),
             bidirectional=bool(consensus_config["bidirectional"]),
             length_penalty=float(consensus_config["length_penalty"]),
+        )
+    if method == "targeted_trace":
+        config = FROZEN_TARGETED_CONFIG
+        return targeted_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            anchors=int(config["anchors"]),
+            rounds=int(config["rounds"]),
+            bidirectional=bool(config["bidirectional"]),
+            length_penalty=float(config["length_penalty"]),
+            homopolymer_weight=float(config["homopolymer_weight"]),
+            min_homopolymer_run=int(config["min_homopolymer_run"]),
+            substitution_min_gain=float(config["substitution_min_gain"]),
+            substitution_homopolymer_weight=float(
+                config["substitution_homopolymer_weight"]
+            ),
+            substitution_homopolymer_min_reads=int(
+                config["substitution_homopolymer_min_reads"]
+            ),
         )
     raise ValueError(f"unknown worker method: {method}")
 
