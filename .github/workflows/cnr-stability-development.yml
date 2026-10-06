@@ -1,0 +1,100 @@
+name: CNR stability-fusion development
+
+on:
+  push:
+    branches:
+      - research/cnr-stability-fusion-v06
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cnr-stability-fusion-development
+  cancel-in-progress: true
+
+jobs:
+  develop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out OligoArk
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install OligoArk
+        run: |
+          python -m pip install -U pip
+          pip install -e .
+
+      - name: Check out pinned Microsoft CNR dataset
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/clustered-nanopore-reads-dataset
+          ref: 6938f44796185902a08381943c2895782886c5c3
+          path: .external/cnr
+          fetch-depth: 1
+
+      - name: Verify CNR provenance
+        run: |
+          test "$(git -C .external/cnr rev-parse HEAD)" = \
+            "6938f44796185902a08381943c2895782886c5c3"
+          test "$(git -C .external/cnr hash-object Centers.txt)" = \
+            "2d72f78cd86f2172578aaae297113a4baa14975c"
+          test "$(git -C .external/cnr hash-object Clusters.txt)" = \
+            "95a71c77cb82f6d501d6aa99c7415591565c5ae3"
+
+      - name: Run untouched second development split
+        run: |
+          python benchmarks/run_external_cnr_benchmark.py \
+            --centers .external/cnr/Centers.txt \
+            --clusters .external/cnr/Clusters.txt \
+            --subset-size 96 \
+            --coverages 1 5 10 \
+            --seed 20261005 \
+            --calibration-size 48 \
+            --calibration-seed 20261006 \
+            --development-only \
+            --development-seed 20261008 \
+            --development-size 64 \
+            --output-dir cnr-stability-development
+
+      - name: Show development decision
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("cnr-stability-development/development-summary.json").read_text()
+          )
+          print("baseline", data["baseline"])
+          for candidate in data["candidates"]:
+              print(
+                  candidate["config"]["name"],
+                  "accepted=", candidate["accepted"],
+                  "runtime=", candidate["runtime_seconds"],
+                  "per_coverage=", candidate["per_coverage"],
+                  "paired_10=", candidate["paired_10"],
+              )
+          print("winner", data["winner"])
+          PY
+
+      - name: Validate split isolation
+        run: |
+          test -s cnr-stability-development/development-summary.json
+          test -s cnr-stability-development/development-clusters.json
+          test -s cnr-stability-development/development-cases.csv
+          python -m json.tool cnr-stability-development/development-summary.json > /dev/null
+
+      - name: Upload development artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnr-stability-fusion-development
+          path: cnr-stability-development/
+          if-no-files-found: error
+          retention-days: 90
