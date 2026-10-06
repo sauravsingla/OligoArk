@@ -960,7 +960,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "candidates": calibration_candidates,
             "winner": calibration_winner,
             "runtime_budget_rule": (
-                "candidate runtime <= max(4x iterative baseline, baseline + 2 seconds)"
+                "candidate runtime <= max(2x current multistart baseline, "
+                "baseline + 15 seconds)"
             ),
         },
         "claim_scope": (
