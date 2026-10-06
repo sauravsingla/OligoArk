@@ -418,18 +418,78 @@ def _trace_candidate_score(
     *,
     target_length: int | None,
     length_penalty: float,
+    trim_farthest: int = 0,
+    agreement_count: int = 0,
+    agreement_weight: float = 0.0,
 ) -> tuple[float, int, int, str]:
-    """Score a candidate only from observed traces plus an optional known oligo length."""
+    """Score a candidate from observed traces plus optional robust penalties."""
+    if trim_farthest < 0:
+        raise ValueError("trim_farthest must be non-negative")
+    if agreement_weight < 0:
+        raise ValueError("agreement_weight must be non-negative")
+
     length_delta = (
         abs(len(candidate) - target_length) if target_length is not None else 0
     )
-    trace_distance = sum(edit_distance(candidate, read) for read in cluster)
-    return (
-        trace_distance + length_penalty * length_delta * len(cluster),
-        length_delta,
-        len(candidate),
-        candidate,
+    distances = sorted(edit_distance(candidate, read) for read in cluster)
+    usable_count = max(1, len(distances) - min(trim_farthest, len(distances) - 1))
+    trace_distance = sum(distances[:usable_count])
+    score = (
+        trace_distance
+        + length_penalty * length_delta * usable_count
+        - agreement_weight * agreement_count
     )
+    return (score, length_delta, len(candidate), candidate)
+
+
+def _collect_multistart_trace_candidates(
+    cluster: list[str],
+    *,
+    target_length: int | None,
+    anchors: int,
+    rounds: int,
+    bidirectional: bool,
+) -> tuple[list[str], list[str]]:
+    """Return unique candidates and refined outputs without reference leakage."""
+    candidates: list[str] = []
+    refined_outputs: list[str] = []
+    seen: set[str] = set()
+
+    def add_candidate(candidate: str) -> None:
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    forward_anchors = _trace_anchor_order(
+        cluster,
+        target_length=target_length,
+    )[:anchors]
+    for anchor in forward_anchors:
+        add_candidate(anchor)
+        refined = _refine_trace_from_anchor(
+            cluster,
+            anchor,
+            rounds=rounds,
+        )
+        refined_outputs.append(refined)
+        add_candidate(refined)
+
+    if bidirectional:
+        reversed_cluster = [read[::-1] for read in cluster]
+        reverse_anchors = _trace_anchor_order(
+            reversed_cluster,
+            target_length=target_length,
+        )[:anchors]
+        for anchor in reverse_anchors:
+            reversed_candidate = _refine_trace_from_anchor(
+                reversed_cluster,
+                anchor,
+                rounds=rounds,
+            )[::-1]
+            refined_outputs.append(reversed_candidate)
+            add_candidate(reversed_candidate)
+
+    return candidates, refined_outputs
 
 
 def multistart_trace_consensus(
@@ -466,42 +526,13 @@ def multistart_trace_consensus(
     if len(cluster) == 1:
         return cluster[0]
 
-    candidates: list[str] = []
-    seen: set[str] = set()
-
-    def add_candidate(candidate: str) -> None:
-        if candidate not in seen:
-            seen.add(candidate)
-            candidates.append(candidate)
-
-    forward_anchors = _trace_anchor_order(
+    candidates, _ = _collect_multistart_trace_candidates(
         cluster,
         target_length=target_length,
-    )[:anchors]
-    for anchor in forward_anchors:
-        add_candidate(anchor)
-        add_candidate(
-            _refine_trace_from_anchor(
-                cluster,
-                anchor,
-                rounds=rounds,
-            )
-        )
-
-    if bidirectional:
-        reversed_cluster = [read[::-1] for read in cluster]
-        reverse_anchors = _trace_anchor_order(
-            reversed_cluster,
-            target_length=target_length,
-        )[:anchors]
-        for anchor in reverse_anchors:
-            reversed_candidate = _refine_trace_from_anchor(
-                reversed_cluster,
-                anchor,
-                rounds=rounds,
-            )
-            add_candidate(reversed_candidate[::-1])
-
+        anchors=anchors,
+        rounds=rounds,
+        bidirectional=bidirectional,
+    )
     return min(
         candidates,
         key=lambda candidate: _trace_candidate_score(
@@ -511,6 +542,88 @@ def multistart_trace_consensus(
             length_penalty=length_penalty,
         ),
     )
+
+
+def robust_multistart_trace_consensus(
+    cluster: list[str],
+    *,
+    target_length: int | None = None,
+    anchors: int = 3,
+    rounds: int = 1,
+    bidirectional: bool = True,
+    length_penalty: float = 1.0,
+    trim_farthest: int = 1,
+    agreement_weight: float = 0.0,
+    fuse_refined: bool = False,
+    final_polish: bool = False,
+) -> str:
+    """Robust low-compute refinement of multi-start trace consensus.
+
+    The method keeps the candidate-generation path reference-free, then makes candidate
+    selection less sensitive to a small number of noisy reads by optionally trimming the
+    farthest trace distances. Repeated agreement among independently refined anchors can
+    be rewarded, and a consensus of the refined outputs can be added as one extra
+    candidate. An optional final forward/reverse polish is bounded to one pass.
+
+    All choices use observed reads plus an optional known target length. The unknown
+    reference sequence is never used during reconstruction.
+    """
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if anchors < 1:
+        raise ValueError("anchors must be positive")
+    if rounds < 1:
+        raise ValueError("rounds must be positive")
+    if target_length is not None and target_length < 1:
+        raise ValueError("target_length must be positive")
+    if length_penalty < 0:
+        raise ValueError("length_penalty must be non-negative")
+    if trim_farthest < 0:
+        raise ValueError("trim_farthest must be non-negative")
+    if agreement_weight < 0:
+        raise ValueError("agreement_weight must be non-negative")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    candidates, refined_outputs = _collect_multistart_trace_candidates(
+        cluster,
+        target_length=target_length,
+        anchors=anchors,
+        rounds=rounds,
+        bidirectional=bidirectional,
+    )
+    refined_counts = Counter(refined_outputs)
+
+    if fuse_refined and len(refined_outputs) >= 2:
+        fused = alignment_consensus(refined_outputs)
+        if fused not in candidates:
+            candidates.append(fused)
+
+    def score(candidate: str) -> tuple[float, int, int, str]:
+        return _trace_candidate_score(
+            candidate,
+            cluster,
+            target_length=target_length,
+            length_penalty=length_penalty,
+            trim_farthest=trim_farthest,
+            agreement_count=refined_counts[candidate],
+            agreement_weight=agreement_weight,
+        )
+
+    selected = min(candidates, key=score)
+    if not final_polish:
+        return selected
+
+    polished_candidates = [selected]
+    forward = _alignment_consensus_with_reference(cluster, selected)
+    polished_candidates.append(forward)
+    if bidirectional:
+        reverse = _alignment_consensus_with_reference(
+            [read[::-1] for read in cluster],
+            selected[::-1],
+        )[::-1]
+        polished_candidates.append(reverse)
+    return min(polished_candidates, key=score)
 
 
 @dataclass(frozen=True)
