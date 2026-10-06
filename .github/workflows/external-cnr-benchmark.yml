@@ -76,7 +76,8 @@ jobs:
           test -s external-cnr-results/calibration.json
           test -s external-cnr-results/calibration-clusters.json
           test -s external-cnr-results/calibration-baseline-cases.csv
-          test -s external-cnr-results/calibration-winner-cases.csv
+          test -s external-cnr-results/calibration-subset-coverage-5.json
+          test -s external-cnr-results/calibration-subset-coverage-10.json
           test -s external-cnr-results/calibration-only-summary.json
           python -m json.tool external-cnr-results/calibration-only-summary.json > /dev/null
 
@@ -90,7 +91,6 @@ jobs:
               Path("external-cnr-results/calibration-only-summary.json").read_text()
           )
           print("baseline", data["baseline"])
-          print("winner", data["winner"])
           print("failure_analysis", data["failure_analysis"])
           PY
 
