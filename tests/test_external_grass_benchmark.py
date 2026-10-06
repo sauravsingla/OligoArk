@@ -1,9 +1,18 @@
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-from benchmarks.run_external_grass_benchmark import (
-    load_grass_binned,
-    select_split,
+SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "benchmarks"
+    / "run_external_grass_benchmark.py"
 )
+SPEC = spec_from_file_location("run_external_grass_benchmark", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+load_grass_binned = MODULE.load_grass_binned
+select_split = MODULE.select_split
 
 
 def test_load_grass_binned_parses_reference_and_reads(tmp_path: Path) -> None:
