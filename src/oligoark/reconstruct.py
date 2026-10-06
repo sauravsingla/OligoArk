@@ -1031,6 +1031,222 @@ def confidence_fusion_trace_consensus(
     return baseline
 
 
+
+def _read_reliability_weights(
+    cluster: list[str],
+    *,
+    power: float,
+) -> list[float]:
+    """Down-weight reads that disagree unusually strongly with the rest of the cluster."""
+    if power < 0:
+        raise ValueError("power must be non-negative")
+    if len(cluster) == 1:
+        return [1.0]
+
+    medians: list[float] = []
+    for index, read in enumerate(cluster):
+        distances = sorted(
+            edit_distance(read, other)
+            for other_index, other in enumerate(cluster)
+            if other_index != index
+        )
+        medians.append(float(distances[len(distances) // 2]))
+
+    raw = [1.0 / ((1.0 + median) ** power) for median in medians]
+    mean_weight = sum(raw) / len(raw)
+    return [weight / mean_weight for weight in raw]
+
+
+def _candidate_alignment_confidence(candidate: str, cluster: list[str]) -> float:
+    """Return average normalized support margin for the candidate's aligned bases."""
+    if not candidate:
+        return 0.0
+    base_votes, _ = _alignment_vote_evidence(candidate, cluster)
+    margins: list[float] = []
+    for position, selected in enumerate(candidate):
+        votes = base_votes[position]
+        selected_count = votes[selected]
+        alternative_count = max(
+            (count for base, count in votes.items() if base != selected),
+            default=0,
+        )
+        margins.append((selected_count - alternative_count) / max(1, len(cluster)))
+    return sum(margins) / len(margins)
+
+
+def stability_fusion_trace_consensus(
+    cluster: list[str],
+    *,
+    target_length: int,
+    top_positions: int = 2,
+    max_candidates: int = 12,
+    reliability_power: float = 1.0,
+    support_weight: float = 0.25,
+    confidence_weight: float = 0.5,
+    qgram_width: int = 4,
+    qgram_weight: float = 0.25,
+    minimum_score_gain: float = 0.05,
+    skip_margin: int = 3,
+) -> str:
+    """Refine confidence fusion with bounded reliability/stability evidence.
+
+    The hidden reference is never used. A cluster is skipped when its current consensus
+    is strongly supported and agrees with reverse reconstruction. Otherwise only a tiny
+    second-stage neighborhood is considered and scored against observed reads.
+    """
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if target_length < 1:
+        raise ValueError("target_length must be positive")
+    if top_positions < 1 or max_candidates < 2:
+        raise ValueError("top_positions must be positive and max_candidates >= 2")
+    if reliability_power < 0:
+        raise ValueError("reliability_power must be non-negative")
+    if support_weight < 0 or confidence_weight < 0:
+        raise ValueError("support/confidence weights must be non-negative")
+    if qgram_width < 1 or qgram_weight < 0:
+        raise ValueError("qgram settings must be valid")
+    if minimum_score_gain < 0 or skip_margin < 0:
+        raise ValueError("gain and skip margin must be non-negative")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    baseline = confidence_fusion_trace_consensus(
+        cluster,
+        target_length=target_length,
+        anchors=3,
+        rounds=1,
+        top_positions=2,
+        max_candidates=8,
+        trim_farthest=0,
+        qgram_width=4,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+    )
+    reversed_cluster = [read[::-1] for read in cluster]
+    reverse = confidence_fusion_trace_consensus(
+        reversed_cluster,
+        target_length=target_length,
+        anchors=3,
+        rounds=1,
+        top_positions=2,
+        max_candidates=8,
+        trim_farthest=0,
+        qgram_width=4,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+    )[::-1]
+
+    base_votes, insertion_votes = _alignment_vote_evidence(baseline, cluster)
+    margins: list[int] = []
+    for position, selected in enumerate(baseline):
+        votes = base_votes[position]
+        selected_count = votes[selected]
+        alternative_count = max(
+            (count for base, count in votes.items() if base != selected),
+            default=0,
+        )
+        margins.append(selected_count - alternative_count)
+    max_insertion_support = max(
+        (
+            count
+            for votes in insertion_votes
+            for inserted, count in votes.items()
+            if inserted
+        ),
+        default=0,
+    )
+    if (
+        len(baseline) == target_length
+        and reverse == baseline
+        and margins
+        and min(margins) >= skip_margin
+        and max_insertion_support <= 1
+    ):
+        return baseline
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(candidate: str) -> None:
+        if candidate not in seen and len(candidates) < max_candidates:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    add(baseline)
+    add(reverse)
+    for seed in tuple(candidates):
+        remaining = max_candidates - len(candidates)
+        if remaining <= 0:
+            break
+        for local in _bounded_local_candidates(
+            seed,
+            cluster,
+            target_length=target_length,
+            top_positions=top_positions,
+            max_candidates=remaining,
+        ):
+            add(local)
+            if len(candidates) >= max_candidates:
+                break
+
+    weights = _read_reliability_weights(cluster, power=reliability_power)
+    distance_cache: dict[str, tuple[int, ...]] = {}
+
+    def distances(candidate: str) -> tuple[int, ...]:
+        cached = distance_cache.get(candidate)
+        if cached is None:
+            cached = tuple(edit_distance(candidate, read) for read in cluster)
+            distance_cache[candidate] = cached
+        return cached
+
+    per_read_best = [
+        min(distances(candidate)[index] for candidate in candidates)
+        for index in range(len(cluster))
+    ]
+
+    def score(candidate: str) -> tuple[float, int, int, str]:
+        candidate_distances = distances(candidate)
+        weighted_distance = sum(
+            weight * distance
+            for weight, distance in zip(weights, candidate_distances, strict=True)
+        )
+        read_support = sum(
+            weight
+            for index, weight in enumerate(weights)
+            if candidate_distances[index] == per_read_best[index]
+        )
+        qgram_similarity = _candidate_qgram_similarity(
+            candidate,
+            cluster,
+            width=qgram_width,
+        )
+        alignment_confidence = _candidate_alignment_confidence(candidate, cluster)
+        reverse_bonus = 1.0 if candidate == reverse else 0.0
+        length_delta = abs(len(candidate) - target_length)
+        composite = (
+            weighted_distance
+            + 2.0 * length_delta
+            - support_weight * read_support
+            - confidence_weight * alignment_confidence
+            - qgram_weight * qgram_similarity
+            - 0.05 * reverse_bonus
+        )
+        return (
+            composite,
+            length_delta,
+            sum(candidate_distances),
+            candidate,
+        )
+
+    baseline_score = score(baseline)[0]
+    best = min(candidates, key=score)
+    best_score = score(best)[0]
+    if baseline_score - best_score >= minimum_score_gain:
+        return best
+    return baseline
+
+
 @dataclass(frozen=True)
 class GraphConsensusReconstructor:
     """Explicit similarity graph + connected components + deterministic consensus."""
