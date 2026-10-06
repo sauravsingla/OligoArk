@@ -23,6 +23,7 @@ from oligoark.reconstruct import (
     medoid_consensus,
     multistart_trace_consensus,
     robust_multistart_trace_consensus,
+    targeted_trace_consensus,
 )
 
 DATASET_NAME = "Microsoft Clustered Nanopore Reads (CNR)"
@@ -46,6 +47,56 @@ CURRENT_MULTISTART_CONFIG: dict[str, object] = {
     "bidirectional": True,
     "length_penalty": 1.0,
 }
+TARGETED_CANDIDATES: tuple[dict[str, object], ...] = (
+    {
+        "name": "targeted-tie",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "homopolymer_weight": 0.75,
+        "min_homopolymer_run": 2,
+        "substitution_min_gain": 0.0,
+        "substitution_homopolymer_weight": 0.0,
+        "substitution_homopolymer_min_reads": 10,
+    },
+    {
+        "name": "targeted-hp10-w1",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "homopolymer_weight": 0.75,
+        "min_homopolymer_run": 2,
+        "substitution_min_gain": 0.0,
+        "substitution_homopolymer_weight": 1.0,
+        "substitution_homopolymer_min_reads": 10,
+    },
+    {
+        "name": "targeted-hp10-w1.5",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "homopolymer_weight": 0.75,
+        "min_homopolymer_run": 2,
+        "substitution_min_gain": 0.0,
+        "substitution_homopolymer_weight": 1.5,
+        "substitution_homopolymer_min_reads": 10,
+    },
+    {
+        "name": "targeted-hp10-w2",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "homopolymer_weight": 0.75,
+        "min_homopolymer_run": 2,
+        "substitution_min_gain": 0.0,
+        "substitution_homopolymer_weight": 2.0,
+        "substitution_homopolymer_min_reads": 10,
+    },
+)
 ROBUST_CANDIDATES: tuple[dict[str, object], ...] = (
     {
         "name": "outlier1-gain1",
@@ -121,6 +172,7 @@ OLIGOARK_METHODS = (
     "iterative_trace",
     "multistart_trace",
     "robust_multistart_trace",
+    "targeted_trace",
 )
 
 
@@ -300,6 +352,26 @@ def _reconstruct(
             polish_trim_farthest=int(consensus_config["polish_trim_farthest"]),
             minimum_full_score_gain=float(
                 consensus_config["minimum_full_score_gain"]
+            ),
+        )
+    if method == "targeted_trace":
+        if consensus_config is None:
+            raise ValueError("targeted_trace requires a frozen consensus_config")
+        return targeted_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            anchors=int(consensus_config["anchors"]),
+            rounds=int(consensus_config["rounds"]),
+            bidirectional=bool(consensus_config["bidirectional"]),
+            length_penalty=float(consensus_config["length_penalty"]),
+            homopolymer_weight=float(consensus_config["homopolymer_weight"]),
+            min_homopolymer_run=int(consensus_config["min_homopolymer_run"]),
+            substitution_min_gain=float(consensus_config["substitution_min_gain"]),
+            substitution_homopolymer_weight=float(
+                consensus_config["substitution_homopolymer_weight"]
+            ),
+            substitution_homopolymer_min_reads=int(
+                consensus_config["substitution_homopolymer_min_reads"]
             ),
         )
     raise ValueError(f"unknown worker method: {method}")
