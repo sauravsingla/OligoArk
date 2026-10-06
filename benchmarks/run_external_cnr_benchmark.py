@@ -289,6 +289,50 @@ def _reconstruct(
     raise ValueError(f"unknown worker method: {method}")
 
 
+def _classify_reference_error(reference: str, reconstruction: str) -> dict[str, Any]:
+    if reconstruction == reference:
+        return {
+            "error_class": "exact",
+            "substitutions": 0,
+            "insertions": 0,
+            "deletions": 0,
+        }
+    aligned_reference, aligned_reconstruction = global_align(reference, reconstruction)
+    substitutions = 0
+    insertions = 0
+    deletions = 0
+    for reference_base, reconstructed_base in zip(
+        aligned_reference,
+        aligned_reconstruction,
+        strict=True,
+    ):
+        if reference_base == "-":
+            insertions += 1
+        elif reconstructed_base == "-":
+            deletions += 1
+        elif reference_base != reconstructed_base:
+            substitutions += 1
+    distance = edit_distance(reference, reconstruction)
+    if distance == 1 and substitutions == 1 and not insertions and not deletions:
+        error_class = "one_edit_substitution"
+    elif distance == 1 and insertions == 1 and not substitutions and not deletions:
+        error_class = "one_edit_insertion"
+    elif distance == 1 and deletions == 1 and not substitutions and not insertions:
+        error_class = "one_edit_deletion"
+    elif insertions and deletions and len(reference) == len(reconstruction):
+        error_class = "alignment_shift"
+    elif len(reference) != len(reconstruction):
+        error_class = "length_error"
+    else:
+        error_class = "multi_edit"
+    return {
+        "error_class": error_class,
+        "substitutions": substitutions,
+        "insertions": insertions,
+        "deletions": deletions,
+    }
+
+
 def _case_record(
     method: str,
     coverage: int,
@@ -308,6 +352,7 @@ def _case_record(
         "reference": reference,
         "reconstruction": reconstruction,
         "reconstructed_length": len(reconstruction),
+        **_classify_reference_error(reference, reconstruction),
     }
 
 
@@ -484,6 +529,7 @@ def _parse_bbs_output(
                 "bbs_k": int(output_row["k"]),
                 "bbs_path_weight": float(output_row["path_weight"]),
                 "bbs_confidence": float(output_row["confidence"]),
+                **_classify_reference_error(reference, reconstruction),
             }
         )
     return rows
@@ -553,6 +599,10 @@ def summarize_rows(
         "mean_edit_distance": round(statistics.fmean(edit_distances), 8),
         "median_edit_distance": round(float(statistics.median(edit_distances)), 8),
         "mean_normalized_edit_distance": round(statistics.fmean(normalized), 8),
+        "one_edit_failures": sum(distance == 1 for distance in edit_distances),
+        "two_edit_failures": sum(distance == 2 for distance in edit_distances),
+        "three_plus_edit_failures": sum(distance >= 3 for distance in edit_distances),
+        "max_edit_distance": max(edit_distances, default=0),
         "elapsed_seconds": round(elapsed_seconds, 6),
         "seconds_per_cluster": round(elapsed_seconds / trials, 8),
         "peak_rss_mb": peak_rss_mb,
