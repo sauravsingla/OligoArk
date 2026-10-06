@@ -610,6 +610,68 @@ def _calibrate_robust_consensus(
     return winner, baseline, candidates
 
 
+def _coverage_successes(result: dict[str, Any], coverage: int) -> int:
+    for row in result["per_coverage"]:
+        if int(row["coverage"]) == coverage:
+            return int(row["successes"])
+    raise ValueError(f"coverage {coverage} missing from calibration result")
+
+
+def _calibrate_targeted_consensus(
+    records: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Select bounded one-edit repair using only disjoint calibration references."""
+    baseline = _evaluate_calibration_method(
+        records,
+        coverages=CALIBRATION_COVERAGES,
+        method="multistart_trace",
+        consensus_config=dict(CURRENT_MULTISTART_CONFIG),
+    )
+    candidates = [
+        _evaluate_calibration_method(
+            records,
+            coverages=CALIBRATION_COVERAGES,
+            method="targeted_trace",
+            consensus_config=dict(config),
+        )
+        for config in TARGETED_CANDIDATES
+    ]
+    baseline_5 = _coverage_successes(baseline, 5)
+    baseline_10 = _coverage_successes(baseline, 10)
+    runtime_budget = max(
+        float(baseline["runtime_seconds"]) * 2.0,
+        float(baseline["runtime_seconds"]) + 20.0,
+    )
+    practical = [
+        candidate
+        for candidate in candidates
+        if float(candidate["runtime_seconds"]) <= runtime_budget
+        and _coverage_successes(candidate, 10) > baseline_10
+        and _coverage_successes(candidate, 5) >= baseline_5
+    ]
+    if not practical:
+        raise RuntimeError(
+            "no targeted repair improved 10-read calibration without a 5-read regression "
+            "inside the runtime budget"
+        )
+    winner = min(
+        practical,
+        key=lambda candidate: (
+            -_coverage_successes(candidate, 10),
+            -_coverage_successes(candidate, 5),
+            float(candidate["mean_edit_distance"]),
+            float(candidate["runtime_seconds"]),
+            str(candidate["config"]),
+        ),
+    )
+    if _coverage_successes(winner, 10) < 43:
+        raise RuntimeError(
+            "targeted repair did not reach the predeclared 43/48 10-read "
+            "calibration acceptance threshold"
+        )
+    return winner, baseline, candidates
+
+
 def _timed_subprocess(command: list[str], timing_path: Path) -> tuple[float, float | None]:
     gnu_time = Path("/usr/bin/time")
     if gnu_time.exists():
