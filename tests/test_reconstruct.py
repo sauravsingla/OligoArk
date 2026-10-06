@@ -7,6 +7,7 @@ from oligoark.reconstruct import (
     edit_distance,
     global_align,
     graph_cluster_consensus,
+    homopolymer_balance_trace_consensus,
     multistart_trace_consensus,
     normalized_similarity,
     stability_fusion_trace_consensus,
@@ -314,6 +315,72 @@ def test_stability_fusion_validates_configuration() -> None:
     for kwargs in invalid:
         try:
             stability_fusion_trace_consensus(reads, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"configuration should fail: {kwargs}")
+
+def test_homopolymer_balance_preserves_strong_supported_consensus() -> None:
+    original = "AAACCCCC"
+    reads = [original] * 8 + ["AAAACCCC", "AAACCCCC"]
+    assert homopolymer_balance_trace_consensus(
+        reads,
+        target_length=len(original),
+        top_runs=2,
+        beam_width=6,
+        depth=1,
+        min_gap_support=2,
+        homopolymer_weight=0.15,
+        qgram_width=4,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+    ) == original
+
+
+def test_homopolymer_balance_is_deterministic_under_read_order() -> None:
+    reads = [
+        "AAACCCCC",
+        "AAAACCCC",
+        "AAACCCCC",
+        "AAACCCCC",
+        "AAACCCCCC",
+    ]
+    kwargs = {
+        "target_length": 8,
+        "top_runs": 2,
+        "beam_width": 6,
+        "depth": 1,
+        "min_gap_support": 1,
+        "homopolymer_weight": 0.15,
+        "qgram_width": 4,
+        "qgram_weight": 0.25,
+        "minimum_score_gain": 0.05,
+    }
+    assert homopolymer_balance_trace_consensus(
+        reads,
+        **kwargs,
+    ) == homopolymer_balance_trace_consensus(
+        list(reversed(reads)),
+        **kwargs,
+    )
+
+
+def test_homopolymer_balance_validates_configuration() -> None:
+    reads = ["ACGT", "ACGA"]
+    invalid = (
+        {"target_length": 0},
+        {"target_length": 4, "top_runs": 0},
+        {"target_length": 4, "beam_width": 0},
+        {"target_length": 4, "depth": 3},
+        {"target_length": 4, "min_gap_support": -1},
+        {"target_length": 4, "homopolymer_weight": -0.1},
+        {"target_length": 4, "qgram_width": 0},
+        {"target_length": 4, "qgram_weight": -0.1},
+        {"target_length": 4, "minimum_score_gain": -0.1},
+    )
+    for kwargs in invalid:
+        try:
+            homopolymer_balance_trace_consensus(reads, **kwargs)
         except ValueError:
             pass
         else:
