@@ -16,9 +16,9 @@ OligoArk converts digital data into DNA-like sequences, simulates errors such as
 - Moderate-indel recovery: **30/30** at both tested read-coverage levels.
 - Graph/trace reconstruction rescued **38/38** paired direct-method failures in the two moderate-indel regimes, with **0 regressions**.
 - Combined robust optimizer: **221/240 = 92.1%** overall recovery.
-- Physical CNR benchmark: targeted low-compute repair reaches **68/96 (70.8%) at 5 reads** and **84/96 (87.5%) at 10 reads**, versus BBS **73/96 (76.0%)** and **93/96 (96.9%)**.
+- Physical CNR benchmark: confidence fusion reaches **73/96 (76.0%) at 5 reads** and **93/96 (96.9%) at 10 reads**; pinned BBS varies **72–74/96 at 5 reads** and is **93/96 at 10 reads** across five repeats.
 
-The physical result improves OligoArk substantially but does **not** establish state-of-the-art performance; BBS remains stronger on exact recovery. End-to-end decoding of an external DNA archive has not been validated.
+On the fixed 96-cluster physical CNR benchmark, confidence fusion matches BBS exact recovery at 10 reads and shows no statistically significant exact-recovery difference at 5 or 10 reads. This does **not** establish a general state-of-the-art claim; BBS remains substantially faster. End-to-end decoding of an external DNA archive has not been validated.
 
 ## Install
 
@@ -39,7 +39,7 @@ cmp demo.txt recovered.txt
 
 - Adaptive encoding and redundancy selection
 - Substitution, insertion/deletion, dropout and duplication simulation
-- Direct, medoid, graph/alignment, iterative-trace, multi-start and targeted trace reconstruction
+- Direct, medoid, graph/alignment, iterative-trace, multi-start, targeted and confidence-fusion reconstruction
 - SHA-256-verified recovery
 - Reproducible held-out benchmarking and optimizer evaluation
 
