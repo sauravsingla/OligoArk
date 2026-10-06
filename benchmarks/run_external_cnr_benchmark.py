@@ -272,6 +272,21 @@ def _reconstruct(
             bidirectional=bool(consensus_config["bidirectional"]),
             length_penalty=float(consensus_config["length_penalty"]),
         )
+    if method == "robust_multistart_trace":
+        if consensus_config is None:
+            raise ValueError("robust_multistart_trace requires a frozen consensus_config")
+        return robust_multistart_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            anchors=int(consensus_config["anchors"]),
+            rounds=int(consensus_config["rounds"]),
+            bidirectional=bool(consensus_config["bidirectional"]),
+            length_penalty=float(consensus_config["length_penalty"]),
+            trim_farthest=int(consensus_config["trim_farthest"]),
+            agreement_weight=float(consensus_config["agreement_weight"]),
+            fuse_refined=bool(consensus_config["fuse_refined"]),
+            final_polish=bool(consensus_config["final_polish"]),
+        )
     raise ValueError(f"unknown worker method: {method}")
 
 
@@ -301,6 +316,8 @@ def run_worker(method: str, subset_json: Path, output: Path) -> None:
     payload = json.loads(subset_json.read_text(encoding="utf-8"))
     coverage = int(payload["coverage"])
     consensus_config = payload.get("consensus_config")
+    if method == "robust_multistart_trace":
+        consensus_config = payload.get("robust_consensus_config")
     rows: list[dict[str, Any]] = []
     for record in payload["records"]:
         reads = [str(read) for read in record["reads"]]
