@@ -72,6 +72,30 @@ FUSION_CANDIDATES: tuple[dict[str, object], ...] = (
         "minimum_score_gain": 0.10,
     },
 )
+FROZEN_FUSION_CONFIG: dict[str, object] = {
+    "name": "fusion-fast-t2-c8-r0-q025-g005",
+    "top_positions": 2,
+    "max_candidates": 8,
+    "trim_farthest": 0,
+    "qgram_width": 4,
+    "qgram_weight": 0.25,
+    "minimum_score_gain": 0.05,
+}
+FUSION_DEVELOPMENT_PROVENANCE = {
+    "workflow_run": 37437565269,
+    "artifact_id": 11398924522,
+    "development_seed": 20261007,
+    "development_size": 48,
+    "protected_held_out_size": 96,
+    "protected_historical_calibration_size": 48,
+    "protected_overlap_count": 0,
+    "five_read_baseline_successes": 34,
+    "five_read_fusion_successes": 35,
+    "ten_read_baseline_successes": 44,
+    "ten_read_fusion_successes": 46,
+    "ten_read_rescues": 3,
+    "ten_read_regressions": 1,
+}
 FROZEN_TARGETED_CONFIG: dict[str, object] = {
     "name": "targeted-hp10-w2",
     "anchors": 3,
@@ -138,6 +162,7 @@ OLIGOARK_METHODS = (
     "iterative_trace",
     "multistart_trace",
     "targeted_trace",
+    "confidence_fusion",
 )
 
 
@@ -320,19 +345,21 @@ def _reconstruct(
             ),
         )
     if method == "confidence_fusion":
-        if consensus_config is None:
-            raise ValueError("confidence_fusion requires a configuration")
+        config = consensus_config or FROZEN_FUSION_CONFIG
+        # Full held-out mode always uses the pre-frozen development winner.
+        if consensus_config is not None and "top_positions" not in consensus_config:
+            config = FROZEN_FUSION_CONFIG
         return confidence_fusion_trace_consensus(
             reads,
             target_length=TARGET_LENGTH,
             anchors=3,
             rounds=1,
-            top_positions=int(consensus_config["top_positions"]),
-            max_candidates=int(consensus_config["max_candidates"]),
-            trim_farthest=int(consensus_config["trim_farthest"]),
-            qgram_width=int(consensus_config["qgram_width"]),
-            qgram_weight=float(consensus_config["qgram_weight"]),
-            minimum_score_gain=float(consensus_config["minimum_score_gain"]),
+            top_positions=int(config["top_positions"]),
+            max_candidates=int(config["max_candidates"]),
+            trim_farthest=int(config["trim_farthest"]),
+            qgram_width=int(config["qgram_width"]),
+            qgram_weight=float(config["qgram_weight"]),
+            minimum_score_gain=float(config["minimum_score_gain"]),
         )
     raise ValueError(f"unknown worker method: {method}")
 
@@ -1158,6 +1185,46 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     prior_comparisons: list[dict[str, Any]] = []
     for coverage in coverages:
+        fusion_rows = [
+            row
+            for row in all_rows
+            if row["method"] == "confidence_fusion" and row["coverage"] == coverage
+        ]
+        fusion_summary = next(
+            row
+            for row in summaries
+            if row["method"] == "confidence_fusion" and row["coverage"] == coverage
+        )
+        targeted_for_fusion_rows = [
+            row
+            for row in all_rows
+            if row["method"] == "targeted_trace" and row["coverage"] == coverage
+        ]
+        targeted_for_fusion_summary = next(
+            row
+            for row in summaries
+            if row["method"] == "targeted_trace" and row["coverage"] == coverage
+        )
+        paired_fusion = mcnemar_exact(fusion_rows, targeted_for_fusion_rows)
+        prior_comparisons.append(
+            {
+                "coverage": coverage,
+                "method": "confidence_fusion",
+                "baseline": "targeted_trace",
+                "exact_recovery_rate_difference": round(
+                    float(fusion_summary["exact_recovery_rate"])
+                    - float(targeted_for_fusion_summary["exact_recovery_rate"]),
+                    8,
+                ),
+                "mean_edit_distance_difference": round(
+                    float(fusion_summary["mean_edit_distance"])
+                    - float(targeted_for_fusion_summary["mean_edit_distance"]),
+                    8,
+                ),
+                **paired_fusion,
+            }
+        )
+
         targeted_rows = [
             row
             for row in all_rows
@@ -1286,6 +1353,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "runtime_budget_rule": (
                 "candidate runtime <= max(4x iterative baseline, baseline + 2 seconds)"
             ),
+        },
+        "confidence_fusion_development": {
+            "frozen_config": FROZEN_FUSION_CONFIG,
+            "provenance": FUSION_DEVELOPMENT_PROVENANCE,
+            "selection_rule": (
+                "selected only on the protected development split after excluding both "
+                "the historical held-out and calibration cluster IDs; the 10-read result "
+                "had to improve by at least two exact reconstructions, 5-read recovery "
+                "could not regress, and 10-read regressions were capped at one"
+            ),
+            "held_out_used_for_parameter_selection": False,
         },
         "targeted_repair_calibration": {
             "frozen_config": FROZEN_TARGETED_CONFIG,
