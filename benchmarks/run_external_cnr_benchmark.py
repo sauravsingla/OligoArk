@@ -327,6 +327,89 @@ def _case_record(
     }
 
 
+def _classify_reference_error(reference: str, reconstruction: str) -> dict[str, Any]:
+    """Classify calibration-only reconstruction errors against known references."""
+    if reconstruction == reference:
+        return {
+            "error_class": "exact",
+            "substitutions": 0,
+            "insertions": 0,
+            "deletions": 0,
+        }
+    aligned_reference, aligned_reconstruction = global_align(reference, reconstruction)
+    substitutions = 0
+    insertions = 0
+    deletions = 0
+    for reference_base, reconstructed_base in zip(
+        aligned_reference,
+        aligned_reconstruction,
+        strict=True,
+    ):
+        if reference_base == "-":
+            insertions += 1
+        elif reconstructed_base == "-":
+            deletions += 1
+        elif reference_base != reconstructed_base:
+            substitutions += 1
+    distance = edit_distance(reference, reconstruction)
+    if distance == 1 and substitutions == 1 and insertions == 0 and deletions == 0:
+        error_class = "one_edit_substitution"
+    elif distance == 1 and insertions == 1 and substitutions == 0 and deletions == 0:
+        error_class = "one_edit_insertion"
+    elif distance == 1 and deletions == 1 and substitutions == 0 and insertions == 0:
+        error_class = "one_edit_deletion"
+    elif insertions and deletions and len(reference) == len(reconstruction):
+        error_class = "alignment_shift"
+    elif len(reference) != len(reconstruction):
+        error_class = "length_error"
+    else:
+        error_class = "multi_edit"
+    return {
+        "error_class": error_class,
+        "substitutions": substitutions,
+        "insertions": insertions,
+        "deletions": deletions,
+    }
+
+
+def _calibration_case_rows(
+    records: list[dict[str, Any]],
+    *,
+    method: str,
+    consensus_config: dict[str, object] | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for coverage in CALIBRATION_COVERAGES:
+        for record in _records_for_coverage(records, coverage):
+            reads = [str(read) for read in record["reads"]]
+            reference = str(record["reference"])
+            reconstruction = _reconstruct(method, reads, consensus_config)
+            distance = edit_distance(reference, reconstruction)
+            rows.append(
+                {
+                    "method": method,
+                    "coverage": coverage,
+                    "cluster_index": int(record["cluster_index"]),
+                    "exact": reconstruction == reference,
+                    "edit_distance": distance,
+                    "reference_length": len(reference),
+                    "reconstructed_length": len(reconstruction),
+                    **_classify_reference_error(reference, reconstruction),
+                    "reference": reference,
+                    "reconstruction": reconstruction,
+                }
+            )
+    return rows
+
+
+def _failure_class_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        label = str(row["error_class"])
+        counts[label] = counts.get(label, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def run_worker(method: str, subset_json: Path, output: Path) -> None:
     payload = json.loads(subset_json.read_text(encoding="utf-8"))
     coverage = int(payload["coverage"])
@@ -652,11 +735,10 @@ def _relation(
 
 
 def run_benchmark(args: argparse.Namespace) -> None:
-    if not args.centers or not args.clusters or not args.bbs_bin:
-        raise ValueError("--centers, --clusters and --bbs-bin are required")
+    if not args.centers or not args.clusters:
+        raise ValueError("--centers and --clusters are required")
     centers_path = Path(args.centers)
     clusters_path = Path(args.clusters)
-    bbs_bin = Path(args.bbs_bin)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -702,6 +784,16 @@ def run_benchmark(args: argparse.Namespace) -> None:
     )
     frozen_multistart_config = dict(CURRENT_MULTISTART_CONFIG)
     frozen_robust_config = dict(calibration_winner["config"])
+    calibration_baseline_rows = _calibration_case_rows(
+        calibration_records,
+        method="multistart_trace",
+        consensus_config=frozen_multistart_config,
+    )
+    calibration_winner_rows = _calibration_case_rows(
+        calibration_records,
+        method="robust_multistart_trace",
+        consensus_config=frozen_robust_config,
+    )
 
     selected_metadata = [
         {
@@ -725,6 +817,16 @@ def run_benchmark(args: argparse.Namespace) -> None:
     (output_dir / "calibration-clusters.json").write_text(
         json.dumps(calibration_metadata, indent=2), encoding="utf-8"
     )
+    calibration_failure_analysis = {
+        "baseline_failure_classes": _failure_class_counts(calibration_baseline_rows),
+        "winner_failure_classes": _failure_class_counts(calibration_winner_rows),
+        "baseline_10_read_failure_classes": _failure_class_counts(
+            [row for row in calibration_baseline_rows if int(row["coverage"]) == 10]
+        ),
+        "winner_10_read_failure_classes": _failure_class_counts(
+            [row for row in calibration_winner_rows if int(row["coverage"]) == 10]
+        ),
+    }
     (output_dir / "calibration.json").write_text(
         json.dumps(
             {
@@ -732,11 +834,40 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "candidates": calibration_candidates,
                 "winner": calibration_winner,
                 "held_out_overlap_count": 0,
+                "failure_analysis": calibration_failure_analysis,
             },
             indent=2,
         ),
         encoding="utf-8",
     )
+    _write_csv(
+        output_dir / "calibration-baseline-cases.csv",
+        calibration_baseline_rows,
+    )
+    _write_csv(
+        output_dir / "calibration-winner-cases.csv",
+        calibration_winner_rows,
+    )
+
+    if args.calibration_only:
+        calibration_payload = {
+            "mode": "calibration_only",
+            "baseline": calibration_baseline,
+            "candidates": calibration_candidates,
+            "winner": calibration_winner,
+            "failure_analysis": calibration_failure_analysis,
+            "held_out_overlap_count": 0,
+        }
+        (output_dir / "calibration-only-summary.json").write_text(
+            json.dumps(calibration_payload, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(calibration_payload, indent=2))
+        return
+
+    if not args.bbs_bin:
+        raise ValueError("--bbs-bin is required unless --calibration-only is used")
+    bbs_bin = Path(args.bbs_bin)
 
     all_rows: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
@@ -1098,6 +1229,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CALIBRATION_SIZE,
     )
     parser.add_argument("--bbs-repeats", type=int, default=5)
+    parser.add_argument("--calibration-only", action="store_true")
     parser.add_argument("--worker-method", choices=OLIGOARK_METHODS)
     parser.add_argument("--subset-json")
     parser.add_argument("--worker-output")
