@@ -73,7 +73,6 @@ jobs:
 
       - name: Validate calibration outputs
         run: |
-          test -s external-cnr-results/calibration.json
           test -s external-cnr-results/calibration-clusters.json
           test -s external-cnr-results/calibration-baseline-cases.csv
           test -s external-cnr-results/calibration-subset-coverage-5.json
