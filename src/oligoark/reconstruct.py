@@ -757,6 +757,262 @@ def targeted_trace_consensus(
     return selected
 
 
+def _candidate_qgram_similarity(
+    candidate: str,
+    cluster: list[str],
+    *,
+    width: int,
+) -> float:
+    signature = _qgrams(candidate, width)
+    if not cluster:
+        return 0.0
+    return sum(_jaccard(signature, _qgrams(read, width)) for read in cluster) / len(cluster)
+
+
+def _bounded_local_candidates(
+    candidate: str,
+    cluster: list[str],
+    *,
+    target_length: int,
+    top_positions: int,
+    max_candidates: int,
+) -> list[str]:
+    """Generate a tiny deterministic edit neighborhood from low-confidence evidence."""
+    if top_positions < 1 or max_candidates < 1:
+        return []
+
+    base_votes, insertion_votes = _alignment_vote_evidence(candidate, cluster)
+    generated: list[str] = []
+    seen: set[str] = {candidate}
+
+    def add(value: str) -> None:
+        if value not in seen and len(generated) < max_candidates:
+            seen.add(value)
+            generated.append(value)
+
+    if len(candidate) == target_length - 1:
+        ranked_insertions: list[tuple[int, int, str]] = []
+        for slot, votes in enumerate(insertion_votes):
+            for sequence, count in votes.items():
+                if not sequence:
+                    continue
+                for base in sequence:
+                    if base in "ACGT":
+                        ranked_insertions.append((-count, slot, base))
+        for _, slot, base in sorted(ranked_insertions):
+            add(candidate[:slot] + base + candidate[slot:])
+        return generated
+
+    if len(candidate) == target_length + 1:
+        ranked_deletions: list[tuple[int, int, int]] = []
+        for position, votes in enumerate(base_votes):
+            selected_count = votes[candidate[position]]
+            gap_count = votes["-"]
+            ranked_deletions.append((selected_count - gap_count, selected_count, position))
+        for _, _, position in sorted(ranked_deletions)[:top_positions]:
+            add(candidate[:position] + candidate[position + 1 :])
+        return generated
+
+    if len(candidate) != target_length:
+        return generated
+
+    uncertainty: list[tuple[int, int, int, int]] = []
+    for position, votes in enumerate(base_votes):
+        selected_count = votes[candidate[position]]
+        alternative_count = max(
+            (count for base, count in votes.items() if base != candidate[position]),
+            default=0,
+        )
+        uncertainty.append(
+            (
+                selected_count - alternative_count,
+                -alternative_count,
+                selected_count,
+                position,
+            )
+        )
+
+    suspicious_positions = [entry[3] for entry in sorted(uncertainty)[:top_positions]]
+    for position in suspicious_positions:
+        votes = base_votes[position]
+        alternatives = sorted(
+            (
+                (-count, base)
+                for base, count in votes.items()
+                if base in "ACGT" and base != candidate[position]
+            )
+        )
+        if not alternatives:
+            alternatives = [(0, base) for base in "ACGT" if base != candidate[position]]
+        for _, base in alternatives:
+            add(candidate[:position] + base + candidate[position + 1 :])
+
+        # Local same-length shift repair: remove the uncertain base and reinsert one
+        # position to either side using only neighboring/insertion evidence.
+        without = candidate[:position] + candidate[position + 1 :]
+        for slot in (max(0, position - 1), min(len(without), position + 1)):
+            suggested: set[str] = {candidate[position]}
+            source_slot = min(slot, len(insertion_votes) - 1)
+            suggested.update(
+                base
+                for sequence in insertion_votes[source_slot]
+                if sequence
+                for base in sequence
+                if base in "ACGT"
+            )
+            if slot > 0:
+                suggested.add(without[slot - 1])
+            if slot < len(without):
+                suggested.add(without[slot])
+            for base in sorted(suggested):
+                add(without[:slot] + base + without[slot:])
+
+    return generated
+
+
+def confidence_fusion_trace_consensus(
+    cluster: list[str],
+    *,
+    target_length: int,
+    anchors: int = 3,
+    rounds: int = 1,
+    top_positions: int = 3,
+    max_candidates: int = 24,
+    trim_farthest: int = 1,
+    qgram_width: int = 4,
+    qgram_weight: float = 0.5,
+    minimum_score_gain: float = 0.0,
+) -> str:
+    """Fuse low-cost consensuses and apply a bounded confidence-guided edit search.
+
+    The method never uses the unknown reference. It starts from the frozen targeted
+    repair plus inexpensive consensus alternatives, adds only a tiny edit neighborhood
+    around low-confidence positions, and selects a replacement only when observed-read
+    evidence improves by a configured margin.
+    """
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if target_length < 1:
+        raise ValueError("target_length must be positive")
+    if anchors < 1 or rounds < 1:
+        raise ValueError("anchors and rounds must be positive")
+    if top_positions < 1 or max_candidates < 1:
+        raise ValueError("top_positions and max_candidates must be positive")
+    if trim_farthest < 0 or trim_farthest >= len(cluster):
+        raise ValueError("trim_farthest must be between 0 and len(cluster)-1")
+    if qgram_width < 1:
+        raise ValueError("qgram_width must be positive")
+    if qgram_weight < 0 or minimum_score_gain < 0:
+        raise ValueError("weights and minimum_score_gain must be non-negative")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    baseline = targeted_trace_consensus(
+        cluster,
+        target_length=target_length,
+        anchors=anchors,
+        rounds=rounds,
+        bidirectional=True,
+        length_penalty=1.0,
+        homopolymer_weight=0.75,
+        min_homopolymer_run=2,
+        substitution_min_gain=0.0,
+        substitution_homopolymer_weight=2.0,
+        substitution_homopolymer_min_reads=10,
+    )
+
+    seeds: list[str] = [baseline]
+    for candidate in (
+        multistart_trace_consensus(
+            cluster,
+            target_length=target_length,
+            anchors=anchors,
+            rounds=rounds,
+            bidirectional=True,
+            length_penalty=1.0,
+        ),
+        iterative_trace_consensus(cluster, rounds=3),
+        alignment_consensus(cluster),
+    ):
+        if candidate not in seeds:
+            seeds.append(candidate)
+
+    reversed_cluster = [read[::-1] for read in cluster]
+    reverse_targeted = targeted_trace_consensus(
+        reversed_cluster,
+        target_length=target_length,
+        anchors=anchors,
+        rounds=rounds,
+        bidirectional=True,
+        length_penalty=1.0,
+        homopolymer_weight=0.75,
+        min_homopolymer_run=2,
+        substitution_min_gain=0.0,
+        substitution_homopolymer_weight=2.0,
+        substitution_homopolymer_min_reads=10,
+    )[::-1]
+    if reverse_targeted not in seeds:
+        seeds.append(reverse_targeted)
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for seed in seeds:
+        if seed not in seen:
+            seen.add(seed)
+            candidates.append(seed)
+        if len(candidates) >= max_candidates:
+            break
+        for local in _bounded_local_candidates(
+            seed,
+            cluster,
+            target_length=target_length,
+            top_positions=top_positions,
+            max_candidates=max_candidates - len(candidates),
+        ):
+            if local not in seen:
+                seen.add(local)
+                candidates.append(local)
+            if len(candidates) >= max_candidates:
+                break
+        if len(candidates) >= max_candidates:
+            break
+
+    distance_cache: dict[str, tuple[int, int]] = {}
+
+    def distance_scores(candidate: str) -> tuple[int, int]:
+        cached = distance_cache.get(candidate)
+        if cached is not None:
+            return cached
+        distances = sorted(edit_distance(candidate, read) for read in cluster)
+        robust = sum(distances[: len(distances) - trim_farthest]) if trim_farthest else sum(distances)
+        total = sum(distances)
+        distance_cache[candidate] = (robust, total)
+        return robust, total
+
+    def score(candidate: str) -> tuple[float, int, int, str]:
+        robust, total = distance_scores(candidate)
+        length_delta = abs(len(candidate) - target_length)
+        qgram_similarity = _candidate_qgram_similarity(
+            candidate,
+            cluster,
+            width=qgram_width,
+        )
+        composite = (
+            robust
+            + 0.05 * total
+            + 2.0 * length_delta
+            - qgram_weight * qgram_similarity
+        )
+        return (composite, length_delta, total, candidate)
+
+    baseline_score = score(baseline)[0]
+    best = min(candidates, key=score)
+    best_score = score(best)[0]
+    if baseline_score - best_score >= minimum_score_gain:
+        return best
+    return baseline
+
+
 @dataclass(frozen=True)
 class GraphConsensusReconstructor:
     """Explicit similarity graph + connected components + deterministic consensus."""
