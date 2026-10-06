@@ -776,6 +776,8 @@ def targeted_trace_consensus(
     homopolymer_weight: float = 1.0,
     min_homopolymer_run: int = 2,
     substitution_min_gain: float = 0.0,
+    substitution_homopolymer_weight: float = 0.0,
+    substitution_homopolymer_min_reads: int = 10,
 ) -> str:
     """Bounded confidence-guided one-edit repair over multi-start consensus.
 
@@ -806,6 +808,10 @@ def targeted_trace_consensus(
         raise ValueError("min_homopolymer_run must be positive")
     if substitution_min_gain < 0:
         raise ValueError("substitution_min_gain must be non-negative")
+    if substitution_homopolymer_weight < 0:
+        raise ValueError("substitution_homopolymer_weight must be non-negative")
+    if substitution_homopolymer_min_reads < 1:
+        raise ValueError("substitution_homopolymer_min_reads must be positive")
     if len(cluster) == 1:
         return cluster[0]
 
@@ -873,14 +879,45 @@ def targeted_trace_consensus(
         )
     position = min(uncertainty)[3]
     baseline_score = read_distance_sum(selected)
-    alternatives: list[tuple[int, str]] = []
+
+    def run_length(sequence: str, index: int) -> int:
+        base = sequence[index]
+        left = index
+        while left > 0 and sequence[left - 1] == base:
+            left -= 1
+        right = index
+        while right + 1 < len(sequence) and sequence[right + 1] == base:
+            right += 1
+        return right - left + 1
+
+    active_homopolymer_weight = (
+        substitution_homopolymer_weight
+        if len(cluster) >= substitution_homopolymer_min_reads
+        else 0.0
+    )
+    baseline_composite = (
+        baseline_score
+        - active_homopolymer_weight * run_length(selected, position)
+    )
+    alternatives: list[tuple[float, int, str]] = []
     for base in "ACGT":
         if base == selected[position]:
             continue
         candidate = selected[:position] + base + selected[position + 1 :]
-        alternatives.append((read_distance_sum(candidate), candidate))
-    best_score, best_candidate = min(alternatives)
-    if baseline_score - best_score >= substitution_min_gain:
+        candidate_score = read_distance_sum(candidate)
+        candidate_composite = (
+            candidate_score
+            - active_homopolymer_weight * run_length(candidate, position)
+        )
+        alternatives.append(
+            (
+                candidate_composite,
+                candidate_score,
+                candidate,
+            )
+        )
+    best_composite, _, best_candidate = min(alternatives)
+    if baseline_composite - best_composite >= substitution_min_gain:
         return best_candidate
     return selected
 
