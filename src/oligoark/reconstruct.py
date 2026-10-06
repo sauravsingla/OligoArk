@@ -845,10 +845,14 @@ def targeted_trace_consensus(
         for slot, base in operations:
             candidate = selected[:slot] + base + selected[slot:]
             read_score = read_distance_sum(candidate)
-            run_length = _homopolymer_run_after_insertion(selected, slot, base)
+            insertion_run_length = _homopolymer_run_after_insertion(
+                selected,
+                slot,
+                base,
+            )
             scored.append(
                 (
-                    read_score - homopolymer_weight * run_length,
+                    read_score - homopolymer_weight * insertion_run_length,
                     read_score,
                     candidate,
                 )
@@ -880,7 +884,7 @@ def targeted_trace_consensus(
     position = min(uncertainty)[3]
     baseline_score = read_distance_sum(selected)
 
-    def run_length(sequence: str, index: int) -> int:
+    def run_length_at_position(sequence: str, index: int) -> int:
         base = sequence[index]
         left = index
         while left > 0 and sequence[left - 1] == base:
@@ -897,7 +901,7 @@ def targeted_trace_consensus(
     )
     baseline_composite = (
         baseline_score
-        - active_homopolymer_weight * run_length(selected, position)
+        - active_homopolymer_weight * run_length_at_position(selected, position)
     )
     alternatives: list[tuple[float, int, str]] = []
     for base in "ACGT":
@@ -907,7 +911,8 @@ def targeted_trace_consensus(
         candidate_score = read_distance_sum(candidate)
         candidate_composite = (
             candidate_score
-            - active_homopolymer_weight * run_length(candidate, position)
+            - active_homopolymer_weight
+            * run_length_at_position(candidate, position)
         )
         alternatives.append(
             (
