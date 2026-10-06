@@ -996,7 +996,11 @@ def confidence_fusion_trace_consensus(
         if cached is not None:
             return cached
         distances = sorted(edit_distance(candidate, read) for read in cluster)
-        robust = sum(distances[: len(distances) - trim_farthest]) if trim_farthest else sum(distances)
+        robust = (
+            sum(distances[: len(distances) - trim_farthest])
+            if trim_farthest
+            else sum(distances)
+        )
         total = sum(distances)
         distance_cache[candidate] = (robust, total)
         return robust, total
