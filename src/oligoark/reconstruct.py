@@ -1032,6 +1032,200 @@ def confidence_fusion_trace_consensus(
 
 
 
+
+def _homopolymer_runs(sequence: str, *, minimum_length: int = 2) -> list[tuple[int, int, str]]:
+    runs: list[tuple[int, int, str]] = []
+    start = 0
+    while start < len(sequence):
+        end = start + 1
+        while end < len(sequence) and sequence[end] == sequence[start]:
+            end += 1
+        if end - start >= minimum_length:
+            runs.append((start, end, sequence[start]))
+        start = end
+    return runs
+
+
+def _homopolymer_energy(sequence: str) -> int:
+    return sum(
+        (end - start) ** 2
+        for start, end, _ in _homopolymer_runs(sequence, minimum_length=2)
+    )
+
+
+def _homopolymer_migration_candidates(
+    candidate: str,
+    cluster: list[str],
+    *,
+    top_runs: int,
+    min_gap_support: int,
+    max_candidates: int,
+) -> list[str]:
+    """Move one base between read-supported homopolymer runs, preserving length."""
+    if top_runs < 1 or min_gap_support < 0 or max_candidates < 1:
+        return []
+    if not candidate:
+        return []
+
+    base_votes, insertion_votes = _alignment_vote_evidence(candidate, cluster)
+    runs = _homopolymer_runs(candidate, minimum_length=2)
+    deletion_runs: list[tuple[int, int, int, int, str]] = []
+    for start, end, base in runs:
+        gap_support = sum(base_votes[position]["-"] for position in range(start, end))
+        selected_support = sum(
+            base_votes[position][base] for position in range(start, end)
+        )
+        if gap_support >= min_gap_support:
+            deletion_runs.append(
+                (-gap_support, selected_support, start, end, base)
+            )
+
+    insertion_ops: list[tuple[int, int, int, str]] = []
+    operations = _targeted_insertion_operations(
+        candidate,
+        insertion_votes,
+        min_homopolymer_run=2,
+    )
+    for slot, base in operations:
+        observed_support = max(
+            (
+                count
+                for inserted, count in insertion_votes[slot].items()
+                if inserted and base in inserted
+            ),
+            default=0,
+        )
+        run_length = _homopolymer_run_after_insertion(candidate, slot, base)
+        if observed_support >= min_gap_support or run_length >= 4:
+            insertion_ops.append((-observed_support, -run_length, slot, base))
+
+    generated: list[str] = []
+    seen: set[str] = {candidate}
+    for _, _, start, end, _ in sorted(deletion_runs)[:top_runs]:
+        # Deleting any base inside a homopolymer produces the same sequence.
+        delete_position = start
+        without = candidate[:delete_position] + candidate[delete_position + 1 :]
+        for _, _, slot, base in sorted(set(insertion_ops))[:top_runs]:
+            adjusted_slot = slot - 1 if slot > delete_position else slot
+            adjusted_slot = max(0, min(len(without), adjusted_slot))
+            migrated = without[:adjusted_slot] + base + without[adjusted_slot:]
+            if migrated not in seen:
+                seen.add(migrated)
+                generated.append(migrated)
+            if len(generated) >= max_candidates:
+                return generated
+    return generated
+
+
+def homopolymer_balance_trace_consensus(
+    cluster: list[str],
+    *,
+    target_length: int,
+    top_runs: int = 3,
+    beam_width: int = 8,
+    depth: int = 2,
+    min_gap_support: int = 2,
+    homopolymer_weight: float = 0.15,
+    qgram_width: int = 4,
+    qgram_weight: float = 0.25,
+    minimum_score_gain: float = 0.05,
+) -> str:
+    """Correct bounded same-length homopolymer gap migrations after confidence fusion."""
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if target_length < 1:
+        raise ValueError("target_length must be positive")
+    if top_runs < 1 or beam_width < 1:
+        raise ValueError("top_runs and beam_width must be positive")
+    if depth not in {1, 2}:
+        raise ValueError("depth must be 1 or 2")
+    if min_gap_support < 0:
+        raise ValueError("min_gap_support must be non-negative")
+    if homopolymer_weight < 0 or qgram_weight < 0:
+        raise ValueError("weights must be non-negative")
+    if qgram_width < 1 or minimum_score_gain < 0:
+        raise ValueError("qgram width/gain must be valid")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    baseline = confidence_fusion_trace_consensus(
+        cluster,
+        target_length=target_length,
+        anchors=3,
+        rounds=1,
+        top_positions=2,
+        max_candidates=8,
+        trim_farthest=0,
+        qgram_width=4,
+        qgram_weight=0.25,
+        minimum_score_gain=0.05,
+    )
+    if len(baseline) != target_length:
+        return baseline
+
+    candidates: list[str] = [baseline]
+    seen: set[str] = {baseline}
+    first_level = _homopolymer_migration_candidates(
+        baseline,
+        cluster,
+        top_runs=top_runs,
+        min_gap_support=min_gap_support,
+        max_candidates=beam_width,
+    )
+    for candidate in first_level:
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    def read_distance(candidate: str) -> int:
+        return sum(edit_distance(candidate, read) for read in cluster)
+
+    if depth == 2 and first_level:
+        promising = sorted(
+            first_level,
+            key=lambda candidate: (
+                read_distance(candidate),
+                -_homopolymer_energy(candidate),
+                candidate,
+            ),
+        )[: min(3, beam_width)]
+        for first in promising:
+            remaining = max(0, beam_width * 2 - len(candidates))
+            if remaining == 0:
+                break
+            for second in _homopolymer_migration_candidates(
+                first,
+                cluster,
+                top_runs=max(2, top_runs - 1),
+                min_gap_support=min_gap_support,
+                max_candidates=remaining,
+            ):
+                if second not in seen:
+                    seen.add(second)
+                    candidates.append(second)
+
+    distance_cache = {candidate: read_distance(candidate) for candidate in candidates}
+
+    def score(candidate: str) -> tuple[float, int, str]:
+        qgram_similarity = _candidate_qgram_similarity(
+            candidate,
+            cluster,
+            width=qgram_width,
+        )
+        composite = (
+            distance_cache[candidate]
+            - homopolymer_weight * _homopolymer_energy(candidate)
+            - qgram_weight * qgram_similarity
+        )
+        return (composite, distance_cache[candidate], candidate)
+
+    baseline_score = score(baseline)[0]
+    best = min(candidates, key=score)
+    if baseline_score - score(best)[0] >= minimum_score_gain:
+        return best
+    return baseline
+
+
 def _read_reliability_weights(
     cluster: list[str],
     *,
