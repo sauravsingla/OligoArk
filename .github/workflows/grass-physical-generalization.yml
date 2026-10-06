@@ -1,4 +1,5 @@
 name: Grass physical generalization
+# technical retry after CSV serialization fix
 
 on:
   push:
