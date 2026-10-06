@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   benchmark:
-    if: ${{ github.head_ref != 'research/targeted-cnr-repair-v06' }}
+    if: ${{ github.head_ref != 'research/targeted-cnr-repair-v06' && github.head_ref != 'research/cnr-confidence-fusion-v06' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
