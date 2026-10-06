@@ -47,3 +47,23 @@ The workflow reports exact-reference recovery with Wilson 95% intervals, edit an
 This is a **physical-read reference-reconstruction benchmark**, not an end-to-end OligoArk archive decode. CNR does not contain a file encoded with OligoArk framing, ECC, fountain/hybrid redundancy, or the combined optimizer, so those archive-level results and original-file SHA-256 recovery are not applicable.
 
 The defensible conclusion is: **the lightweight multi-start refinement materially improves OligoArk on unseen physical nanopore reads and narrows the gap to BBS, especially at 10-read coverage, but OligoArk still underperforms BBS on exact reconstruction and is not state of the art on this benchmark.**
+
+## Targeted one-edit repair: one-shot held-out result
+
+After the earlier multi-start result, parameter development moved to the disjoint 48-cluster calibration split only. The frozen targeted configuration was selected before held-out evaluation from calibration workflow run `37411358445`, where it reached **47/48 (97.9%)** exact recovery at 10 reads and **34/48 (70.8%)** at 5 reads. The original 96 held-out cluster IDs and deterministic read ordering were unchanged.
+
+A single held-out validation was then executed in workflow run `37412327238` (artifact `11390090747`). The bounded targeted repair achieved:
+
+| Reads / strand | Multi-start | **Targeted one-edit repair** | External BBS |
+| ---: | ---: | ---: | ---: |
+| 5 | 53/96 (55.2%) | **68/96 (70.8%)** | 73/96 (76.0%) |
+| 10 | 80/96 (83.3%) | **84/96 (87.5%)** | 93/96 (96.9%) |
+
+At 10 reads, targeted repair reduced mean edit distance from **0.219** to **0.167** and left **8 one-edit failures, 4 two-edit failures, and no 3+ edit failures**. Against multi-start it had 10 exact-only wins and 6 regressions (two-sided exact McNemar p = 0.4545), so the +4 exact recoveries are a real observed improvement but are not statistically significant at this sample size. Against iterative trace and graph/alignment, the targeted method improved exact recovery significantly (p = 0.000324 and p = 0.000878 respectively).
+
+At 5 reads, targeted repair improved from 53/96 to 68/96, with 18 exact-only wins versus 3 regressions relative to multi-start (McNemar p = 0.00149). Against BBS, the targeted method was 68/96 versus 73/96 at 5 reads and the paired exact difference was not statistically significant (p = 0.424). At 10 reads, BBS remained stronger at 93/96 versus 84/96 (p = 0.0117).
+
+The targeted method took about **17.1 s** for the 96-cluster 5-read evaluation and **41.2 s** at 10 reads, with about **24.4 MB peak RSS**. The complete one-shot GitHub Actions workflow, including dataset verification, pinned BBS build, all reconstruction baselines, five BBS repeats per coverage, acceptance checks and artifact upload, finished in roughly **5 minutes**, below the 10-minute budget.
+
+The acceptance rule was satisfied because held-out 10-read exact recovery was strictly greater than the prior 80/96 result and 5-read recovery did not regress. The ideal 86/96 target was not reached, and BBS remains the stronger exact-recovery method on this physical dataset. The defensible conclusion is therefore that the targeted low-compute repair **materially improves OligoArk and narrows the external gap, but does not match or exceed BBS at 10 reads**.
+
