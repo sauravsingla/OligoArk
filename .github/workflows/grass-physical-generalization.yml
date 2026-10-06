@@ -1,12 +1,7 @@
 name: Grass physical generalization
-# technical retry after CSV serialization fix
 
 on:
-  push:
-    branches:
-      - benchmark/grass-physical-generalization
-    paths:
-      - ".github/workflows/grass-physical-generalization.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
