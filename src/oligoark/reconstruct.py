@@ -668,6 +668,223 @@ def robust_multistart_trace_consensus(
     return min(polished_candidates, key=score)
 
 
+
+def _alignment_vote_evidence(
+    reference: str,
+    cluster: list[str],
+) -> tuple[list[Counter[str]], list[Counter[str]]]:
+    """Collect base and insertion votes after aligning reads to a candidate."""
+    base_votes = [Counter[str]() for _ in reference]
+    insertion_votes = [Counter[str]() for _ in range(len(reference) + 1)]
+    for read in sorted(cluster):
+        aligned_reference, aligned_read = global_align(reference, read)
+        per_read_insertions = [""] * (len(reference) + 1)
+        reference_position = 0
+        for reference_base, read_base in zip(
+            aligned_reference,
+            aligned_read,
+            strict=True,
+        ):
+            if reference_base == "-":
+                if read_base != "-":
+                    per_read_insertions[reference_position] += read_base
+                continue
+            base_votes[reference_position][read_base] += 1
+            reference_position += 1
+        for slot, insertion in enumerate(per_read_insertions):
+            insertion_votes[slot][insertion] += 1
+    return base_votes, insertion_votes
+
+
+def _homopolymer_run_after_insertion(
+    candidate: str,
+    slot: int,
+    base: str,
+) -> int:
+    left = 0
+    index = slot - 1
+    while index >= 0 and candidate[index] == base:
+        left += 1
+        index -= 1
+    right = 0
+    index = slot
+    while index < len(candidate) and candidate[index] == base:
+        right += 1
+        index += 1
+    return left + 1 + right
+
+
+def _targeted_insertion_operations(
+    candidate: str,
+    insertion_votes: list[Counter[str]],
+    *,
+    min_homopolymer_run: int,
+) -> set[tuple[int, str]]:
+    operations: set[tuple[int, str]] = set()
+    dna_bases = set("ACGT")
+
+    for slot, votes in enumerate(insertion_votes):
+        nonempty = [sequence for sequence in votes if sequence]
+        if not nonempty:
+            continue
+        for sequence in nonempty:
+            operations.update(
+                (slot, base)
+                for base in sequence
+                if base in dna_bases
+            )
+        if slot > 0:
+            operations.add((slot, candidate[slot - 1]))
+        if slot < len(candidate):
+            operations.add((slot, candidate[slot]))
+
+    for slot in range(len(candidate) + 1):
+        if slot < len(candidate):
+            base = candidate[slot]
+            run = 0
+            index = slot
+            while index < len(candidate) and candidate[index] == base:
+                run += 1
+                index += 1
+            if run >= min_homopolymer_run:
+                operations.add((slot, base))
+        if slot > 0:
+            base = candidate[slot - 1]
+            run = 0
+            index = slot - 1
+            while index >= 0 and candidate[index] == base:
+                run += 1
+                index -= 1
+            if run >= min_homopolymer_run:
+                operations.add((slot, base))
+
+    if not operations:
+        for slot in range(len(candidate) + 1):
+            for base in "ACGT":
+                operations.add((slot, base))
+    return operations
+
+
+def targeted_trace_consensus(
+    cluster: list[str],
+    *,
+    target_length: int,
+    anchors: int = 3,
+    rounds: int = 1,
+    bidirectional: bool = True,
+    length_penalty: float = 1.0,
+    homopolymer_weight: float = 1.0,
+    min_homopolymer_run: int = 2,
+    substitution_min_gain: float = 0.0,
+) -> str:
+    """Bounded confidence-guided one-edit repair over multi-start consensus.
+
+    The method first computes the frozen lightweight multi-start consensus. If that
+    consensus is exactly one base shorter than the known oligo length, it evaluates a
+    small insertion set derived from observed insertion evidence and homopolymer runs.
+    If it already has the target length, it tests substitutions only at the single most
+    ambiguous aligned column. Candidate selection uses only observed reads, the known
+    target length, and a small homopolymer prior; the unknown reference is never used.
+
+    This repair is deliberately bounded: at most one insertion or one substitution is
+    applied, so it remains practical on CPU-only CI and does not become a brute-force
+    sequence search.
+    """
+    if not cluster:
+        raise ValueError("cluster must not be empty")
+    if target_length < 1:
+        raise ValueError("target_length must be positive")
+    if anchors < 1:
+        raise ValueError("anchors must be positive")
+    if rounds < 1:
+        raise ValueError("rounds must be positive")
+    if length_penalty < 0:
+        raise ValueError("length_penalty must be non-negative")
+    if homopolymer_weight < 0:
+        raise ValueError("homopolymer_weight must be non-negative")
+    if min_homopolymer_run < 1:
+        raise ValueError("min_homopolymer_run must be positive")
+    if substitution_min_gain < 0:
+        raise ValueError("substitution_min_gain must be non-negative")
+    if len(cluster) == 1:
+        return cluster[0]
+
+    selected = multistart_trace_consensus(
+        cluster,
+        target_length=target_length,
+        anchors=anchors,
+        rounds=rounds,
+        bidirectional=bidirectional,
+        length_penalty=length_penalty,
+    )
+    distance_cache: dict[str, int] = {}
+
+    def read_distance_sum(candidate: str) -> int:
+        cached = distance_cache.get(candidate)
+        if cached is not None:
+            return cached
+        value = sum(edit_distance(candidate, read) for read in cluster)
+        distance_cache[candidate] = value
+        return value
+
+    base_votes, insertion_votes = _alignment_vote_evidence(selected, cluster)
+
+    if len(selected) == target_length - 1:
+        operations = _targeted_insertion_operations(
+            selected,
+            insertion_votes,
+            min_homopolymer_run=min_homopolymer_run,
+        )
+        scored: list[tuple[float, int, str]] = []
+        for slot, base in operations:
+            candidate = selected[:slot] + base + selected[slot:]
+            read_score = read_distance_sum(candidate)
+            run_length = _homopolymer_run_after_insertion(selected, slot, base)
+            scored.append(
+                (
+                    read_score - homopolymer_weight * run_length,
+                    read_score,
+                    candidate,
+                )
+            )
+        return min(scored)[2]
+
+    if len(selected) != target_length or not selected:
+        return selected
+
+    uncertainty: list[tuple[int, int, int, int]] = []
+    for position, votes in enumerate(base_votes):
+        selected_count = votes[selected[position]]
+        alternative_count = max(
+            (
+                count
+                for base, count in votes.items()
+                if base != selected[position]
+            ),
+            default=0,
+        )
+        uncertainty.append(
+            (
+                selected_count - alternative_count,
+                -alternative_count,
+                selected_count,
+                position,
+            )
+        )
+    position = min(uncertainty)[3]
+    baseline_score = read_distance_sum(selected)
+    alternatives: list[tuple[int, str]] = []
+    for base in "ACGT":
+        if base == selected[position]:
+            continue
+        candidate = selected[:position] + base + selected[position + 1 :]
+        alternatives.append((read_distance_sum(candidate), candidate))
+    best_score, best_candidate = min(alternatives)
+    if baseline_score - best_score >= substitution_min_gain:
+        return best_candidate
+    return selected
+
+
 @dataclass(frozen=True)
 class GraphConsensusReconstructor:
     """Explicit similarity graph + connected components + deterministic consensus."""
