@@ -41,43 +41,34 @@ DEFAULT_CALIBRATION_SEED = 20261006
 DEFAULT_CALIBRATION_SIZE = 48
 CALIBRATION_COVERAGES = (5, 10)
 DEVELOPMENT_SEED = 20261007
-DEVELOPMENT_SIZE = 64
+DEVELOPMENT_SIZE = 48
 DEVELOPMENT_COVERAGES = (5, 10)
 FUSION_CANDIDATES: tuple[dict[str, object], ...] = (
     {
-        "name": "fusion-t2-c16-r1-q025-g005",
+        "name": "fusion-fast-t2-c8-r0-q025-g005",
         "top_positions": 2,
-        "max_candidates": 16,
-        "trim_farthest": 1,
+        "max_candidates": 8,
+        "trim_farthest": 0,
         "qgram_width": 4,
         "qgram_weight": 0.25,
         "minimum_score_gain": 0.05,
     },
     {
-        "name": "fusion-t3-c24-r1-q050-g005",
+        "name": "fusion-fast-t3-c12-r1-q050-g005",
         "top_positions": 3,
-        "max_candidates": 24,
+        "max_candidates": 12,
         "trim_farthest": 1,
         "qgram_width": 4,
         "qgram_weight": 0.50,
         "minimum_score_gain": 0.05,
     },
     {
-        "name": "fusion-t4-c28-r1-q075-g005",
-        "top_positions": 4,
-        "max_candidates": 28,
-        "trim_farthest": 1,
+        "name": "fusion-fast-t3-c12-r0-q075-g010",
+        "top_positions": 3,
+        "max_candidates": 12,
+        "trim_farthest": 0,
         "qgram_width": 4,
         "qgram_weight": 0.75,
-        "minimum_score_gain": 0.05,
-    },
-    {
-        "name": "fusion-t3-c24-r2-q050-g010",
-        "top_positions": 3,
-        "max_candidates": 24,
-        "trim_farthest": 2,
-        "qgram_width": 4,
-        "qgram_weight": 0.50,
         "minimum_score_gain": 0.10,
     },
 )
@@ -639,10 +630,10 @@ def _run_development_only(
         accepted = (
             practical
             and _coverage_metric(summary, 10, "successes")
-            > _coverage_metric(baseline_summary, 10, "successes")
+            >= _coverage_metric(baseline_summary, 10, "successes") + 2
             and _coverage_metric(summary, 5, "successes")
-            >= _coverage_metric(baseline_summary, 5, "successes") - 1
-            and int(paired_10["regressions"]) <= 2
+            >= _coverage_metric(baseline_summary, 5, "successes")
+            and int(paired_10["regressions"]) <= 1
         )
         candidate_payloads.append(
             {
@@ -690,9 +681,9 @@ def _run_development_only(
         "candidates": candidate_payloads,
         "winner": winner,
         "acceptance_rule": (
-            "10-read exact recovery must exceed current targeted baseline, 5-read exact "
-            "recovery may drop by at most one cluster, 10-read regressions <=2, and "
-            "runtime must stay within the predeclared budget"
+            "10-read exact recovery must improve by at least two clusters over the "
+            "current targeted baseline, 5-read exact recovery must not regress, "
+            "10-read regressions <=1, and runtime must stay within the predeclared budget"
         ),
     }
     (output_dir / "development-summary.json").write_text(
