@@ -111,6 +111,33 @@ FUSION_CANDIDATES: tuple[dict[str, object], ...] = (
         "minimum_score_gain": 0.10,
     },
 )
+FROZEN_BALANCE_CONFIG: dict[str, object] = {
+    "name": "balance-r2-b6-d1-g2-h015-q025-g005",
+    "top_runs": 2,
+    "beam_width": 6,
+    "depth": 1,
+    "min_gap_support": 2,
+    "homopolymer_weight": 0.15,
+    "qgram_width": 4,
+    "qgram_weight": 0.25,
+    "minimum_score_gain": 0.05,
+}
+BALANCE_DEVELOPMENT_PROVENANCE = {
+    "workflow_run": 37467107353,
+    "artifact_id": 11414883016,
+    "development_seed": 20261008,
+    "development_size": 64,
+    "protected_held_out_size": 96,
+    "protected_historical_calibration_size": 48,
+    "protected_historical_development_size": 48,
+    "protected_overlap_count": 0,
+    "five_read_baseline_successes": 48,
+    "five_read_balance_successes": 49,
+    "ten_read_baseline_successes": 61,
+    "ten_read_balance_successes": 62,
+    "ten_read_rescues": 1,
+    "ten_read_regressions": 0,
+}
 FROZEN_FUSION_CONFIG: dict[str, object] = {
     "name": "fusion-fast-t2-c8-r0-q025-g005",
     "top_positions": 2,
@@ -202,6 +229,7 @@ OLIGOARK_METHODS = (
     "multistart_trace",
     "targeted_trace",
     "confidence_fusion",
+    "homopolymer_balance",
 )
 
 
@@ -417,19 +445,20 @@ def _reconstruct(
             skip_margin=int(consensus_config["skip_margin"]),
         )
     if method == "homopolymer_balance":
-        if consensus_config is None:
-            raise ValueError("homopolymer_balance requires a development configuration")
+        config = consensus_config or FROZEN_BALANCE_CONFIG
+        if consensus_config is not None and "top_runs" not in consensus_config:
+            config = FROZEN_BALANCE_CONFIG
         return homopolymer_balance_trace_consensus(
             reads,
             target_length=TARGET_LENGTH,
-            top_runs=int(consensus_config["top_runs"]),
-            beam_width=int(consensus_config["beam_width"]),
-            depth=int(consensus_config["depth"]),
-            min_gap_support=int(consensus_config["min_gap_support"]),
-            homopolymer_weight=float(consensus_config["homopolymer_weight"]),
-            qgram_width=int(consensus_config["qgram_width"]),
-            qgram_weight=float(consensus_config["qgram_weight"]),
-            minimum_score_gain=float(consensus_config["minimum_score_gain"]),
+            top_runs=int(config["top_runs"]),
+            beam_width=int(config["beam_width"]),
+            depth=int(config["depth"]),
+            min_gap_support=int(config["min_gap_support"]),
+            homopolymer_weight=float(config["homopolymer_weight"]),
+            qgram_width=int(config["qgram_width"]),
+            qgram_weight=float(config["qgram_weight"]),
+            minimum_score_gain=float(config["minimum_score_gain"]),
         )
     raise ValueError(f"unknown worker method: {method}")
 
@@ -1273,6 +1302,46 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     prior_comparisons: list[dict[str, Any]] = []
     for coverage in coverages:
+        balance_rows = [
+            row
+            for row in all_rows
+            if row["method"] == "homopolymer_balance" and row["coverage"] == coverage
+        ]
+        balance_summary = next(
+            row
+            for row in summaries
+            if row["method"] == "homopolymer_balance" and row["coverage"] == coverage
+        )
+        fusion_for_balance_rows = [
+            row
+            for row in all_rows
+            if row["method"] == "confidence_fusion" and row["coverage"] == coverage
+        ]
+        fusion_for_balance_summary = next(
+            row
+            for row in summaries
+            if row["method"] == "confidence_fusion" and row["coverage"] == coverage
+        )
+        paired_balance = mcnemar_exact(balance_rows, fusion_for_balance_rows)
+        prior_comparisons.append(
+            {
+                "coverage": coverage,
+                "method": "homopolymer_balance",
+                "baseline": "confidence_fusion",
+                "exact_recovery_rate_difference": round(
+                    float(balance_summary["exact_recovery_rate"])
+                    - float(fusion_for_balance_summary["exact_recovery_rate"]),
+                    8,
+                ),
+                "mean_edit_distance_difference": round(
+                    float(balance_summary["mean_edit_distance"])
+                    - float(fusion_for_balance_summary["mean_edit_distance"]),
+                    8,
+                ),
+                **paired_balance,
+            }
+        )
+
         fusion_rows = [
             row
             for row in all_rows
@@ -1441,6 +1510,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "runtime_budget_rule": (
                 "candidate runtime <= max(4x iterative baseline, baseline + 2 seconds)"
             ),
+        },
+        "homopolymer_balance_development": {
+            "frozen_config": FROZEN_BALANCE_CONFIG,
+            "provenance": BALANCE_DEVELOPMENT_PROVENANCE,
+            "selection_rule": (
+                "selected only on the untouched seed-20261008 development split after "
+                "excluding held-out, historical calibration, and historical development "
+                "clusters; improved both 5-read and 10-read exact recovery with zero "
+                "10-read regressions"
+            ),
+            "held_out_used_for_parameter_selection": False,
         },
         "confidence_fusion_development": {
             "frozen_config": FROZEN_FUSION_CONFIG,
