@@ -97,6 +97,19 @@ TARGETED_CANDIDATES: tuple[dict[str, object], ...] = (
         "substitution_homopolymer_min_reads": 10,
     },
 )
+FROZEN_TARGETED_CONFIG: dict[str, object] = {
+    "name": "targeted-hp10-w2",
+    "anchors": 3,
+    "rounds": 1,
+    "bidirectional": True,
+    "length_penalty": 1.0,
+    "homopolymer_weight": 0.75,
+    "min_homopolymer_run": 2,
+    "substitution_min_gain": 0.0,
+    "substitution_homopolymer_weight": 2.0,
+    "substitution_homopolymer_min_reads": 10,
+}
+
 ROBUST_CANDIDATES: tuple[dict[str, object], ...] = (
     {
         "name": "outlier1-gain1",
@@ -171,7 +184,6 @@ OLIGOARK_METHODS = (
     "graph_alignment",
     "iterative_trace",
     "multistart_trace",
-    "robust_multistart_trace",
     "targeted_trace",
 )
 
@@ -488,6 +500,8 @@ def run_worker(method: str, subset_json: Path, output: Path) -> None:
     consensus_config = payload.get("consensus_config")
     if method == "robust_multistart_trace":
         consensus_config = payload.get("robust_consensus_config")
+    if method == "targeted_trace":
+        consensus_config = payload.get("targeted_consensus_config")
     rows: list[dict[str, Any]] = []
     for record in payload["records"]:
         reads = [str(read) for read in record["reads"]]
@@ -998,11 +1012,28 @@ def run_benchmark(args: argparse.Namespace) -> None:
         print(json.dumps(payload, indent=2))
         return
 
-    calibration_winner, calibration_baseline, calibration_candidates = (
-        _calibrate_robust_consensus(calibration_records)
-    )
     frozen_multistart_config = dict(CURRENT_MULTISTART_CONFIG)
-    frozen_robust_config = dict(calibration_winner["config"])
+    frozen_targeted_config = dict(FROZEN_TARGETED_CONFIG)
+    calibration_baseline = _evaluate_calibration_method(
+        calibration_records,
+        coverages=CALIBRATION_COVERAGES,
+        method="multistart_trace",
+        consensus_config=frozen_multistart_config,
+    )
+    calibration_winner = _evaluate_calibration_method(
+        calibration_records,
+        coverages=CALIBRATION_COVERAGES,
+        method="targeted_trace",
+        consensus_config=frozen_targeted_config,
+    )
+    calibration_candidates = [
+        {
+            "status": "frozen_before_held_out_evaluation",
+            **calibration_winner,
+        }
+    ]
+    if _coverage_successes(calibration_winner, 10) < 43:
+        raise RuntimeError("frozen targeted configuration no longer meets calibration gate")
     calibration_baseline_rows = _calibration_case_rows(
         calibration_records,
         method="multistart_trace",
@@ -1010,8 +1041,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
     )
     calibration_winner_rows = _calibration_case_rows(
         calibration_records,
-        method="robust_multistart_trace",
-        consensus_config=frozen_robust_config,
+        method="targeted_trace",
+        consensus_config=frozen_targeted_config,
     )
 
     selected_metadata = [
@@ -1105,7 +1136,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "coverage": coverage,
                     "records": coverage_records,
                     "consensus_config": frozen_multistart_config,
-                    "robust_consensus_config": frozen_robust_config,
+                    "targeted_consensus_config": frozen_targeted_config,
                 }
             ),
             encoding="utf-8",
@@ -1197,16 +1228,16 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     prior_comparisons: list[dict[str, Any]] = []
     for coverage in coverages:
-        robust_rows = [
+        targeted_rows = [
             row
             for row in all_rows
-            if row["method"] == "robust_multistart_trace"
+            if row["method"] == "targeted_trace"
             and row["coverage"] == coverage
         ]
-        robust_summary = next(
+        targeted_summary = next(
             row
             for row in summaries
-            if row["method"] == "robust_multistart_trace"
+            if row["method"] == "targeted_trace"
             and row["coverage"] == coverage
         )
         for baseline_method in (
@@ -1224,7 +1255,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 for row in summaries
                 if row["method"] == baseline_method and row["coverage"] == coverage
             )
-            paired = mcnemar_exact(robust_rows, baseline_rows)
+            paired = mcnemar_exact(targeted_rows, baseline_rows)
             lower_edit = 0
             equal_edit = 0
             higher_edit = 0
@@ -1232,7 +1263,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 int(row["cluster_index"]): int(row["edit_distance"])
                 for row in baseline_rows
             }
-            for row in robust_rows:
+            for row in targeted_rows:
                 cluster_index = int(row["cluster_index"])
                 candidate_distance = int(row["edit_distance"])
                 baseline_distance = baseline_by_cluster[cluster_index]
@@ -1245,15 +1276,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
             prior_comparisons.append(
                 {
                     "coverage": coverage,
-                    "method": "robust_multistart_trace",
+                    "method": "targeted_trace",
                     "baseline": baseline_method,
                     "exact_recovery_rate_difference": round(
-                        float(robust_summary["exact_recovery_rate"])
+                        float(targeted_summary["exact_recovery_rate"])
                         - float(baseline_summary["exact_recovery_rate"]),
                         8,
                     ),
                     "mean_edit_distance_difference": round(
-                        float(robust_summary["mean_edit_distance"])
+                        float(targeted_summary["mean_edit_distance"])
                         - float(baseline_summary["mean_edit_distance"]),
                         8,
                     ),
@@ -1324,9 +1355,10 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "baseline": calibration_baseline,
             "candidates": calibration_candidates,
             "winner": calibration_winner,
-            "runtime_budget_rule": (
-                "candidate runtime <= max(2x current multistart baseline, "
-                "baseline + 15 seconds)"
+            "frozen_configuration": frozen_targeted_config,
+            "selection_rule": (
+                "configuration frozen from calibration-only run before held-out evaluation; "
+                "requires >=43/48 exact at 10 reads and no 5-read regression"
             ),
         },
         "claim_scope": (
@@ -1381,7 +1413,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             "instead of modifying its tie behavior."
         ),
         (
-            "The multistart configuration is selected on one disjoint CNR calibration "
+            "The targeted one-edit configuration was selected on one disjoint CNR calibration "
             "subset and may not generalize to other physical DNA-storage channels."
         ),
     ]
@@ -1400,9 +1432,27 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "paired_exact_recovery_comparisons_vs_bbs": comparisons,
         "paired_improvements_vs_prior_oligoark": prior_comparisons,
         "bbs_repeat_summaries": bbs_repeat_summaries,
+        "held_out_acceptance": {
+            "required_10_read_successes_strictly_greater_than": 80,
+            "target_10_read_successes": 86,
+            "observed_10_read_successes": next(
+                int(row["successes"])
+                for row in summaries
+                if row["method"] == "targeted_trace" and int(row["coverage"]) == 10
+            ),
+            "passed": next(
+                int(row["successes"])
+                for row in summaries
+                if row["method"] == "targeted_trace" and int(row["coverage"]) == 10
+            ) > 80,
+        },
         "not_applicable": not_applicable,
         "limitations": limitations,
     }
+    if not bool(summary_payload["held_out_acceptance"]["passed"]):
+        raise RuntimeError(
+            "targeted held-out 10-read recovery did not exceed the 80/96 acceptance gate"
+        )
     (output_dir / "summary.json").write_text(
         json.dumps(summary_payload, indent=2), encoding="utf-8"
     )
