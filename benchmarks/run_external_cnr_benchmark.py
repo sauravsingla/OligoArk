@@ -22,6 +22,7 @@ from oligoark.reconstruct import (
     iterative_trace_consensus,
     medoid_consensus,
     multistart_trace_consensus,
+    robust_multistart_trace_consensus,
 )
 
 DATASET_NAME = "Microsoft Clustered Nanopore Reads (CNR)"
@@ -38,41 +39,68 @@ DEFAULT_SEED = 20261005
 DEFAULT_CALIBRATION_SEED = 20261006
 DEFAULT_CALIBRATION_SIZE = 48
 CALIBRATION_COVERAGES = (5, 10)
-MULTISTART_CANDIDATES: tuple[dict[str, object], ...] = (
+CURRENT_MULTISTART_CONFIG: dict[str, object] = {
+    "name": "a3-r1-bi",
+    "anchors": 3,
+    "rounds": 1,
+    "bidirectional": True,
+    "length_penalty": 1.0,
+}
+ROBUST_CANDIDATES: tuple[dict[str, object], ...] = (
     {
-        "name": "a1-r2-bi",
-        "anchors": 1,
-        "rounds": 2,
-        "bidirectional": True,
-        "length_penalty": 1.0,
-    },
-    {
-        "name": "a2-r1-bi",
-        "anchors": 2,
-        "rounds": 1,
-        "bidirectional": True,
-        "length_penalty": 1.0,
-    },
-    {
-        "name": "a2-r2-bi",
-        "anchors": 2,
-        "rounds": 2,
-        "bidirectional": True,
-        "length_penalty": 1.0,
-    },
-    {
-        "name": "a3-r1-bi",
+        "name": "trim1",
         "anchors": 3,
         "rounds": 1,
         "bidirectional": True,
         "length_penalty": 1.0,
+        "trim_farthest": 1,
+        "agreement_weight": 0.0,
+        "fuse_refined": False,
+        "final_polish": False,
     },
     {
-        "name": "a2-r2-forward",
-        "anchors": 2,
-        "rounds": 2,
-        "bidirectional": False,
+        "name": "trim2",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
         "length_penalty": 1.0,
+        "trim_farthest": 2,
+        "agreement_weight": 0.0,
+        "fuse_refined": False,
+        "final_polish": False,
+    },
+    {
+        "name": "trim1-agree",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "trim_farthest": 1,
+        "agreement_weight": 0.5,
+        "fuse_refined": False,
+        "final_polish": False,
+    },
+    {
+        "name": "trim1-fuse",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "trim_farthest": 1,
+        "agreement_weight": 0.0,
+        "fuse_refined": True,
+        "final_polish": False,
+    },
+    {
+        "name": "trim1-fuse-polish",
+        "anchors": 3,
+        "rounds": 1,
+        "bidirectional": True,
+        "length_penalty": 1.0,
+        "trim_farthest": 1,
+        "agreement_weight": 0.0,
+        "fuse_refined": True,
+        "final_polish": True,
     },
 )
 OLIGOARK_METHODS = (
@@ -81,6 +109,7 @@ OLIGOARK_METHODS = (
     "graph_alignment",
     "iterative_trace",
     "multistart_trace",
+    "robust_multistart_trace",
 )
 
 
