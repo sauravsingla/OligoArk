@@ -8,6 +8,7 @@ from oligoark.reconstruct import (
     graph_cluster_consensus,
     multistart_trace_consensus,
     normalized_similarity,
+    robust_multistart_trace_consensus,
 )
 
 
@@ -137,4 +138,57 @@ def test_multistart_trace_consensus_validates_configuration() -> None:
             pass
         else:
             raise AssertionError(f"configuration should fail: {kwargs}")
+
+def test_robust_multistart_trace_consensus_repairs_anchor_bias() -> None:
+    original = (
+        "TTAGTTGTGCCGCAGCGAAGTAGTGCTTGAAATATGCGACCCCTAAGTAGGAGCGTATGCGCCC"
+        "AGTAACCAATGCCTGTTGAGATGCCAGACGCGTAACCAAAACATAG"
+    )
+    reads = [
+        "TTAGTTGTGCCGTAGTGAAGTAGTGCTTAGAAATAATGCGACCCCTAAGTAGGAGCGTATGCGCCCAGTAACCAATGCTTGTTGGGATGCCAGCCGCGTAACCAAAACATAG",
+        "TTAGTTGTGCCGCAGCTAGAGTAGTGCTTGAAATTGCGACCCCTAAGTGGGAGCGTATGCGCCCAGAACAATGCCTGTTGAGATGCCAAGACGCGTAACCAAAACATAG",
+        "TTAGTTGTGCCGCAGCGAAGTCAGTGCTTGAAGATGCACCCCTAAGTAGGAGCTATGCGCCCAGTAACCATTGCCTGTTGAGATGCAGACGCGTAGCCAAAACATAG",
+        "TTAGTTGTGCCGCAGCAAGTAGTGCTTGAAATATGCGAGCCCCTAAGGGAAGCGTATGCGCCCAGTAACCAATGCCTGTTGAGATGCCATACGCGTAACCAAAACATAG",
+        "TTAGTTGTGCCGGCAGCGAAGTAGTGCTTGAAATATAGCGACCCCCTAAGTAGGAGCTGTATGCGCCCAGTAACCAAATGCCTGTTGATATCCCAGACGCGTAACCAATAACATAG",
+    ]
+    result = robust_multistart_trace_consensus(
+        reads,
+        target_length=len(original),
+        anchors=3,
+        rounds=1,
+        bidirectional=True,
+        length_penalty=1.0,
+        trim_farthest=1,
+        fuse_refined=True,
+        final_polish=True,
+    )
+    assert result == original
+
+
+def test_robust_multistart_trace_consensus_validates_configuration() -> None:
+    reads = ["ACGT", "ACGA"]
+    for kwargs in (
+        {"anchors": 0},
+        {"rounds": 0},
+        {"target_length": 0},
+        {"length_penalty": -0.1},
+        {"trim_farthest": -1},
+        {"agreement_weight": -0.1},
+    ):
+        try:
+            robust_multistart_trace_consensus(reads, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"configuration should fail: {kwargs}")
+
+
+def test_robust_multistart_single_read_is_unchanged() -> None:
+    assert robust_multistart_trace_consensus(
+        ["ACGT"],
+        target_length=4,
+        trim_farthest=1,
+        fuse_refined=True,
+        final_polish=True,
+    ) == "ACGT"
 
