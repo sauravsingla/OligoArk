@@ -636,12 +636,14 @@ def robust_multistart_trace_consensus(
             )[::-1]
             polish_candidates.append(reverse)
 
-        full_score = lambda candidate: _trace_candidate_score(
-            candidate,
-            cluster,
-            target_length=target_length,
-            length_penalty=length_penalty,
-        )
+        def full_score(candidate: str) -> tuple[float, int, int, str]:
+            return _trace_candidate_score(
+                candidate,
+                cluster,
+                target_length=target_length,
+                length_penalty=length_penalty,
+            )
+
         baseline_score = full_score(selected)[0]
         best_polished = min(polish_candidates, key=full_score)
         polished_score = full_score(best_polished)[0]
