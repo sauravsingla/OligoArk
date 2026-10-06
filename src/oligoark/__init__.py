@@ -86,6 +86,7 @@ from .reconstruct import (
     medoid_consensus,
     multistart_trace_consensus,
     robust_multistart_trace_consensus,
+    targeted_trace_consensus,
 )
 from .tiering import (
     EconomicAssumptions,
@@ -173,6 +174,7 @@ __all__ = [
     "medoid_consensus",
     "multistart_trace_consensus",
     "robust_multistart_trace_consensus",
+    "targeted_trace_consensus",
     "objective_from_workload",
     "optimize_archive_plan",
     "optimize_codec",
