@@ -3,6 +3,7 @@ from oligoark.reconstruct import (
     ReconstructionResult,
     alignment_consensus,
     build_similarity_graph,
+    confidence_fusion_trace_consensus,
     edit_distance,
     global_align,
     graph_cluster_consensus,
@@ -199,6 +200,42 @@ def test_targeted_trace_consensus_validates_configuration() -> None:
     ):
         try:
             targeted_trace_consensus(reads, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"configuration should fail: {kwargs}")
+
+def test_confidence_fusion_trace_consensus_preserves_supported_consensus() -> None:
+    original = "AAAACCCC"
+    reads = ["AAACCCC", "AAACCCC", original, original, original]
+    assert confidence_fusion_trace_consensus(
+        reads,
+        target_length=len(original),
+        anchors=2,
+        rounds=1,
+        top_positions=2,
+        max_candidates=12,
+        trim_farthest=0,
+        qgram_width=3,
+        qgram_weight=0.25,
+        minimum_score_gain=0.01,
+    ) == original
+
+
+def test_confidence_fusion_trace_consensus_validates_configuration() -> None:
+    reads = ["ACGT", "ACGA"]
+    invalid = (
+        {"target_length": 0},
+        {"target_length": 4, "top_positions": 0},
+        {"target_length": 4, "max_candidates": 0},
+        {"target_length": 4, "trim_farthest": 2},
+        {"target_length": 4, "qgram_width": 0},
+        {"target_length": 4, "qgram_weight": -0.1},
+        {"target_length": 4, "minimum_score_gain": -0.1},
+    )
+    for kwargs in invalid:
+        try:
+            confidence_fusion_trace_consensus(reads, **kwargs)
         except ValueError:
             pass
         else:
