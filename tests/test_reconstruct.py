@@ -174,6 +174,8 @@ def test_robust_multistart_trace_consensus_validates_configuration() -> None:
         {"length_penalty": -0.1},
         {"trim_farthest": -1},
         {"agreement_weight": -0.1},
+        {"polish_trim_farthest": -1},
+        {"minimum_full_score_gain": -0.1},
     ):
         try:
             robust_multistart_trace_consensus(reads, **kwargs)
