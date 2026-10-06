@@ -8,6 +8,7 @@ from oligoark.reconstruct import (
     graph_cluster_consensus,
     multistart_trace_consensus,
     normalized_similarity,
+    targeted_trace_consensus,
 )
 
 
@@ -133,6 +134,71 @@ def test_multistart_trace_consensus_validates_configuration() -> None:
     ):
         try:
             multistart_trace_consensus(reads, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"configuration should fail: {kwargs}")
+
+def test_targeted_trace_consensus_restores_known_length_homopolymer_deletion() -> None:
+    original = "AAAACCCC"
+    reads = ["AAACCCC", "AAACCCC", original]
+    assert targeted_trace_consensus(
+        reads,
+        target_length=len(original),
+        anchors=2,
+        rounds=1,
+        bidirectional=True,
+        homopolymer_weight=1.0,
+    ) == original
+
+
+def test_targeted_trace_consensus_high_coverage_homopolymer_substitution() -> None:
+    baseline = "ACAGGGTA"
+    original = "ACGGGGTA"
+    reads = [baseline] * 6 + [original] * 4
+    assert targeted_trace_consensus(
+        reads,
+        target_length=len(original),
+        anchors=3,
+        rounds=1,
+        bidirectional=True,
+        homopolymer_weight=0.75,
+        substitution_homopolymer_weight=2.0,
+        substitution_homopolymer_min_reads=10,
+    ) == original
+
+
+def test_targeted_trace_consensus_keeps_low_coverage_prior_disabled() -> None:
+    baseline = "ACAGGGTA"
+    original = "ACGGGGTA"
+    reads = [baseline] * 3 + [original] * 2
+    assert targeted_trace_consensus(
+        reads,
+        target_length=len(original),
+        anchors=3,
+        rounds=1,
+        bidirectional=True,
+        homopolymer_weight=0.75,
+        substitution_homopolymer_weight=2.0,
+        substitution_homopolymer_min_reads=10,
+    ) == baseline
+
+
+def test_targeted_trace_consensus_validates_configuration() -> None:
+    reads = ["ACGT", "ACGA"]
+    for kwargs in (
+        {"target_length": 0},
+        {"target_length": 4, "anchors": 0},
+        {"target_length": 4, "rounds": 0},
+        {"target_length": 4, "length_penalty": -0.1},
+        {"target_length": 4, "homopolymer_weight": -0.1},
+        {"target_length": 4, "min_homopolymer_run": 0},
+        {"target_length": 4, "substitution_min_gain": -0.1},
+        {"target_length": 4, "substitution_homopolymer_weight": -0.1},
+        {"target_length": 4, "substitution_homopolymer_min_reads": 0},
+    ):
+        try:
+            targeted_trace_consensus(reads, **kwargs)
         except ValueError:
             pass
         else:
