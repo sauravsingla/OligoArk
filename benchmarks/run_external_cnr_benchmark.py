@@ -19,6 +19,7 @@ from oligoark.reconstruct import (
     GraphConsensusReconstructor,
     confidence_fusion_trace_consensus,
     edit_distance,
+    stability_fusion_trace_consensus,
     global_align,
     iterative_trace_consensus,
     medoid_consensus,
@@ -40,9 +41,49 @@ DEFAULT_SEED = 20261005
 DEFAULT_CALIBRATION_SEED = 20261006
 DEFAULT_CALIBRATION_SIZE = 48
 CALIBRATION_COVERAGES = (5, 10)
-DEVELOPMENT_SEED = 20261007
-DEVELOPMENT_SIZE = 48
+HISTORICAL_DEVELOPMENT_SEED = 20261007
+HISTORICAL_DEVELOPMENT_SIZE = 48
+DEVELOPMENT_SEED = 20261008
+DEVELOPMENT_SIZE = 64
 DEVELOPMENT_COVERAGES = (5, 10)
+STABILITY_CANDIDATES: tuple[dict[str, object], ...] = (
+    {
+        "name": "stability-r10-s015-c050-q025-g005-k3",
+        "top_positions": 2,
+        "max_candidates": 10,
+        "reliability_power": 1.0,
+        "support_weight": 0.15,
+        "confidence_weight": 0.50,
+        "qgram_width": 4,
+        "qgram_weight": 0.25,
+        "minimum_score_gain": 0.05,
+        "skip_margin": 3,
+    },
+    {
+        "name": "stability-r15-s025-c050-q025-g005-k3",
+        "top_positions": 2,
+        "max_candidates": 12,
+        "reliability_power": 1.5,
+        "support_weight": 0.25,
+        "confidence_weight": 0.50,
+        "qgram_width": 4,
+        "qgram_weight": 0.25,
+        "minimum_score_gain": 0.05,
+        "skip_margin": 3,
+    },
+    {
+        "name": "stability-r10-s035-c075-q025-g010-k4",
+        "top_positions": 3,
+        "max_candidates": 12,
+        "reliability_power": 1.0,
+        "support_weight": 0.35,
+        "confidence_weight": 0.75,
+        "qgram_width": 4,
+        "qgram_weight": 0.25,
+        "minimum_score_gain": 0.10,
+        "skip_margin": 4,
+    },
+)
 FUSION_CANDIDATES: tuple[dict[str, object], ...] = (
     {
         "name": "fusion-fast-t2-c8-r0-q025-g005",
@@ -361,6 +402,22 @@ def _reconstruct(
             qgram_weight=float(config["qgram_weight"]),
             minimum_score_gain=float(config["minimum_score_gain"]),
         )
+    if method == "stability_fusion":
+        if consensus_config is None:
+            raise ValueError("stability_fusion requires a development configuration")
+        return stability_fusion_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            top_positions=int(consensus_config["top_positions"]),
+            max_candidates=int(consensus_config["max_candidates"]),
+            reliability_power=float(consensus_config["reliability_power"]),
+            support_weight=float(consensus_config["support_weight"]),
+            confidence_weight=float(consensus_config["confidence_weight"]),
+            qgram_width=int(consensus_config["qgram_width"]),
+            qgram_weight=float(consensus_config["qgram_weight"]),
+            minimum_score_gain=float(consensus_config["minimum_score_gain"]),
+            skip_margin=int(consensus_config["skip_margin"]),
+        )
     raise ValueError(f"unknown worker method: {method}")
 
 
@@ -614,9 +671,21 @@ def _run_development_only(
     development_seed: int,
     development_size: int,
 ) -> None:
-    excluded = {
+    historical_excluded = {
         int(record["cluster_index"]) - 1
         for record in [*held_out_records, *historical_calibration_records]
+    }
+    historical_development_records = select_subset(
+        centers,
+        clusters,
+        subset_size=HISTORICAL_DEVELOPMENT_SIZE,
+        max_coverage=max(DEVELOPMENT_COVERAGES),
+        seed=HISTORICAL_DEVELOPMENT_SEED,
+        excluded_indices=historical_excluded,
+    )
+    excluded = historical_excluded | {
+        int(record["cluster_index"]) - 1
+        for record in historical_development_records
     }
     development_records = select_subset(
         centers,
@@ -629,26 +698,31 @@ def _run_development_only(
     development_ids = {int(record["cluster_index"]) for record in development_records}
     forbidden_ids = {
         int(record["cluster_index"])
-        for record in [*held_out_records, *historical_calibration_records]
+        for record in [
+            *held_out_records,
+            *historical_calibration_records,
+            *historical_development_records,
+        ]
     }
     if development_ids & forbidden_ids:
         raise RuntimeError("development split overlaps a protected historical split")
 
     baseline_summary, baseline_rows = _evaluate_development_method(
         development_records,
-        method="targeted_trace",
+        method="confidence_fusion",
+        consensus_config=dict(FROZEN_FUSION_CONFIG),
     )
     candidate_payloads: list[dict[str, Any]] = []
     all_case_rows: list[dict[str, Any]] = list(baseline_rows)
     runtime_budget = max(
-        float(baseline_summary["runtime_seconds"]) * 2.5,
-        float(baseline_summary["runtime_seconds"]) + 45.0,
+        float(baseline_summary["runtime_seconds"]) * 2.0,
+        float(baseline_summary["runtime_seconds"]) + 60.0,
     )
 
-    for config in FUSION_CANDIDATES:
+    for config in STABILITY_CANDIDATES:
         summary, rows = _evaluate_development_method(
             development_records,
-            method="confidence_fusion",
+            method="stability_fusion",
             consensus_config=dict(config),
         )
         paired_5 = _paired_development_change(rows, baseline_rows, 5)
@@ -703,13 +777,14 @@ def _run_development_only(
         "development_size": development_size,
         "protected_held_out_size": len(held_out_records),
         "protected_historical_calibration_size": len(historical_calibration_records),
+        "protected_historical_development_size": len(historical_development_records),
         "protected_overlap_count": 0,
         "baseline": baseline_summary,
         "candidates": candidate_payloads,
         "winner": winner,
         "acceptance_rule": (
             "10-read exact recovery must improve by at least two clusters over the "
-            "current targeted baseline, 5-read exact recovery must not regress, "
+            "current frozen confidence-fusion baseline, 5-read exact recovery must not regress, "
             "10-read regressions <=1, and runtime must stay within the predeclared budget"
         ),
     }
@@ -1499,7 +1574,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--development-size", type=int, default=DEVELOPMENT_SIZE)
     parser.add_argument(
         "--worker-method",
-        choices=(*OLIGOARK_METHODS, "confidence_fusion"),
+        choices=(*OLIGOARK_METHODS, "confidence_fusion", "stability_fusion"),
     )
     parser.add_argument("--subset-json")
     parser.add_argument("--worker-output")
