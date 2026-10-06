@@ -679,9 +679,10 @@ def run_benchmark(args: argparse.Namespace) -> None:
         raise RuntimeError("calibration and held-out cluster IDs must be disjoint")
 
     calibration_winner, calibration_baseline, calibration_candidates = (
-        _calibrate_multistart(calibration_records)
+        _calibrate_robust_consensus(calibration_records)
     )
-    frozen_multistart_config = dict(calibration_winner["config"])
+    frozen_multistart_config = dict(CURRENT_MULTISTART_CONFIG)
+    frozen_robust_config = dict(calibration_winner["config"])
 
     selected_metadata = [
         {
@@ -735,6 +736,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "coverage": coverage,
                     "records": coverage_records,
                     "consensus_config": frozen_multistart_config,
+                    "robust_consensus_config": frozen_robust_config,
                 }
             ),
             encoding="utf-8",
