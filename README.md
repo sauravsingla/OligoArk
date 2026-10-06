@@ -9,11 +9,18 @@ OligoArk converts digital data into DNA-like sequences, simulates errors such as
 
 > OligoArk is a **software/simulation research framework**. It does not physically synthesize or store DNA and makes no wet-lab performance claim.
 
-## v0.6 key result
+## v0.6 physical benchmark results
 
-- Physical CNR benchmark: confidence fusion reaches **73/96 (76.0%) at 5 reads** and **93/96 (96.9%) at 10 reads**; pinned BBS varies **72–74/96 at 5 reads** and is **93/96 at 10 reads** across five repeats.
+| Physical dataset | Reads / strand | **OligoArk confidence fusion** | Pinned BBS |
+| --- | ---: | ---: | ---: |
+| Microsoft CNR (Nanopore) | 5 | **73/96 (76.0%)** | 72–74/96 |
+| Microsoft CNR (Nanopore) | 10 | **93/96 (96.9%)** | **93/96 (96.9%)** |
+| Grass et al. (Illumina) | 5 | **94/96 (97.9%)** | 90/96 (93.8%) |
+| Grass et al. (Illumina) | 10 | **96/96 (100%)** | 95/96 (99.0%) |
 
-On the fixed 96-cluster physical CNR benchmark, confidence fusion matches BBS exact recovery at 10 reads and shows no statistically significant exact-recovery difference at 5 or 10 reads. This does **not** establish a general state-of-the-art claim; BBS remains substantially faster. End-to-end decoding of an external DNA archive has not been validated.
+The **same frozen confidence-fusion settings** were used for the independent Grass validation, with only the mechanical strand length changed from 110 to 117 nt. The numerical Grass advantage over BBS is not statistically significant on 96 clusters (p=0.125 at 5 reads; p=1.0 at 10 reads), and BBS remains substantially faster. These are reference-level physical-read reconstruction results, not end-to-end external archive decoding or a general state-of-the-art claim.
+
+See [CNR benchmark](docs/external-cnr-benchmark.md) and [Grass benchmark](docs/external-grass-benchmark.md).
 
 ## Install
 
