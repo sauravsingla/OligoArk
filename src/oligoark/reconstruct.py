@@ -830,12 +830,14 @@ def _bounded_local_candidates(
         return generated
 
     if len(candidate) == target_length + 1:
-        ranked_deletions: list[tuple[int, int, int]] = []
+        length_deletions: list[tuple[int, int, int]] = []
         for position, votes in enumerate(base_votes):
             selected_count = votes[candidate[position]]
             gap_count = votes["-"]
-            ranked_deletions.append((selected_count - gap_count, selected_count, position))
-        for _, _, position in sorted(ranked_deletions)[:top_positions]:
+            length_deletions.append(
+                (selected_count - gap_count, selected_count, position)
+            )
+        for _, _, position in sorted(length_deletions)[:top_positions]:
             add(candidate[:position] + candidate[position + 1 :])
         return generated
 
