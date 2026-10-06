@@ -17,6 +17,7 @@ from typing import Any
 
 from oligoark.reconstruct import (
     GraphConsensusReconstructor,
+    confidence_fusion_trace_consensus,
     edit_distance,
     global_align,
     iterative_trace_consensus,
@@ -39,6 +40,47 @@ DEFAULT_SEED = 20261005
 DEFAULT_CALIBRATION_SEED = 20261006
 DEFAULT_CALIBRATION_SIZE = 48
 CALIBRATION_COVERAGES = (5, 10)
+DEVELOPMENT_SEED = 20261007
+DEVELOPMENT_SIZE = 64
+DEVELOPMENT_COVERAGES = (5, 10)
+FUSION_CANDIDATES: tuple[dict[str, object], ...] = (
+    {
+        "name": "fusion-t2-c16-r1-q025-g005",
+        "top_positions": 2,
+        "max_candidates": 16,
+        "trim_farthest": 1,
+        "qgram_width": 4,
+        "qgram_weight": 0.25,
+        "minimum_score_gain": 0.05,
+    },
+    {
+        "name": "fusion-t3-c24-r1-q050-g005",
+        "top_positions": 3,
+        "max_candidates": 24,
+        "trim_farthest": 1,
+        "qgram_width": 4,
+        "qgram_weight": 0.50,
+        "minimum_score_gain": 0.05,
+    },
+    {
+        "name": "fusion-t4-c28-r1-q075-g005",
+        "top_positions": 4,
+        "max_candidates": 28,
+        "trim_farthest": 1,
+        "qgram_width": 4,
+        "qgram_weight": 0.75,
+        "minimum_score_gain": 0.05,
+    },
+    {
+        "name": "fusion-t3-c24-r2-q050-g010",
+        "top_positions": 3,
+        "max_candidates": 24,
+        "trim_farthest": 2,
+        "qgram_width": 4,
+        "qgram_weight": 0.50,
+        "minimum_score_gain": 0.10,
+    },
+)
 FROZEN_TARGETED_CONFIG: dict[str, object] = {
     "name": "targeted-hp10-w2",
     "anchors": 3,
@@ -286,6 +328,21 @@ def _reconstruct(
                 config["substitution_homopolymer_min_reads"]
             ),
         )
+    if method == "confidence_fusion":
+        if consensus_config is None:
+            raise ValueError("confidence_fusion requires a configuration")
+        return confidence_fusion_trace_consensus(
+            reads,
+            target_length=TARGET_LENGTH,
+            anchors=3,
+            rounds=1,
+            top_positions=int(consensus_config["top_positions"]),
+            max_candidates=int(consensus_config["max_candidates"]),
+            trim_farthest=int(consensus_config["trim_farthest"]),
+            qgram_width=int(consensus_config["qgram_width"]),
+            qgram_weight=float(consensus_config["qgram_weight"]),
+            minimum_score_gain=float(consensus_config["minimum_score_gain"]),
+        )
     raise ValueError(f"unknown worker method: {method}")
 
 
@@ -426,6 +483,228 @@ def _evaluate_calibration_method(
         "runtime_seconds": round(elapsed, 6),
         "per_coverage": per_coverage,
     }
+
+
+
+def _evaluate_development_method(
+    records: list[dict[str, Any]],
+    *,
+    method: str,
+    consensus_config: dict[str, object] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    started = time.perf_counter()
+    rows: list[dict[str, Any]] = []
+    per_coverage: list[dict[str, Any]] = []
+    for coverage in DEVELOPMENT_COVERAGES:
+        coverage_rows: list[dict[str, Any]] = []
+        for record in _records_for_coverage(records, coverage):
+            reads = [str(read) for read in record["reads"]]
+            reference = str(record["reference"])
+            reconstruction = _reconstruct(method, reads, consensus_config)
+            row = _case_record(
+                method,
+                coverage,
+                int(record["cluster_index"]),
+                reference,
+                reconstruction,
+            )
+            coverage_rows.append(row)
+            rows.append(row)
+        distances = [int(row["edit_distance"]) for row in coverage_rows]
+        per_coverage.append(
+            {
+                "coverage": coverage,
+                "successes": sum(bool(row["exact"]) for row in coverage_rows),
+                "trials": len(coverage_rows),
+                "mean_edit_distance": round(statistics.fmean(distances), 8),
+                "median_edit_distance": round(float(statistics.median(distances)), 8),
+                "one_edit_failures": sum(distance == 1 for distance in distances),
+                "two_edit_failures": sum(distance == 2 for distance in distances),
+                "three_plus_edit_failures": sum(distance >= 3 for distance in distances),
+            }
+        )
+    elapsed = time.perf_counter() - started
+    summary = {
+        "method": method,
+        "config": consensus_config,
+        "runtime_seconds": round(elapsed, 6),
+        "per_coverage": per_coverage,
+    }
+    return summary, rows
+
+
+def _coverage_metric(summary: dict[str, Any], coverage: int, key: str) -> float:
+    row = next(
+        item for item in summary["per_coverage"] if int(item["coverage"]) == coverage
+    )
+    return float(row[key])
+
+
+def _paired_development_change(
+    candidate_rows: list[dict[str, Any]],
+    baseline_rows: list[dict[str, Any]],
+    coverage: int,
+) -> dict[str, Any]:
+    candidate = {
+        int(row["cluster_index"]): row
+        for row in candidate_rows
+        if int(row["coverage"]) == coverage
+    }
+    baseline = {
+        int(row["cluster_index"]): row
+        for row in baseline_rows
+        if int(row["coverage"]) == coverage
+    }
+    if candidate.keys() != baseline.keys():
+        raise RuntimeError("development methods must use identical cluster IDs")
+    rescues = sum(
+        bool(candidate[index]["exact"]) and not bool(baseline[index]["exact"])
+        for index in candidate
+    )
+    regressions = sum(
+        bool(baseline[index]["exact"]) and not bool(candidate[index]["exact"])
+        for index in candidate
+    )
+    lower_edit = sum(
+        int(candidate[index]["edit_distance"]) < int(baseline[index]["edit_distance"])
+        for index in candidate
+    )
+    higher_edit = sum(
+        int(candidate[index]["edit_distance"]) > int(baseline[index]["edit_distance"])
+        for index in candidate
+    )
+    return {
+        "coverage": coverage,
+        "rescues": rescues,
+        "regressions": regressions,
+        "lower_edit_distance_pairs": lower_edit,
+        "higher_edit_distance_pairs": higher_edit,
+        **mcnemar_exact(
+            [candidate[index] for index in sorted(candidate)],
+            [baseline[index] for index in sorted(baseline)],
+        ),
+    }
+
+
+def _run_development_only(
+    *,
+    centers: list[str],
+    clusters: list[list[str]],
+    held_out_records: list[dict[str, Any]],
+    historical_calibration_records: list[dict[str, Any]],
+    output_dir: Path,
+    development_seed: int,
+    development_size: int,
+) -> None:
+    excluded = {
+        int(record["cluster_index"]) - 1
+        for record in [*held_out_records, *historical_calibration_records]
+    }
+    development_records = select_subset(
+        centers,
+        clusters,
+        subset_size=development_size,
+        max_coverage=max(DEVELOPMENT_COVERAGES),
+        seed=development_seed,
+        excluded_indices=excluded,
+    )
+    development_ids = {int(record["cluster_index"]) for record in development_records}
+    forbidden_ids = {
+        int(record["cluster_index"])
+        for record in [*held_out_records, *historical_calibration_records]
+    }
+    if development_ids & forbidden_ids:
+        raise RuntimeError("development split overlaps a protected historical split")
+
+    baseline_summary, baseline_rows = _evaluate_development_method(
+        development_records,
+        method="targeted_trace",
+    )
+    candidate_payloads: list[dict[str, Any]] = []
+    all_case_rows: list[dict[str, Any]] = list(baseline_rows)
+    runtime_budget = max(
+        float(baseline_summary["runtime_seconds"]) * 2.5,
+        float(baseline_summary["runtime_seconds"]) + 45.0,
+    )
+
+    for config in FUSION_CANDIDATES:
+        summary, rows = _evaluate_development_method(
+            development_records,
+            method="confidence_fusion",
+            consensus_config=dict(config),
+        )
+        paired_5 = _paired_development_change(rows, baseline_rows, 5)
+        paired_10 = _paired_development_change(rows, baseline_rows, 10)
+        practical = float(summary["runtime_seconds"]) <= runtime_budget
+        accepted = (
+            practical
+            and _coverage_metric(summary, 10, "successes")
+            > _coverage_metric(baseline_summary, 10, "successes")
+            and _coverage_metric(summary, 5, "successes")
+            >= _coverage_metric(baseline_summary, 5, "successes") - 1
+            and int(paired_10["regressions"]) <= 2
+        )
+        candidate_payloads.append(
+            {
+                **summary,
+                "paired_5": paired_5,
+                "paired_10": paired_10,
+                "runtime_budget_seconds": round(runtime_budget, 6),
+                "practical": practical,
+                "accepted": accepted,
+            }
+        )
+        all_case_rows.extend(rows)
+
+    accepted_candidates = [row for row in candidate_payloads if bool(row["accepted"])]
+    winner = None
+    if accepted_candidates:
+        winner = min(
+            accepted_candidates,
+            key=lambda row: (
+                -_coverage_metric(row, 10, "successes"),
+                -_coverage_metric(row, 5, "successes"),
+                int(row["paired_10"]["regressions"]),
+                _coverage_metric(row, 10, "mean_edit_distance"),
+                float(row["runtime_seconds"]),
+                str(row["config"]),
+            ),
+        )
+
+    metadata = [
+        {
+            "cluster_index": int(record["cluster_index"]),
+            "available_reads": int(record["available_reads"]),
+            "reference_sha256": _sha256_text(str(record["reference"])),
+        }
+        for record in development_records
+    ]
+    payload = {
+        "mode": "development_only",
+        "development_seed": development_seed,
+        "development_size": development_size,
+        "protected_held_out_size": len(held_out_records),
+        "protected_historical_calibration_size": len(historical_calibration_records),
+        "protected_overlap_count": 0,
+        "baseline": baseline_summary,
+        "candidates": candidate_payloads,
+        "winner": winner,
+        "acceptance_rule": (
+            "10-read exact recovery must exceed current targeted baseline, 5-read exact "
+            "recovery may drop by at most one cluster, 10-read regressions <=2, and "
+            "runtime must stay within the predeclared budget"
+        ),
+    }
+    (output_dir / "development-summary.json").write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+    (output_dir / "development-clusters.json").write_text(
+        json.dumps(metadata, indent=2),
+        encoding="utf-8",
+    )
+    _write_csv(output_dir / "development-cases.csv", all_case_rows)
+    print(json.dumps(payload, indent=2))
 
 
 def _calibrate_multistart(
@@ -679,11 +958,13 @@ def _relation(
 
 
 def run_benchmark(args: argparse.Namespace) -> None:
-    if not args.centers or not args.clusters or not args.bbs_bin:
-        raise ValueError("--centers, --clusters and --bbs-bin are required")
+    if not args.centers or not args.clusters:
+        raise ValueError("--centers and --clusters are required")
+    if not args.development_only and not args.bbs_bin:
+        raise ValueError("--bbs-bin is required outside development-only mode")
     centers_path = Path(args.centers)
     clusters_path = Path(args.clusters)
-    bbs_bin = Path(args.bbs_bin)
+    bbs_bin = Path(args.bbs_bin) if args.bbs_bin else None
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -723,6 +1004,20 @@ def run_benchmark(args: argparse.Namespace) -> None:
     }
     if calibration_ids & held_out_ids:
         raise RuntimeError("calibration and held-out cluster IDs must be disjoint")
+
+    if args.development_only:
+        _run_development_only(
+            centers=centers,
+            clusters=clusters,
+            held_out_records=selected,
+            historical_calibration_records=calibration_records,
+            output_dir=output_dir,
+            development_seed=args.development_seed,
+            development_size=args.development_size,
+        )
+        return
+
+    assert bbs_bin is not None
 
     calibration_winner, calibration_baseline, calibration_candidates = (
         _calibrate_multistart(calibration_records)
@@ -1130,7 +1425,13 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CALIBRATION_SIZE,
     )
     parser.add_argument("--bbs-repeats", type=int, default=5)
-    parser.add_argument("--worker-method", choices=OLIGOARK_METHODS)
+    parser.add_argument("--development-only", action="store_true")
+    parser.add_argument("--development-seed", type=int, default=DEVELOPMENT_SEED)
+    parser.add_argument("--development-size", type=int, default=DEVELOPMENT_SIZE)
+    parser.add_argument(
+        "--worker-method",
+        choices=(*OLIGOARK_METHODS, "confidence_fusion"),
+    )
     parser.add_argument("--subset-json")
     parser.add_argument("--worker-output")
     return parser.parse_args()
