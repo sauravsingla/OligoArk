@@ -556,6 +556,8 @@ def robust_multistart_trace_consensus(
     agreement_weight: float = 0.0,
     fuse_refined: bool = False,
     final_polish: bool = False,
+    polish_trim_farthest: int = 0,
+    minimum_full_score_gain: float = 0.0,
 ) -> str:
     """Robust low-compute refinement of multi-start trace consensus.
 
@@ -582,6 +584,10 @@ def robust_multistart_trace_consensus(
         raise ValueError("trim_farthest must be non-negative")
     if agreement_weight < 0:
         raise ValueError("agreement_weight must be non-negative")
+    if polish_trim_farthest < 0:
+        raise ValueError("polish_trim_farthest must be non-negative")
+    if minimum_full_score_gain < 0:
+        raise ValueError("minimum_full_score_gain must be non-negative")
     if len(cluster) == 1:
         return cluster[0]
 
@@ -611,6 +617,40 @@ def robust_multistart_trace_consensus(
         )
 
     selected = min(candidates, key=score)
+
+    if polish_trim_farthest > 0 and len(cluster) >= 3:
+        trim_count = min(polish_trim_farthest, len(cluster) - 2)
+        ranked_reads = sorted(
+            cluster,
+            key=lambda read: (edit_distance(selected, read), len(read), read),
+        )
+        polish_cluster = ranked_reads[: len(cluster) - trim_count]
+        polish_candidates = [
+            selected,
+            _alignment_consensus_with_reference(polish_cluster, selected),
+        ]
+        if bidirectional:
+            reverse = _alignment_consensus_with_reference(
+                [read[::-1] for read in polish_cluster],
+                selected[::-1],
+            )[::-1]
+            polish_candidates.append(reverse)
+
+        full_score = lambda candidate: _trace_candidate_score(
+            candidate,
+            cluster,
+            target_length=target_length,
+            length_penalty=length_penalty,
+        )
+        baseline_score = full_score(selected)[0]
+        best_polished = min(polish_candidates, key=full_score)
+        polished_score = full_score(best_polished)[0]
+        if (
+            best_polished != selected
+            and baseline_score - polished_score >= minimum_full_score_gain
+        ):
+            selected = best_polished
+
     if not final_polish:
         return selected
 
