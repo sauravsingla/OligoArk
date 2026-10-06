@@ -64,7 +64,7 @@ jobs:
             --calibration-seed 20261006 \
             --development-only \
             --development-seed 20261007 \
-            --development-size 64 \
+            --development-size 48 \
             --output-dir cnr-fusion-development
 
       - name: Show development decision
