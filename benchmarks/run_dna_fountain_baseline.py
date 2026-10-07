@@ -208,6 +208,7 @@ def _channel_sequences(
         )
     return reads
 
+
 def _common_metrics(
     *,
     payload_size: int,
