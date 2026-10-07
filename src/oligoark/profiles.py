@@ -12,13 +12,13 @@ from .framing import frame_overhead_bytes
 class PhysicalStrandProfile:
     name: str
     target_nucleotides: int
-    rs_nsym: int = 2
+    rs_nsym: int = 8
     parity_group_size: int = 8
     redundancy_scheme: str = "xor"
     fountain_redundancy: float = 0.25
     adaptive_masks: bool = True
     mask_search_limit: int = 64
-    compact_framing: bool = True
+    compact_framing: bool = False
     compact_index_bytes: int = 3
     indel_rescue: bool = True
 
@@ -75,9 +75,31 @@ class PhysicalStrandProfile:
 
 
 PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
+    # Frozen legacy profiles: these retain the framing and RS settings used by earlier
+    # OligoArk releases and published repository benchmark artifacts.
     "oligoark-152": PhysicalStrandProfile("oligoark-152", 152),
     "oligoark-200": PhysicalStrandProfile("oligoark-200", 200),
     "oligoark-248": PhysicalStrandProfile("oligoark-248", 248),
+    # Research profiles with compact framing and lower per-strand RS overhead. These are
+    # explicit names so the density improvement never changes the meaning of legacy profiles.
+    "oligoark-152-compact": PhysicalStrandProfile(
+        "oligoark-152-compact",
+        152,
+        rs_nsym=2,
+        compact_framing=True,
+    ),
+    "oligoark-200-compact": PhysicalStrandProfile(
+        "oligoark-200-compact",
+        200,
+        rs_nsym=2,
+        compact_framing=True,
+    ),
+    "oligoark-248-compact": PhysicalStrandProfile(
+        "oligoark-248-compact",
+        248,
+        rs_nsym=2,
+        compact_framing=True,
+    ),
     "scale-1024": PhysicalStrandProfile(
         "scale-1024",
         1024,
