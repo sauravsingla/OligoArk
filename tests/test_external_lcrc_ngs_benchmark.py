@@ -1,3 +1,4 @@
+import hashlib
 import gzip
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -22,6 +23,17 @@ select_split = MODULE.select_split
 trim_universal_primers = MODULE.trim_universal_primers
 
 
+def _payload(label: str) -> str:
+    bases = "ACGT"
+    sequence = ""
+    counter = 0
+    while len(sequence) < 160:
+        digest = hashlib.sha256(f"{label}:{counter}".encode()).digest()
+        sequence += "".join(bases[value & 3] for value in digest)
+        counter += 1
+    return sequence[:160]
+
+
 def _reference(payload: str) -> str:
     assert len(payload) == 160
     return FORWARD_PRIMER + payload + REVERSE_PRIMER
@@ -29,8 +41,8 @@ def _reference(payload: str) -> str:
 
 def test_lcrc_ngs_mapping_is_orientation_invariant() -> None:
     references = [
-        _reference("ACGTTGCA" * 20),
-        _reference("GATTACAG" * 20),
+        _reference(_payload("alpha")),
+        _reference(_payload("beta")),
     ]
     index = build_unique_kmer_index(references)
     forward = orient_and_map_read(references[1], index)
@@ -68,7 +80,7 @@ def test_lcrc_ngs_binning_reads_gzip_fastq(tmp_path: Path) -> None:
 
 
 def test_lcrc_ngs_select_split_is_deterministic_and_disjoint() -> None:
-    references = [_reference("ACGTTGCA" * 20) for _ in range(20)]
+    references = [_reference(_payload(f"reference-{index}")) for index in range(20)]
     clusters = [[f"READ{index}_{copy}" for copy in range(12)] for index in range(20)]
 
     first = select_split(
