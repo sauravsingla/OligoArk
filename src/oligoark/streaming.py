@@ -115,6 +115,7 @@ def _encoded_nt(size: int, config: ArchiveConfig) -> int:
         config.rs_nsym,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        compact_typed_index=config.compact_typed_index,
     )
     if size == 0:
         data_nt = 4 * overhead
@@ -165,6 +166,7 @@ def _encode(
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        compact_typed_index=config.compact_typed_index,
     )
 
 
@@ -180,7 +182,8 @@ def archive_file_streaming(
     size, sha256 = _digest(source_path)
     data_count, parity_count, fountain_count = _counts(size, resolved)
     if resolved.compact_framing:
-        max_index = (1 << (8 * resolved.compact_index_bytes)) - 1
+        reserved_kind_bits = 2 if resolved.compact_typed_index else 0
+        max_index = (1 << (8 * resolved.compact_index_bytes - reserved_kind_bits)) - 1
         if data_count - 1 > max_index:
             raise ValueError(
                 "compact framing index capacity exceeded; increase compact_index_bytes"
@@ -343,6 +346,7 @@ def _decode(
             mask_search_limit=config.mask_search_limit,
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
+            compact_typed_index=config.compact_typed_index,
             expected_total_data=expected_total,
         )
     except ValueError:
@@ -360,6 +364,7 @@ def _decode(
             mask_search_limit=config.mask_search_limit,
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
+            compact_typed_index=config.compact_typed_index,
             expected_total_data=expected_total,
         )
         return frame, False, False, False
@@ -374,6 +379,7 @@ def _decode(
             mask_search_limit=config.mask_search_limit,
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
+            compact_typed_index=config.compact_typed_index,
             expected_total_data=expected_total,
         )
         return frame, False, False, True
