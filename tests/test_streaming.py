@@ -5,7 +5,13 @@ import os
 import pytest
 
 from oligoark.archive import ArchiveConfig
-from oligoark.framing import decode_frame, decode_frame_packed, encode_frame, encode_frame_packed
+from oligoark.framing import (
+    decode_frame,
+    decode_frame_packed,
+    decode_frame_resilient,
+    encode_frame,
+    encode_frame_packed,
+)
 from oligoark.profiles import physical_strand_profile
 from oligoark.streaming import (
     StreamingFaultProfile,
@@ -83,6 +89,8 @@ def test_physical_profiles_fit_requested_oligo_length(name: str, target: int) ->
         adaptive_masks=config.adaptive_masks,
         sequence_constraints=config.sequence_constraints,
         mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
     )
     assert len(packed) * 4 == target
     assert profile.actual_nucleotides == target
@@ -205,3 +213,69 @@ def test_fountain_dropout_recovery_uses_on_disk_rescan(tmp_path) -> None:
     )
     assert noisy.verified_sha256 is False
     assert noisy.missing_data_strands > 0
+
+
+
+def test_compact_frame_roundtrip_and_density_profile() -> None:
+    profile = physical_strand_profile("oligoark-152")
+    config = profile.to_archive_config()
+    payload = bytes(range(config.chunk_size))
+    packed = encode_frame_packed(
+        payload,
+        index=1234,
+        total_data=5000,
+        is_parity=False,
+        rs_nsym=config.rs_nsym,
+        adaptive_masks=config.adaptive_masks,
+        sequence_constraints=config.sequence_constraints,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+    )
+    decoded = decode_frame_packed(
+        packed,
+        rs_nsym=config.rs_nsym,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        expected_total_data=5000,
+    )
+    assert decoded.index == 1234
+    assert decoded.payload == payload
+    assert len(packed) * 4 == 152
+    assert config.chunk_size >= 29
+
+
+@pytest.mark.parametrize("kind", ["insertion", "deletion"])
+def test_single_indel_rescue_recovers_compact_frame(kind: str) -> None:
+    profile = physical_strand_profile("oligoark-248")
+    config = profile.to_archive_config()
+    payload = bytes(range(config.chunk_size))
+    packed = encode_frame_packed(
+        payload,
+        index=77,
+        total_data=100,
+        is_parity=False,
+        rs_nsym=config.rs_nsym,
+        adaptive_masks=config.adaptive_masks,
+        sequence_constraints=config.sequence_constraints,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+    )
+    sequence = "".join("ACGT"[(byte >> shift) & 3] for byte in packed for shift in (6, 4, 2, 0))
+    position = len(sequence) // 2
+    if kind == "insertion":
+        mutated = sequence[:position] + "A" + sequence[position:]
+    else:
+        mutated = sequence[:position] + sequence[position + 1 :]
+    decoded = decode_frame_resilient(
+        mutated,
+        rs_nsym=config.rs_nsym,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        expected_total_data=100,
+    )
+    assert decoded.index == 77
+    assert decoded.payload == payload
