@@ -105,6 +105,43 @@ jobs:
       - name: Build Docker image
         run: docker build -t oligoark:ci .
 
+  scalable-storage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev,bench]"
+      - name: Test scalable archive and baselines
+        run: pytest tests/test_streaming.py tests/test_dna_fountain_baseline.py
+      - name: Run scalable storage CI profile
+        run: |
+          python benchmarks/run_storage_scale.py --profile ci
+          test -s storage-scale-results/results.json
+          test -s storage-scale-results/results.csv
+          test -s storage-scale-results/summary.json
+          test -s storage-scale-results/metadata.json
+      - name: Run DNA Fountain comparison CI profile
+        run: |
+          python benchmarks/run_dna_fountain_baseline.py --profile ci
+          test -s dna-fountain-results/results.json
+          test -s dna-fountain-results/results.csv
+          test -s dna-fountain-results/metadata.json
+      - name: Upload scalable-storage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-scalable-storage-results
+          path: |
+            storage-scale-results/*.json
+            storage-scale-results/*.csv
+            storage-scale-results/*.png
+            dna-fountain-results/*.json
+            dna-fountain-results/*.csv
+            dna-fountain-results/*.png
+          if-no-files-found: error
+
   security:
     runs-on: ubuntu-latest
     steps:
