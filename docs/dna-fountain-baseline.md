@@ -3,8 +3,10 @@
 OligoArk includes an independent **DNA Fountain-style research baseline** for controlled
 codec comparisons. It follows the published design at a high level: LT droplets, a robust
 soliton degree distribution, a 32-bit seed, XOR payloads, Reed-Solomon protection, 2-bit DNA
-mapping, and GC/homopolymer screening. It is a clean-room implementation and is **not**
-claimed to be bit-compatible with the historical TeamErlich implementation.
+mapping, and GC/homopolymer screening. Decoding uses ordinary LT peeling first and an exact
+GF(2) elimination fallback when the ripple stalls but the accepted equation set has sufficient
+rank. It is a clean-room implementation and is **not** claimed to be bit-compatible with the
+historical TeamErlich implementation.
 
 The comparison runner is:
 
