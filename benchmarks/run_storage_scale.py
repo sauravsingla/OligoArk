@@ -65,8 +65,8 @@ FAULTS: dict[str, StreamingFaultProfile] = {
 def _scale_config(scheme: str) -> ArchiveConfig:
     """Fast software-scale profile; physical profiles are benchmarked separately."""
     return ArchiveConfig(
-        chunk_size=229,
-        rs_nsym=8,
+        chunk_size=237,
+        rs_nsym=0,
         parity_group_size=8,
         adaptive_masks=False,
         redundancy_scheme=scheme,
