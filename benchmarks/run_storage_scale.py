@@ -15,6 +15,7 @@ import math
 import platform
 import random
 import resource
+import shutil
 import subprocess
 import sys
 import time
@@ -403,16 +404,19 @@ def _run_isolated(
         str(case_dir),
     ]
     completed = subprocess.run(command, check=False, text=True, capture_output=True)
-    if completed.returncode != 0:
-        return {
-            "size_bytes": size,
-            "size_mib": round(size / MIB, 6),
-            "scheme": scheme,
-            "fault": fault,
-            "sha256_verified": False,
-            "error": completed.stderr.strip() or completed.stdout.strip(),
-        }
-    return json.loads(completed.stdout)
+    try:
+        if completed.returncode != 0:
+            return {
+                "size_bytes": size,
+                "size_mib": round(size / MIB, 6),
+                "scheme": scheme,
+                "fault": fault,
+                "sha256_verified": False,
+                "error": completed.stderr.strip() or completed.stdout.strip(),
+            }
+        return json.loads(completed.stdout)
+    finally:
+        shutil.rmtree(case_dir, ignore_errors=True)
 
 
 def main() -> None:
