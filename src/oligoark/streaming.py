@@ -115,6 +115,7 @@ def _encoded_nt(size: int, config: ArchiveConfig) -> int:
         config.rs_nsym,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
     )
     if size == 0:
         data_nt = 4 * overhead
@@ -165,6 +166,7 @@ def _encode(
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
     )
 
 
@@ -180,7 +182,12 @@ def archive_file_streaming(
     size, sha256 = _digest(source_path)
     data_count, parity_count, fountain_count = _counts(size, resolved)
     if resolved.compact_framing:
-        max_index = (1 << (8 * resolved.compact_index_bytes)) - 1
+        index_bits = (
+            8 * resolved.compact_index_bytes - 2
+            if resolved.inline_mask_framing
+            else 8 * resolved.compact_index_bytes
+        )
+        max_index = (1 << index_bits) - 1
         if data_count - 1 > max_index:
             raise ValueError(
                 "compact framing index capacity exceeded; increase compact_index_bytes"
@@ -344,6 +351,7 @@ def _decode(
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
             expected_total_data=expected_total,
+            inline_mask_framing=config.inline_mask_framing,
         )
     except ValueError:
         return None, False, True, False
@@ -361,6 +369,7 @@ def _decode(
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
             expected_total_data=expected_total,
+            inline_mask_framing=config.inline_mask_framing,
         )
         return frame, False, False, False
     except ValueError:
@@ -375,6 +384,7 @@ def _decode(
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
             expected_total_data=expected_total,
+            inline_mask_framing=config.inline_mask_framing,
         )
         return frame, False, False, True
     except ValueError:
