@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import bisect
 import hashlib
-from functools import lru_cache
 import math
 import random
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 
 from .dna import SequenceConstraints, bytes_to_dna, dna_to_bytes
-from .ecc import ECCDecodeError, rs_decode, rs_encode, xor_bytes
+from .ecc import rs_decode, rs_encode, xor_bytes
 
 
 @dataclass(frozen=True)
@@ -165,7 +165,7 @@ def decode_dna_fountain_baseline(
     for sequence in selected:
         try:
             packet = rs_decode(dna_to_bytes(sequence), archive.config.rs_nsym)
-        except (ValueError, ECCDecodeError):
+        except ValueError:
             continue
         if len(packet) != 4 + archive.config.chunk_size:
             continue
