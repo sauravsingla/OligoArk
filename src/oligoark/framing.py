@@ -49,13 +49,17 @@ def frame_overhead_bytes(
     *,
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
+    compact_typed_index: bool = False,
 ) -> int:
     """Return fixed per-strand byte overhead before payload bytes."""
     if compact_framing:
         if not 2 <= compact_index_bytes <= 4:
             raise ValueError("compact_index_bytes must be between 2 and 4")
-        # mask byte + control byte + index + CRC16 + Reed-Solomon parity
-        return 1 + 1 + compact_index_bytes + 2 + rs_nsym
+        # The typed-index research framing stores the two frame-kind bits in the high
+        # bits of the compact index, removing the separate control byte without removing
+        # CRC or Reed-Solomon protection. Legacy compact framing remains unchanged.
+        control_bytes = 0 if compact_typed_index else 1
+        return 1 + control_bytes + compact_index_bytes + 2 + rs_nsym
     return 1 + _HEADER.size + rs_nsym
 
 
@@ -103,6 +107,34 @@ def _compact_header(payload: bytes, *, index: int, flags: int, index_bytes: int)
     )
 
 
+def _compact_typed_header(
+    payload: bytes,
+    *,
+    index: int,
+    flags: int,
+    index_bytes: int,
+) -> bytes:
+    """Pack frame kind into the high two index bits for the efficient compact profile."""
+    if not 2 <= index_bytes <= 4:
+        raise ValueError("compact_index_bytes must be between 2 and 4")
+    if flags == 0:
+        kind = 0
+    elif flags == FLAG_PARITY:
+        kind = 1
+    elif flags == FLAG_FOUNTAIN:
+        kind = 2
+    else:
+        raise ValueError("typed compact framing supports data, parity or fountain frames")
+    usable_bits = 8 * index_bytes - 2
+    if not 0 <= index < (1 << usable_bits):
+        raise ValueError(
+            f"typed compact frame index must fit in {usable_bits} bits; got index={index}"
+        )
+    encoded_index = (kind << usable_bits) | index
+    checksum = binascii.crc_hqx(payload, 0xFFFF)
+    return encoded_index.to_bytes(index_bytes, "big") + struct.pack(">H", checksum)
+
+
 def encode_frame_packed(
     payload: bytes,
     *,
@@ -116,6 +148,7 @@ def encode_frame_packed(
     mask_search_limit: int = 64,
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
+    compact_typed_index: bool = False,
 ) -> bytes:
     """Encode one frame directly into compact 2-bit-packed bytes."""
     if not 1 <= mask_search_limit <= 256:
@@ -125,11 +158,20 @@ def encode_frame_packed(
 
     flags = _flags(is_parity=is_parity, is_fountain=is_fountain)
     if compact_framing:
-        header = _compact_header(
-            payload,
-            index=index,
-            flags=flags,
-            index_bytes=compact_index_bytes,
+        header = (
+            _compact_typed_header(
+                payload,
+                index=index,
+                flags=flags,
+                index_bytes=compact_index_bytes,
+            )
+            if compact_typed_index
+            else _compact_header(
+                payload,
+                index=index,
+                flags=flags,
+                index_bytes=compact_index_bytes,
+            )
         )
     else:
         header = _HEADER.pack(
@@ -180,6 +222,7 @@ def encode_frame(
     mask_search_limit: int = 64,
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
+    compact_typed_index: bool = False,
 ) -> str:
     """Encode one protected strand while enforcing optional hard sequence constraints."""
     packed = encode_frame_packed(
@@ -194,6 +237,7 @@ def encode_frame(
         mask_search_limit=mask_search_limit,
         compact_framing=compact_framing,
         compact_index_bytes=compact_index_bytes,
+        compact_typed_index=compact_typed_index,
     )
     return bytes_to_dna(packed)
 
