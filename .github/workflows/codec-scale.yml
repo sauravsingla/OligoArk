@@ -12,10 +12,13 @@ on:
           - ci
           - full
           - scale
+          - research
+          - research-10
+          - research-100
       trials:
         description: "Trials per method/condition"
         required: true
-        default: "5"
+        default: "10"
   schedule:
     - cron: "41 3 1 * *"
 
@@ -41,12 +44,15 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
             PROFILE=full
-            TRIALS=5
+            TRIALS=10
           else
             PROFILE="${REQUESTED_PROFILE:-full}"
-            TRIALS="${REQUESTED_TRIALS:-5}"
+            TRIALS="${REQUESTED_TRIALS:-10}"
           fi
-          python benchmarks/run_dna_fountain_baseline.py             --profile "$PROFILE"             --trials "$TRIALS"             --timeout-seconds 900
+          python benchmarks/run_matched_codec_scale.py \
+            --profile "$PROFILE" \
+            --trials "$TRIALS" \
+            --timeout-seconds 1200
       - uses: actions/upload-artifact@v4
         with:
           name: matched-codecs-${{ github.run_id }}

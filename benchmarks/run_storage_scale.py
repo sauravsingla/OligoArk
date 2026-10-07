@@ -1,8 +1,8 @@
 """Scalable OligoArk archive benchmark.
 
 The benchmark distinguishes software archive scaling from physical-read reconstruction.
-The 100 MiB acceptance profile emits the milestone sentence only after SHA-256 verified
-clean and controlled-loss recovery both succeed.
+The 1 GiB acceptance profile emits the milestone sentence only after SHA-256 verified
+clean and controlled-loss recovery all succeed.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ GIB = 1024 * MIB
 SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB, 100 * MIB, 1 * GIB)
 SCHEMES = ("none", "xor", "fountain", "hybrid")
 SCALE_PROFILE = "scale-1024"
-PHYSICAL_PROFILE = "oligoark-248"
+PHYSICAL_PROFILE = "oligoark-248-compact"
 PHYSICAL_MATRIX_SIZE = 64 * KIB
 MILESTONE_SIZE = 1 * GIB
 MILESTONE_STATEMENT = (
@@ -217,6 +217,9 @@ def _worker(
         "strand_profile": strand_profile,
         "chunk_size": config.chunk_size,
         "rs_nsym": config.rs_nsym,
+        "compact_framing": config.compact_framing,
+        "compact_index_bytes": config.compact_index_bytes,
+        "indel_rescue_enabled": config.indel_rescue,
         "fault_config": _fault_to_dict(fault),
         "sha256_verified": recovered_ok,
         "exact_recovery_rate": 1.0 if recovered_ok else 0.0,
@@ -259,6 +262,7 @@ def _worker(
                 "undecodable_records": report.undecodable_records,
                 "xor_recovered_strands": report.xor_recovered_strands,
                 "fountain_recovered_strands": report.fountain_recovered_strands,
+                "indel_repaired_records": report.indel_repaired_records,
                 "output_sha256": report.output_sha256,
             }
         )
@@ -274,6 +278,9 @@ def _cases(profile: str) -> list[tuple[int, str, str, str]]:
         ] + [
             (64 * KIB, "xor", "clean", SCALE_PROFILE),
             (64 * KIB, "xor", "dropout-5", SCALE_PROFILE),
+            (4 * KIB, "hybrid", "clean", PHYSICAL_PROFILE),
+            (4 * KIB, "hybrid", "indel-low", PHYSICAL_PROFILE),
+            (4 * KIB, "hybrid", "mixed", PHYSICAL_PROFILE),
         ]
 
     acceptance = [
@@ -530,7 +537,15 @@ def main() -> None:
     parser.add_argument("--fault", choices=tuple(FAULTS))
     parser.add_argument(
         "--strand-profile",
-        choices=(SCALE_PROFILE, "oligoark-152", "oligoark-200", PHYSICAL_PROFILE),
+        choices=(
+            SCALE_PROFILE,
+            "oligoark-152",
+            "oligoark-200",
+            "oligoark-248",
+            "oligoark-152-compact",
+            "oligoark-200-compact",
+            PHYSICAL_PROFILE,
+        ),
     )
     parser.add_argument("--workdir", type=Path)
     args = parser.parse_args()

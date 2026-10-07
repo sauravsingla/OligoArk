@@ -16,6 +16,7 @@ import math
 import random
 import struct
 import zlib
+from collections import deque
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
@@ -237,36 +238,55 @@ def decode_dna_fountain_baseline(
         )
         equations.append((set(droplet_indexes), packet[4:]))
 
+    # Peel degree-one equations with an adjacency queue. The previous implementation
+    # rescanned every unresolved equation after each peeling wave, which became the dominant
+    # cost at multi-MiB scales. Each edge is now visited only when one of its chunks is solved.
+    width = archive.config.chunk_size
+    unknown_sets = [set(indexes) for indexes, _ in equations]
+    residuals = [bytearray(payload) for _, payload in equations]
+    incident: list[list[int]] = [[] for _ in range(archive.chunk_count)]
+    ready: deque[int] = deque()
+    for equation_id, indexes in enumerate(unknown_sets):
+        for index in indexes:
+            incident[index].append(equation_id)
+        if len(indexes) == 1:
+            ready.append(equation_id)
+
     known: dict[int, bytes] = {}
-    pending = equations
-    changed = True
-    while changed:
-        changed = False
-        next_pending: list[tuple[set[int], bytes]] = []
-        for unknown_indexes, payload in pending:
-            unknown = set(unknown_indexes)
-            parts = [payload]
-            for index in tuple(unknown):
-                if index in known:
-                    parts.append(known[index])
-                    unknown.remove(index)
-            residual = xor_bytes(parts, archive.config.chunk_size)
-            if len(unknown) == 1:
-                index = next(iter(unknown))
-                if index not in known:
-                    known[index] = residual
-                    changed = True
-            elif unknown:
-                next_pending.append((unknown, residual))
-        pending = next_pending
+    while ready:
+        equation_id = ready.popleft()
+        unknown = unknown_sets[equation_id]
+        if len(unknown) != 1:
+            continue
+        index = next(iter(unknown))
+        if index in known:
+            continue
+        payload = bytes(residuals[equation_id])
+        known[index] = payload
+
+        for dependent_id in incident[index]:
+            dependent = unknown_sets[dependent_id]
+            if index not in dependent:
+                continue
+            dependent.remove(index)
+            residual = residuals[dependent_id]
+            for offset in range(width):
+                residual[offset] ^= payload[offset]
+            if len(dependent) == 1:
+                ready.append(dependent_id)
 
     missing = [index for index in range(archive.chunk_count) if index not in known]
     if missing:
+        pending = [
+            (indexes, bytes(residuals[equation_id]))
+            for equation_id, indexes in enumerate(unknown_sets)
+            if indexes
+        ]
         known = _gaussian_recover(
-            equations,
+            pending,
             known,
             total=archive.chunk_count,
-            width=archive.config.chunk_size,
+            width=width,
         )
         missing = [index for index in range(archive.chunk_count) if index not in known]
     if missing:

@@ -18,6 +18,9 @@ class PhysicalStrandProfile:
     fountain_redundancy: float = 0.25
     adaptive_masks: bool = True
     mask_search_limit: int = 64
+    compact_framing: bool = False
+    compact_index_bytes: int = 3
+    indel_rescue: bool = False
 
     @property
     def packed_bytes(self) -> int:
@@ -25,10 +28,15 @@ class PhysicalStrandProfile:
 
     @property
     def chunk_size(self) -> int:
-        maximum_frame_payload = 255 - (frame_overhead_bytes(self.rs_nsym) - 1)
+        overhead = frame_overhead_bytes(
+            self.rs_nsym,
+            compact_framing=self.compact_framing,
+            compact_index_bytes=self.compact_index_bytes,
+        )
+        maximum_frame_payload = 255 - (overhead - 1)
         maximum = min(
             maximum_frame_payload,
-            self.packed_bytes - frame_overhead_bytes(self.rs_nsym),
+            self.packed_bytes - overhead,
         )
         if maximum < 8:
             raise ValueError(
@@ -39,7 +47,12 @@ class PhysicalStrandProfile:
 
     @property
     def actual_nucleotides(self) -> int:
-        return 4 * (frame_overhead_bytes(self.rs_nsym) + self.chunk_size)
+        overhead = frame_overhead_bytes(
+            self.rs_nsym,
+            compact_framing=self.compact_framing,
+            compact_index_bytes=self.compact_index_bytes,
+        )
+        return 4 * (overhead + self.chunk_size)
 
     def to_archive_config(self, **overrides: object) -> ArchiveConfig:
         values: dict[str, object] = {
@@ -50,6 +63,9 @@ class PhysicalStrandProfile:
             "redundancy_scheme": self.redundancy_scheme,
             "fountain_redundancy": self.fountain_redundancy,
             "mask_search_limit": self.mask_search_limit,
+            "compact_framing": self.compact_framing,
+            "compact_index_bytes": self.compact_index_bytes,
+            "indel_rescue": self.indel_rescue,
         }
         values.update(overrides)
         return ArchiveConfig.from_mapping(values)
@@ -59,15 +75,42 @@ class PhysicalStrandProfile:
 
 
 PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
+    # Frozen legacy profiles: these retain the framing and RS settings used by earlier
+    # OligoArk releases and published repository benchmark artifacts.
     "oligoark-152": PhysicalStrandProfile("oligoark-152", 152),
     "oligoark-200": PhysicalStrandProfile("oligoark-200", 200),
     "oligoark-248": PhysicalStrandProfile("oligoark-248", 248),
+    # Research profiles with compact framing and lower per-strand RS overhead. These are
+    # explicit names so the density improvement never changes the meaning of legacy profiles.
+    "oligoark-152-compact": PhysicalStrandProfile(
+        "oligoark-152-compact",
+        152,
+        rs_nsym=2,
+        compact_framing=True,
+        indel_rescue=True,
+    ),
+    "oligoark-200-compact": PhysicalStrandProfile(
+        "oligoark-200-compact",
+        200,
+        rs_nsym=2,
+        compact_framing=True,
+        indel_rescue=True,
+    ),
+    "oligoark-248-compact": PhysicalStrandProfile(
+        "oligoark-248-compact",
+        248,
+        rs_nsym=2,
+        compact_framing=True,
+        indel_rescue=True,
+    ),
     "scale-1024": PhysicalStrandProfile(
         "scale-1024",
         1024,
         rs_nsym=0,
         adaptive_masks=False,
         mask_search_limit=1,
+        compact_framing=False,
+        indel_rescue=False,
     ),
 }
 

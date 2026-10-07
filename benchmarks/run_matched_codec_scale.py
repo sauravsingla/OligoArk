@@ -42,12 +42,13 @@ from oligoark.experiments import wilson_interval
 from oligoark.profiles import physical_strand_profile
 
 METHODS = (
-    "oligoark-fountain",
+    "oligoark-compact-hybrid",
     "dna-fountain-cleanroom",
     "goldman-rotating-xor",
 )
-FULL_SIZES = (1 * KIB, 64 * KIB, 1 * MIB)
-SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB)
+FULL_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB)
+SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB, 100 * MIB)
+RESEARCH_SIZES = (10 * MIB, 100 * MIB)
 
 
 def _peak_rss_mib() -> float:
@@ -162,9 +163,11 @@ def _worker(
     payload_sha256 = hashlib.sha256(payload).hexdigest()
     started = time.perf_counter()
 
-    if method == "oligoark-fountain":
-        profile = physical_strand_profile("oligoark-152").with_scheme("fountain")
-        config = profile.to_archive_config(fountain_redundancy=redundancy)
+    if method == "oligoark-compact-hybrid":
+        profile = physical_strand_profile("oligoark-152-compact").with_scheme("hybrid")
+        xor_share = 1.0 / profile.parity_group_size
+        fountain_share = max(0.0, redundancy - xor_share)
+        config = profile.to_archive_config(fountain_redundancy=fountain_share)
         archive = archive_bytes(payload, config)
         encode_seconds = time.perf_counter() - started
         stats = archive_statistics(archive)
@@ -182,6 +185,15 @@ def _worker(
                 encoded_nucleotides=stats.encoded_nucleotides,
                 logical_bits_per_nucleotide=stats.logical_bits_per_nucleotide,
                 encode_seconds=encode_seconds,
+                extra={
+                    "redundancy_allocation": {
+                        "xor": round(xor_share, 6),
+                        "fountain": round(fountain_share, 6),
+                    },
+                    "compact_framing": config.compact_framing,
+                    "rs_nsym": config.rs_nsym,
+                    "chunk_size": config.chunk_size,
+                },
             )
             for condition in conditions
         ]
@@ -305,11 +317,20 @@ def _isolated(
 
 
 def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
-    fields = sorted({key for row in rows for key in row})
+    flattened = [
+        {
+            key: json.dumps(value, sort_keys=True)
+            if isinstance(value, (dict, list))
+            else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
+    fields = sorted({key for row in flattened for key in row})
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(flattened)
 
 
 def _summary(rows: list[dict[str, object]], conditions: tuple[str, ...]) -> dict[str, object]:
@@ -362,18 +383,44 @@ def _summary(rows: list[dict[str, object]], conditions: tuple[str, ...]) -> dict
                 row["method"] for row in dropout if float(row["recovery_rate"]) == best_rate
             ]
 
+    targets: dict[str, object] = {}
+    for target in RESEARCH_SIZES:
+        target_rows = [row for row in rows if int(row["size_bytes"]) == target]
+        if not target_rows:
+            continue
+        failures = [
+            {
+                "method": row.get("method"),
+                "condition": row.get("condition"),
+                "timed_out": bool(row.get("timed_out")),
+                "error": row.get("error"),
+            }
+            for row in target_rows
+            if "error" in row
+        ]
+        targets[str(target)] = {
+            "common_completed": target in common_sizes,
+            "failure_rows": len(failures),
+            "failures": failures,
+        }
+
     return {
         "largest_common_completed_size_bytes": largest,
         "common_completed_sizes_bytes": common_sizes,
         "failure_rows": sum("error" in row for row in rows),
         "timed_out_rows": sum(bool(row.get("timed_out")) for row in rows),
         "comparison_at_largest_common_size": comparison,
+        "research_target_status": targets,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", choices=("ci", "full", "scale"), default="full")
+    parser.add_argument(
+        "--profile",
+        choices=("ci", "full", "scale", "research", "research-10", "research-100"),
+        default="full",
+    )
     parser.add_argument("--output", type=Path, default=Path("matched-codec-results"))
     parser.add_argument("--redundancy", type=float, default=0.25)
     parser.add_argument("--trials", type=int)
@@ -385,17 +432,29 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.profile == "ci":
-        default_conditions = ("clean", "dropout-5")
+        default_conditions = ("clean", "dropout-5", "indel-low", "mixed")
         sizes = (1 * KIB,)
         default_trials = 3
     elif args.profile == "full":
         default_conditions = tuple(CONDITIONS)
         sizes = FULL_SIZES
-        default_trials = 5
+        default_trials = 10
+    elif args.profile == "research":
+        default_conditions = tuple(CONDITIONS)
+        sizes = RESEARCH_SIZES
+        default_trials = 10
+    elif args.profile == "research-10":
+        default_conditions = tuple(CONDITIONS)
+        sizes = (10 * MIB,)
+        default_trials = 10
+    elif args.profile == "research-100":
+        default_conditions = tuple(CONDITIONS)
+        sizes = (100 * MIB,)
+        default_trials = 10
     else:
         default_conditions = tuple(CONDITIONS)
         sizes = SCALE_SIZES
-        default_trials = 3
+        default_trials = 10
 
     trials = args.trials if args.trials is not None else default_trials
 
@@ -449,12 +508,14 @@ def main() -> None:
         "methods": list(METHODS),
         "worker_timeout_seconds": args.timeout_seconds,
         "fairness": (
-            "same deterministic payload bytes, 152-nt ceiling, nominal redundancy budget, "
-            "channel rates, trial seeds and SHA-256 exact-recovery definition"
+            "same deterministic payload bytes, 152-nt ceiling, nominal 25% redundancy budget, "
+            "channel rates, trial seeds and SHA-256 exact-recovery definition; OligoArk splits "
+            "the budget between XOR parity and fountain symbols"
         ),
         "claim_scope": (
             "software codec comparison only; no wet-lab performance or historical "
-            "bit-compatibility is claimed"
+            "bit-compatibility is claimed. 100 MiB is a target size: explicit timeout or "
+            "resource failure remains a reportable negative result."
         ),
     }
     summary = _summary(rows, conditions)

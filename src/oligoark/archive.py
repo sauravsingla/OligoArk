@@ -13,7 +13,7 @@ from typing import cast
 from .dna import SequenceConstraints, sequence_metrics
 from .ecc import build_xor_parity, recover_one_missing
 from .fountain import FountainSymbol, indexes_for_seed, make_symbols, peel_decode
-from .framing import decode_frame, encode_frame
+from .framing import decode_frame, decode_frame_resilient, encode_frame, frame_overhead_bytes
 from .reconstruct import GraphConsensusReconstructor, ReadReconstructor, TraceConsensusReconstructor
 
 _REDUNDANCY_SCHEMES = {"none", "xor", "fountain", "hybrid"}
@@ -35,6 +35,9 @@ class ArchiveConfig:
     max_gc_fraction: float = 0.65
     max_homopolymer: int = 4
     mask_search_limit: int = 64
+    compact_framing: bool = False
+    compact_index_bytes: int = 3
+    indel_rescue: bool = False
 
     @property
     def sequence_constraints(self) -> SequenceConstraints:
@@ -47,7 +50,12 @@ class ArchiveConfig:
     def validate(self) -> None:
         if self.chunk_size < 8:
             raise ValueError("chunk_size must be at least 8 bytes")
-        if self.chunk_size + 18 + self.rs_nsym > 255:
+        overhead = frame_overhead_bytes(
+            self.rs_nsym,
+            compact_framing=self.compact_framing,
+            compact_index_bytes=self.compact_index_bytes,
+        )
+        if self.chunk_size + overhead - 1 > 255:
             raise ValueError("chunk_size + protected header + rs_nsym must be <= 255 bytes")
         if not 0 <= self.rs_nsym <= 64:
             raise ValueError("rs_nsym must be between 0 and 64")
@@ -65,6 +73,8 @@ class ArchiveConfig:
             raise ValueError("fountain_max_degree must be between 1 and 32")
         if not 1 <= self.mask_search_limit <= 256:
             raise ValueError("mask_search_limit must be between 1 and 256")
+        if not 2 <= self.compact_index_bytes <= 4:
+            raise ValueError("compact_index_bytes must be between 2 and 4")
         self.sequence_constraints.validate()
 
     @classmethod
@@ -83,6 +93,9 @@ class ArchiveConfig:
             "max_gc_fraction",
             "max_homopolymer",
             "mask_search_limit",
+            "compact_framing",
+            "compact_index_bytes",
+            "indel_rescue",
         }
         unknown = sorted(set(values) - allowed)
         if unknown:
@@ -103,6 +116,12 @@ class ArchiveConfig:
         adaptive_masks = values.get("adaptive_masks", True)
         if not isinstance(adaptive_masks, bool):
             raise ValueError("adaptive_masks must be a boolean")
+        compact_framing = values.get("compact_framing", False)
+        if not isinstance(compact_framing, bool):
+            raise ValueError("compact_framing must be a boolean")
+        indel_rescue = values.get("indel_rescue", False)
+        if not isinstance(indel_rescue, bool):
+            raise ValueError("indel_rescue must be a boolean")
         redundancy_scheme = values.get("redundancy_scheme", "xor")
         if not isinstance(redundancy_scheme, str):
             raise ValueError("redundancy_scheme must be a string")
@@ -120,6 +139,9 @@ class ArchiveConfig:
             max_gc_fraction=number("max_gc_fraction", 0.65),
             max_homopolymer=integer("max_homopolymer", 4),
             mask_search_limit=integer("mask_search_limit", 64),
+            compact_framing=compact_framing,
+            compact_index_bytes=integer("compact_index_bytes", 3),
+            indel_rescue=indel_rescue,
         )
         config.validate()
         return config
@@ -283,6 +305,8 @@ def _encode_common(
         adaptive_masks=config.adaptive_masks,
         sequence_constraints=config.sequence_constraints,
         mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
     )
 
 
@@ -290,6 +314,12 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     config = config or ArchiveConfig()
     config.validate()
     total = max(1, math.ceil(len(data) / config.chunk_size))
+    if config.compact_framing:
+        max_index = (1 << (8 * config.compact_index_bytes)) - 1
+        if total - 1 > max_index:
+            raise ValueError(
+                "compact framing index capacity exceeded; increase compact_index_bytes"
+            )
     chunks = [
         data[index : index + config.chunk_size]
         for index in range(0, len(data), config.chunk_size)
@@ -304,8 +334,13 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     fountain_symbols: list[FountainSymbol] = []
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
         count = max(1, math.ceil(total * config.fountain_redundancy))
-        if config.fountain_seed + count - 1 > 0xFFFFFFFF:
-            raise ValueError("fountain seed range exceeds unsigned 32-bit frame index")
+        max_seed = (
+            (1 << (8 * config.compact_index_bytes)) - 1
+            if config.compact_framing
+            else 0xFFFFFFFF
+        )
+        if config.fountain_seed + count - 1 > max_seed:
+            raise ValueError("fountain seed range exceeds configured frame index capacity")
         fountain_symbols = make_symbols(
             chunks,
             count=count,
@@ -368,10 +403,14 @@ def _decode_available_frames(
 
     for strand in strands:
         try:
-            frame = decode_frame(
+            decoder = decode_frame_resilient if config.indel_rescue else decode_frame
+            frame = decoder(
                 strand,
                 rs_nsym=config.rs_nsym,
                 mask_search_limit=config.mask_search_limit,
+                compact_framing=config.compact_framing,
+                compact_index_bytes=config.compact_index_bytes,
+                expected_total_data=total_data if config.compact_framing else None,
             )
         except ValueError:
             continue
