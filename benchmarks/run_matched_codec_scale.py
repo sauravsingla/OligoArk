@@ -19,6 +19,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+from run_dna_fountain_baseline import (
+    CONDITIONS,
+    KIB,
+    MIB,
+    _channel_sequences,
+    _payload,
+    _write_plots,
+)
+
 from oligoark import __version__
 from oligoark.archive import archive_bytes, archive_statistics, recover_bytes
 from oligoark.baselines import (
@@ -31,15 +40,6 @@ from oligoark.baselines import (
 )
 from oligoark.experiments import wilson_interval
 from oligoark.profiles import physical_strand_profile
-from run_dna_fountain_baseline import (
-    CONDITIONS,
-    KIB,
-    MIB,
-    _channel_sequences,
-    _payload,
-    _write_plots,
-)
-
 METHODS = (
     "oligoark-fountain",
     "dna-fountain-cleanroom",
