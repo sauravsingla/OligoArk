@@ -1,17 +1,20 @@
-"""Deterministic fountain-style XOR redundancy baseline.
+"""Deterministic sparse XOR redundancy helpers.
 
-This is not the published DNA Fountain algorithm. It is an independently implemented
-LT-style research baseline used to compare fixed parity groups with seeded, overlapping
-XOR symbols inside OligoArk's real archive/recovery pipeline.
+Legacy random LT-style symbols remain available for historical profiles. Research profiles can
+use balanced interleaved symbols: deterministic permutation layers that give every data chunk
+predictable sparse-check coverage at the same nominal redundancy budget.
 """
 
 from __future__ import annotations
 
+import math
 import random
 from collections import deque
 from dataclasses import dataclass
 
 from .ecc import xor_bytes
+
+FOUNTAIN_LAYOUTS = {"random", "interleaved"}
 
 
 @dataclass(frozen=True)
@@ -21,12 +24,91 @@ class FountainSymbol:
     payload: bytes
 
 
-def indexes_for_seed(total: int, seed: int, max_degree: int = 4) -> tuple[int, ...]:
+def _coprime_multiplier(total: int, layer: int) -> int:
+    if total <= 1:
+        return 1
+    candidate = max(3, 2 * layer + 1)
+    while math.gcd(candidate, total) != 1:
+        candidate += 2
+    return candidate
+
+
+def interleaved_indexes_for_seed(
+    total: int,
+    seed: int,
+    *,
+    group_size: int,
+    first_seed: int = 1,
+) -> tuple[int, ...]:
+    """Map one seed to a balanced sparse-check group.
+
+    Layer zero is supplied by OligoArk's ordinary contiguous XOR parity. Fountain seeds start
+    at permutation layer one, so a hybrid profile can combine one contiguous layer with two
+    interleaved layers without duplicating the same check groups.
+    """
+    if total <= 0:
+        raise ValueError("total must be positive")
+    if group_size < 2:
+        raise ValueError("group_size must be at least 2")
+    offset = seed - first_seed
+    if offset < 0:
+        raise ValueError("seed is below first_seed")
+
+    groups_per_layer = math.ceil(total / group_size)
+    layer = 1 + offset // groups_per_layer
+    group = offset % groups_per_layer
+    multiplier = _coprime_multiplier(total, layer)
+    shift = (layer * 0x9E3779B1) % total
+
+    start = group * group_size
+    stop = min(start + group_size, total)
+    return tuple(
+        sorted((multiplier * position + shift) % total for position in range(start, stop))
+    )
+
+
+def symbol_count(
+    total: int,
+    redundancy: float,
+    *,
+    max_degree: int,
+    layout: str,
+) -> int:
+    """Return the deterministic symbol count for a requested redundancy budget."""
+    if total <= 0:
+        raise ValueError("total must be positive")
+    if redundancy <= 0:
+        return 0
+    if layout == "interleaved":
+        layers = max(1, round(redundancy * max_degree))
+        return layers * math.ceil(total / max_degree)
+    if layout != "random":
+        raise ValueError(f"unknown fountain layout: {layout}")
+    return max(1, math.ceil(total * redundancy))
+
+
+def indexes_for_seed(
+    total: int,
+    seed: int,
+    max_degree: int = 4,
+    *,
+    layout: str = "random",
+    first_seed: int = 1,
+) -> tuple[int, ...]:
     """Return the deterministic source-chunk set represented by one fountain seed."""
     if total <= 0:
         raise ValueError("total must be positive")
     if max_degree < 1:
         raise ValueError("max_degree must be positive")
+    if layout == "interleaved":
+        return interleaved_indexes_for_seed(
+            total,
+            seed,
+            group_size=max_degree,
+            first_seed=first_seed,
+        )
+    if layout != "random":
+        raise ValueError(f"unknown fountain layout: {layout}")
     rng = random.Random(seed)
     degree = min(total, 1 + rng.randrange(max(1, min(max_degree, total))))
     return tuple(sorted(rng.sample(range(total), degree)))
@@ -38,6 +120,8 @@ def make_symbols(
     width: int,
     seed: int = 1,
     max_degree: int = 4,
+    *,
+    layout: str = "random",
 ) -> list[FountainSymbol]:
     if not chunks:
         raise ValueError("chunks must not be empty")
@@ -45,10 +129,19 @@ def make_symbols(
         raise ValueError("count must be non-negative")
     if width <= 0:
         raise ValueError("width must be positive")
+    if layout not in FOUNTAIN_LAYOUTS:
+        raise ValueError(f"unknown fountain layout: {layout}")
+
     symbols: list[FountainSymbol] = []
     for offset in range(count):
         symbol_seed = seed + offset
-        indexes = indexes_for_seed(len(chunks), symbol_seed, max_degree=max_degree)
+        indexes = indexes_for_seed(
+            len(chunks),
+            symbol_seed,
+            max_degree=max_degree,
+            layout=layout,
+            first_seed=seed,
+        )
         symbols.append(
             FountainSymbol(
                 symbol_seed,
