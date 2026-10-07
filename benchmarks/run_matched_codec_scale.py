@@ -40,6 +40,7 @@ from oligoark.baselines import (
 )
 from oligoark.experiments import wilson_interval
 from oligoark.profiles import physical_strand_profile
+
 METHODS = (
     "oligoark-fountain",
     "dna-fountain-cleanroom",
