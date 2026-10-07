@@ -98,6 +98,10 @@ def _heterogeneous_block() -> bytes:
         + b"\n"
         for index in range(256)
     )
+    csv_data = b"id,category,value\n" + b"".join(
+        f"{index},sample,{index * 17}\n".encode()
+        for index in range(256)
+    )
     source = (
         b"def recover(payload: bytes) -> bytes:\n"
         b"    # deterministic source-code fixture\n"
@@ -115,7 +119,16 @@ def _heterogeneous_block() -> bytes:
         bundle.writestr("module.py", source)
         bundle.writestr("image.ppm", ppm)
         bundle.writestr("payload.bin", binary)
-    return text + jsonl + source + ppm + binary + compressed + mixed_archive.getvalue()
+    return (
+        text
+        + jsonl
+        + csv_data
+        + source
+        + ppm
+        + binary
+        + compressed
+        + mixed_archive.getvalue()
+    )
 
 
 def create_heterogeneous_payload(path: Path, size: int) -> None:
@@ -179,6 +192,7 @@ def _worker(size: int, scheme: str, fault_name: str, workdir: Path) -> dict[str,
         "fault": fault_name,
         "fault_config": _fault_to_dict(fault),
         "sha256_verified": recovered_ok,
+        "exact_recovery_rate": 1.0 if recovered_ok else 0.0,
         "encode_seconds": round(encode_seconds, 6),
         "decode_seconds": round(decode_seconds, 6),
         "total_seconds": round(encode_seconds + decode_seconds, 6),
@@ -381,6 +395,18 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     plt.savefig(output / "scale_peak_memory.png", dpi=160)
     plt.close()
 
+    plt.figure(figsize=(8, 4))
+    plt.plot(
+        sizes,
+        [float(row["logical_bits_per_nucleotide"]) for row in clean_xor],
+        marker="o",
+    )
+    plt.xlabel("Payload size (MiB)")
+    plt.ylabel("Logical bits per nucleotide")
+    plt.tight_layout()
+    plt.savefig(output / "scale_density.png", dpi=160)
+    plt.close()
+
 
 def _run_isolated(
     size: int,
@@ -454,7 +480,7 @@ def main() -> None:
         ),
         "payload_description": (
             "deterministic mixture of UTF-8 text, JSONL, Python source, PPM image bytes, "
-            "random binary, compressed binary and a ZIP mixed-file archive"
+            "CSV, random binary, compressed binary and a ZIP mixed-file archive"
         ),
     }
     (args.output / "results.json").write_text(
