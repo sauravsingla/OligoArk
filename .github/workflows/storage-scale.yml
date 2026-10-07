@@ -6,12 +6,15 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: "Scale benchmark profile"
+        description: "Storage benchmark profile"
         required: true
         default: acceptance
         type: choice
         options:
+          - ci
           - acceptance
+          - physical
+          - storage
           - full
   schedule:
     - cron: "23 2 * * 0"
@@ -30,12 +33,25 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -U pip
       - run: pip install -e ".[bench]"
-      - name: Run scale benchmark
+      - name: Resolve benchmark profile
+        id: profile
         env:
-          PROFILE: ${{ github.event.inputs.profile || 'acceptance' }}
-        run: python benchmarks/run_storage_scale.py --profile "$PROFILE"
-      - name: Enforce 100 MiB milestone for acceptance runs
-        if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event.inputs.profile == 'acceptance' }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED: ${{ github.event.inputs.profile }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PROFILE=ci
+          elif [ "$EVENT_NAME" = "schedule" ]; then
+            PROFILE=storage
+          else
+            PROFILE="${REQUESTED:-acceptance}"
+          fi
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "Running storage profile: $PROFILE"
+      - name: Run storage benchmark
+        run: python benchmarks/run_storage_scale.py --profile "${{ steps.profile.outputs.profile }}"
+      - name: Enforce 1 GiB milestone
+        if: ${{ steps.profile.outputs.profile == 'acceptance' || steps.profile.outputs.profile == 'storage' || steps.profile.outputs.profile == 'full' }}
         run: |
           python - <<'PY'
           import json
@@ -46,7 +62,7 @@ jobs:
               raise SystemExit(summary["milestone_failure"])
           print(summary["milestone_statement"])
           PY
-      - name: Upload acceptance evidence
+      - name: Upload storage evidence
         uses: actions/upload-artifact@v4
         with:
           name: storage-scale-${{ github.run_id }}
