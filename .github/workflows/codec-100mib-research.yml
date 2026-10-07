@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - research/complete-pending-v4
+      - main
     paths:
       - ".github/workflows/codec-100mib-research.yml"
       - "benchmarks/run_matched_codec_scale.py"
