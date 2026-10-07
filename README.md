@@ -17,10 +17,12 @@ OligoArk converts digital data into DNA-like sequences, simulates errors such as
 | Microsoft CNR (Nanopore) | 10 | **93/96 (96.9%)** | **93/96 (96.9%)** |
 | Grass et al. (Illumina) | 5 | **94/96 (97.9%)** | 90/96 (93.8%) |
 | Grass et al. (Illumina) | 10 | **96/96 (100%)** | 95/96 (99.0%) |
+| LCRC HFS-11.7K (Illumina PE150) | 5 | **96/96 (100%)** | **96/96 (100%)** |
+| LCRC HFS-11.7K (Illumina PE150) | 10 | **96/96 (100%)** | **96/96 (100%)** |
 
-The **same frozen confidence-fusion settings** were used for the independent Grass validation, with only the mechanical strand length changed from 110 to 117 nt. The numerical Grass advantage over BBS is not statistically significant on 96 clusters (p=0.125 at 5 reads; p=1.0 at 10 reads), and BBS remains substantially faster. These are reference-level physical-read reconstruction results, not end-to-end external archive decoding or a general state-of-the-art claim.
+The **same frozen confidence-fusion settings** were used across all three physical benchmarks; only the known strand length changed mechanically (110 nt CNR, 117 nt Grass, 200 nt LCRC). On the third independent LCRC experiment, both OligoArk and BBS reconstructed all 96 held-out strands exactly at 5 and 10 reads. BBS remains substantially faster. These are reference-level physical-read reconstruction results, not end-to-end external archive decoding or a general state-of-the-art claim.
 
-See [CNR benchmark](docs/external-cnr-benchmark.md) and [Grass benchmark](docs/external-grass-benchmark.md).
+See [CNR benchmark](docs/external-cnr-benchmark.md), [Grass benchmark](docs/external-grass-benchmark.md), and [LCRC benchmark](docs/external-lcrc-benchmark.md).
 
 ## Install
 
