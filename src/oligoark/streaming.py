@@ -14,7 +14,7 @@ from typing import BinaryIO, cast
 from .archive import ArchiveConfig
 from .dna import SequenceConstraints, bytes_to_dna
 from .ecc import xor_bytes
-from .fountain import indexes_for_seed
+from .fountain import indexes_for_seed, symbol_count
 from .framing import (
     DecodedFrame,
     decode_frame,
@@ -105,7 +105,12 @@ def _counts(size: int, config: ArchiveConfig) -> tuple[int, int, int]:
     )
     fountain = 0
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
-        fountain = max(1, math.ceil(data * config.fountain_redundancy))
+        fountain = symbol_count(
+            data,
+            config.fountain_redundancy,
+            max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
+        )
     return data, parity, fountain
 
 
@@ -248,7 +253,13 @@ def archive_file_streaming(
 
         for offset in range(fountain_count):
             seed = resolved.fountain_seed + offset
-            indexes = indexes_for_seed(data_count, seed, max_degree=resolved.fountain_max_degree)
+            indexes = indexes_for_seed(
+                data_count,
+                seed,
+                max_degree=resolved.fountain_max_degree,
+                layout=resolved.fountain_layout,
+                first_seed=resolved.fountain_seed,
+            )
             parts: list[bytes] = []
             for source_index in indexes:
                 input_handle.seek(source_index * resolved.chunk_size)
@@ -421,6 +432,8 @@ def _recover_fountain_frame(
         total,
         frame.index,
         max_degree=config.fountain_max_degree,
+        layout=config.fountain_layout,
+        first_seed=config.fountain_seed,
     )
     missing_indexes = [index for index in indexes if not known[index]]
     if len(missing_indexes) != 1:
