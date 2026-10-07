@@ -471,6 +471,9 @@ def recover_file_streaming(
                             known_count += 1
                             fountain_recovered += 1
                             changed = True
+            # Redundancy payloads are padded to chunk width. If the final short chunk was
+            # reconstructed, trim any padded tail before hashing the recovered file.
+            output.truncate(size)
             output.flush()
 
     recovered = known_count
