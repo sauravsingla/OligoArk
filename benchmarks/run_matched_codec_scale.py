@@ -12,6 +12,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import os
 import pickle
 import platform
@@ -62,6 +63,57 @@ def _peak_rss_mib() -> float:
     if sys.platform == "darwin":
         return value / (1024 * 1024)
     return value / 1024
+
+
+def _children_peak_rss_mib() -> float:
+    value = float(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+    if sys.platform == "darwin":
+        return value / (1024 * 1024)
+    return value / 1024
+
+
+def _planned_shape(method: str, size: int, redundancy: float) -> dict[str, object]:
+    if method in {"oligoark-compact-hybrid", "oligoark-efficient-hybrid-v1"}:
+        profile_name = (
+            "oligoark-152-efficient-v1"
+            if method == "oligoark-efficient-hybrid-v1"
+            else "oligoark-152-compact"
+        )
+        profile = physical_strand_profile(profile_name)
+        data_units = max(1, math.ceil(size / profile.chunk_size))
+        parity = math.ceil(data_units / profile.parity_group_size)
+        fountain = math.ceil(data_units * max(0.0, redundancy - 1 / profile.parity_group_size))
+        strand_count = data_units + parity + fountain
+        return {
+            "planned_data_units": data_units,
+            "planned_strand_count": strand_count,
+            "planned_full_width_nucleotides_upper_bound": strand_count * 152,
+            "planned_chunk_size": profile.chunk_size,
+            "planned_profile": profile_name,
+        }
+    if method == "dna-fountain-cleanroom":
+        config = DnaFountainBaselineConfig(redundancy=redundancy)
+        data_units = max(1, math.ceil(size / config.chunk_size))
+        strand_count = max(1, math.ceil(data_units * (1.0 + redundancy)))
+        return {
+            "planned_data_units": data_units,
+            "planned_strand_count": strand_count,
+            "planned_full_width_nucleotides_upper_bound": strand_count * 152,
+            "planned_chunk_size": config.chunk_size,
+        }
+    if method == "goldman-rotating-xor":
+        config = RotatingTernaryBaselineConfig(redundancy=redundancy)
+        data_units = max(1, math.ceil(size / config.chunk_size))
+        group_size = config.parity_group_size
+        parity = math.ceil(data_units / group_size) if group_size is not None else 0
+        strand_count = data_units + parity
+        return {
+            "planned_data_units": data_units,
+            "planned_strand_count": strand_count,
+            "planned_full_width_nucleotides_upper_bound": strand_count * 152,
+            "planned_chunk_size": config.chunk_size,
+        }
+    raise ValueError(f"unknown method: {method}")
 
 
 def _git_commit() -> str | None:
@@ -407,7 +459,7 @@ def _prepare_artifact(
     redundancy: float,
     artifact_path: Path,
     timeout_seconds: int,
-) -> tuple[dict[str, object] | None, str | None, bool]:
+) -> tuple[dict[str, object] | None, str | None, bool, float]:
     command = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -422,15 +474,16 @@ def _prepare_artifact(
         str(artifact_path),
     ]
     completed = _run_command(command, timeout_seconds)
+    child_peak = _children_peak_rss_mib()
     if completed is None:
-        return None, f"encode worker exceeded {timeout_seconds}s timeout", True
+        return None, f"encode worker exceeded {timeout_seconds}s timeout", True, child_peak
     if completed.returncode:
         error = completed.stderr.strip() or completed.stdout.strip()
-        return None, error, False
+        return None, error, False, child_peak
     value = json.loads(completed.stdout)
     if not isinstance(value, dict):
         raise ValueError("encode worker did not return metadata")
-    return value, None, False
+    return value, None, False, child_peak
 
 
 def _encode_failure_rows(
@@ -442,7 +495,9 @@ def _encode_failure_rows(
     error: str,
     timed_out: bool,
     timeout_seconds: int,
+    failure_peak_rss_mib_upper_bound: float,
 ) -> list[dict[str, object]]:
+    planned = _planned_shape(method, size, redundancy)
     return [
         {
             "method": method,
@@ -459,6 +514,11 @@ def _encode_failure_rows(
             "timed_out": timed_out,
             "timeout_seconds": timeout_seconds if timed_out else None,
             "error": error,
+            "failure_peak_rss_mib_upper_bound": round(
+                failure_peak_rss_mib_upper_bound,
+                3,
+            ),
+            **planned,
         }
         for condition in conditions
     ]
@@ -728,7 +788,12 @@ def main() -> None:
     for size in sizes:
         for method in METHODS:
             artifact_path = artifact_dir / f"{method}-{size}.pickle"
-            encode_meta, encode_error, encode_timed_out = _prepare_artifact(
+            (
+                encode_meta,
+                encode_error,
+                encode_timed_out,
+                encode_failure_peak,
+            ) = _prepare_artifact(
                 method,
                 size,
                 args.redundancy,
@@ -746,6 +811,7 @@ def main() -> None:
                         encode_error or "unknown encode failure",
                         encode_timed_out,
                         args.encode_timeout_seconds,
+                        encode_failure_peak,
                     )
                 )
                 continue
