@@ -119,7 +119,7 @@ def prepare_wetlab_bundle(
     source_path: str | Path,
     output_dir: str | Path,
     *,
-    profile_name: str = "oligoark-200",
+    profile_name: str = "oligoark-200-compact",
     redundancy_scheme: str = "hybrid",
     fountain_redundancy: float = 0.125,
 ) -> WetLabBundleSummary:
