@@ -51,7 +51,7 @@ jobs:
         with:
           name: matched-codecs-${{ github.run_id }}
           path: |
-            dna-fountain-results/*.json
-            dna-fountain-results/*.csv
-            dna-fountain-results/*.png
+            matched-codec-results/*.json
+            matched-codec-results/*.csv
+            matched-codec-results/*.png
           if-no-files-found: error
