@@ -281,7 +281,7 @@ def decode_dna_fountain_baseline(
         if unresolved_counts[equation_id] != 1:
             continue
         indexes = equation_indexes[equation_id]
-        index = next(
+        resolved_index = next(
             (
                 candidate
                 for candidate in indexes
@@ -289,17 +289,17 @@ def decode_dna_fountain_baseline(
             ),
             None,
         )
-        if index is None:
+        if resolved_index is None:
             continue
-        payload = bytes(residuals[equation_id])
-        known[index] = payload
+        resolved_payload = bytes(residuals[equation_id])
+        known[resolved_index] = resolved_payload
 
-        for dependent_id in incident[index]:
+        for dependent_id in incident[resolved_index]:
             if unresolved_counts[dependent_id] <= 0:
                 continue
             residual = residuals[dependent_id]
             for offset in range(width):
-                residual[offset] ^= payload[offset]
+                residual[offset] ^= resolved_payload[offset]
             unresolved_counts[dependent_id] -= 1
             if unresolved_counts[dependent_id] == 1:
                 ready.append(dependent_id)
@@ -328,8 +328,8 @@ def decode_dna_fountain_baseline(
             total=archive.chunk_count,
             width=width,
         )
-        for index, payload in recovered_map.items():
-            known[index] = payload
+        for recovered_index, recovered_payload in recovered_map.items():
+            known[recovered_index] = recovered_payload
         missing = [index for index, payload in enumerate(known) if payload is None]
     if missing:
         raise ValueError(
@@ -338,10 +338,10 @@ def decode_dna_fountain_baseline(
         )
 
     parts: list[bytes] = []
-    for payload in known:
-        if payload is None:
+    for chunk_payload in known:
+        if chunk_payload is None:
             raise ValueError("DNA Fountain internal recovery state is incomplete")
-        parts.append(payload)
+        parts.append(chunk_payload)
     recovered = b"".join(parts)[: archive.original_size]
     if hashlib.sha256(recovered).hexdigest() != archive.sha256:
         raise ValueError("DNA Fountain baseline failed SHA-256 verification")
