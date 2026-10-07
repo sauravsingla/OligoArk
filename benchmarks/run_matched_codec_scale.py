@@ -251,7 +251,11 @@ def _aggregate_condition(
         **CONDITIONS[condition_name],
         "trials": requested_trials,
         "completed_trials": completed_trials,
-        "benchmark_complete": completed_trials == requested_trials and not timed_out and error is None,
+        "benchmark_complete": (
+            completed_trials == requested_trials
+            and not timed_out
+            and error is None
+        ),
         "successes": successes,
         "failures": failures,
         "recovery_rate": None if recovery_rate is None else round(recovery_rate, 6),
@@ -362,7 +366,10 @@ def _condition_worker(
     )
 
 
-def _run_command(command: list[str], timeout_seconds: int) -> subprocess.CompletedProcess[str] | None:
+def _run_command(
+    command: list[str],
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(
             command,
