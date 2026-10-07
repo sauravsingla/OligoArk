@@ -47,6 +47,8 @@ See the detailed benchmark reports for [CNR](docs/external-cnr-benchmark.md), [G
 - SHA-256-verified recovery and reproducible benchmark artifacts
 - Policy-learning experiments with retained negative results
 - Physical-read adapters and external baseline comparison
+- Bounded-memory compact binary archives for large-file scale validation
+- 152/200/248-nt physical strand profiles and clean-room DNA Fountain comparison
 
 ## Install
 
@@ -65,6 +67,19 @@ cmp demo.txt recovered.txt
 
 A successful `cmp` confirms byte-for-byte recovery of the archived input.
 
+For large files, use the compact streaming container:
+
+```bash
+oligoark archive-stream large.bin --output large.oligoark.bin --profile scale-1024
+oligoark recover-stream large.oligoark.bin --output large.recovered.bin
+cmp large.bin large.recovered.bin
+```
+
+The repository includes a separate 100 MiB acceptance benchmark. It only prints the
+scalability milestone statement after clean and controlled 5% erasure recovery both pass the
+original-file SHA-256 gate; until that workflow passes, the milestone should be treated as a
+release criterion rather than an achieved result.
+
 ## Research philosophy
 
 OligoArk separates **simulation evidence**, **physical-read reconstruction evidence**, and **external published evidence**. It avoids treating software channel simulations as wet-lab validation, does not use hidden references during reconstruction candidate selection, and preserves negative experiments when a proposed method fails to improve untouched held-out results.
@@ -77,6 +92,8 @@ For the detailed novelty, validation design, ablations, prior-work positioning, 
 - [Benchmarking](docs/benchmarking.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
+- [Scalable archival storage](docs/scalable-storage.md)
+- [DNA Fountain comparison](docs/dna-fountain-baseline.md)
 
 ## License
 
