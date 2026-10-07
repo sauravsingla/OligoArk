@@ -13,6 +13,7 @@ import hashlib
 import json
 import platform
 import resource
+import signal
 import subprocess
 import sys
 import time
@@ -87,6 +88,15 @@ def _metrics(
     }
 
 
+class _ConditionDeadline(TimeoutError):
+    """Raised when one method x size x channel condition exceeds its measured budget."""
+
+
+def _alarm_handler(signum: int, frame: object) -> None:
+    del signum, frame
+    raise _ConditionDeadline
+
+
 def _condition_row(
     *,
     method: str,
@@ -101,21 +111,96 @@ def _condition_row(
     encoded_nucleotides: int,
     logical_bits_per_nucleotide: float,
     encode_seconds: float,
+    condition_timeout_seconds: int,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     successes = 0
+    completed_trials = 0
     decode_seconds = 0.0
-    for trial in range(trials):
-        reads = _channel_sequences(sequences, condition_name, 20_260_000 + trial)
-        started = time.perf_counter()
-        try:
-            recovered = decode(reads)
-            successes += int(recovered == payload)
-        except ValueError:
-            pass
-        decode_seconds += time.perf_counter() - started
+    channel_seconds = 0.0
+    trial_results: list[dict[str, object]] = []
+    condition_started = time.perf_counter()
+    current_stage = "channel"
+    previous_handler: Any = None
+    deadline_enabled = (
+        condition_timeout_seconds > 0
+        and hasattr(signal, "SIGALRM")
+        and hasattr(signal, "setitimer")
+    )
+    if deadline_enabled:
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, _alarm_handler)
+        signal.setitimer(signal.ITIMER_REAL, condition_timeout_seconds)
 
-    low, high = wilson_interval(successes, trials)
+    timed_out = False
+    timeout_stage: str | None = None
+    try:
+        for trial in range(trials):
+            trial_seed = 20_260_000 + trial
+            current_stage = "channel"
+            channel_started = time.perf_counter()
+            reads = _channel_sequences(sequences, condition_name, trial_seed)
+            trial_channel_seconds = time.perf_counter() - channel_started
+            channel_seconds += trial_channel_seconds
+
+            current_stage = "decode"
+            decode_started = time.perf_counter()
+            error: str | None = None
+            success = False
+            try:
+                recovered = decode(reads)
+                success = recovered == payload
+                successes += int(success)
+            except ValueError as exc:
+                error = str(exc)
+            trial_decode_seconds = time.perf_counter() - decode_started
+            decode_seconds += trial_decode_seconds
+            completed_trials += 1
+            trial_results.append(
+                {
+                    "trial": trial,
+                    "seed": trial_seed,
+                    "success": success,
+                    "sha256_verified": success,
+                    "channel_seconds": round(trial_channel_seconds, 6),
+                    "decode_seconds": round(trial_decode_seconds, 6),
+                    "peak_rss_mib": round(_peak_rss_mib(), 3),
+                    "error": error,
+                }
+            )
+    except _ConditionDeadline:
+        timed_out = True
+        timeout_stage = current_stage
+        trial_results.append(
+            {
+                "trial": completed_trials,
+                "seed": 20_260_000 + completed_trials,
+                "success": False,
+                "sha256_verified": False,
+                "timed_out": True,
+                "timeout_stage": timeout_stage,
+                "elapsed_condition_seconds": round(
+                    time.perf_counter() - condition_started,
+                    6,
+                ),
+            }
+        )
+    finally:
+        if deadline_enabled:
+            signal.setitimer(signal.ITIMER_REAL, 0.0)
+            signal.signal(signal.SIGALRM, previous_handler)
+
+    completed_failures = completed_trials - successes
+    if timed_out:
+        recovery_rate: float | None = None
+        low: float | None = None
+        high: float | None = None
+    else:
+        recovery_rate = round(successes / trials, 6)
+        wilson_low, wilson_high = wilson_interval(successes, trials)
+        low = round(wilson_low, 6)
+        high = round(wilson_high, 6)
+
     strand_count = len(sequences)
     row: dict[str, object] = {
         "method": method,
@@ -126,10 +211,13 @@ def _condition_row(
         "condition": condition_name,
         **CONDITIONS[condition_name],
         "trials": trials,
+        "completed_trials": completed_trials,
         "successes": successes,
-        "recovery_rate": round(successes / trials, 6),
-        "recovery_ci95_low": round(low, 6),
-        "recovery_ci95_high": round(high, 6),
+        "failed_trials": completed_failures,
+        "timeout_trials": trials - completed_trials,
+        "recovery_rate": recovery_rate,
+        "recovery_ci95_low": low,
+        "recovery_ci95_high": high,
         "sha256_verified_success_definition": True,
         "strand_count": strand_count,
         "data_units": data_units,
@@ -139,18 +227,39 @@ def _condition_row(
         ),
         "encoded_nucleotides": encoded_nucleotides,
         "logical_bits_per_nucleotide": round(logical_bits_per_nucleotide, 6),
+        "condition_elapsed_seconds": round(
+            time.perf_counter() - condition_started,
+            6,
+        ),
+        "channel_seconds": round(channel_seconds, 6),
+        "mean_channel_seconds": round(
+            channel_seconds / max(1, completed_trials),
+            6,
+        ),
+        "trial_results": trial_results,
         **_metrics(
             payload_size=len(payload),
             encoded_nucleotides=encoded_nucleotides,
             encode_seconds=encode_seconds,
             decode_seconds=decode_seconds,
-            trials=trials,
+            trials=max(1, completed_trials),
         ),
     }
+    if timed_out:
+        row.update(
+            {
+                "timed_out": True,
+                "timeout_seconds": condition_timeout_seconds,
+                "timeout_stage": timeout_stage,
+                "error": (
+                    f"condition exceeded {condition_timeout_seconds}s deadline "
+                    f"during {timeout_stage}"
+                ),
+            }
+        )
     if extra:
         row.update(extra)
     return row
-
 
 def _worker(
     method: str,
@@ -158,6 +267,7 @@ def _worker(
     redundancy: float,
     trials: int,
     conditions: tuple[str, ...],
+    condition_timeout_seconds: int,
 ) -> list[dict[str, object]]:
     payload = _payload(size)
     payload_sha256 = hashlib.sha256(payload).hexdigest()
@@ -185,6 +295,7 @@ def _worker(
                 encoded_nucleotides=stats.encoded_nucleotides,
                 logical_bits_per_nucleotide=stats.logical_bits_per_nucleotide,
                 encode_seconds=encode_seconds,
+                condition_timeout_seconds=condition_timeout_seconds,
                 extra={
                     "redundancy_allocation": {
                         "xor": round(xor_share, 6),
@@ -215,6 +326,7 @@ def _worker(
                 encoded_nucleotides=archive.encoded_nucleotides,
                 logical_bits_per_nucleotide=archive.logical_bits_per_nucleotide,
                 encode_seconds=encode_seconds,
+                condition_timeout_seconds=condition_timeout_seconds,
                 extra={"accepted_droplet_attempts": archive.attempts},
             )
             for condition in conditions
@@ -237,6 +349,7 @@ def _worker(
                 encoded_nucleotides=archive.encoded_nucleotides,
                 logical_bits_per_nucleotide=archive.logical_bits_per_nucleotide,
                 encode_seconds=encode_seconds,
+                condition_timeout_seconds=condition_timeout_seconds,
             )
             for condition in conditions
         ]
@@ -255,6 +368,7 @@ def _isolated(
     trials: int,
     conditions: tuple[str, ...],
     timeout_seconds: int,
+    condition_timeout_seconds: int,
 ) -> list[dict[str, object]]:
     command = [
         sys.executable,
@@ -270,14 +384,17 @@ def _isolated(
         str(trials),
         "--conditions",
         ",".join(conditions),
+        "--condition-timeout-seconds",
+        str(condition_timeout_seconds),
     ]
+    worker_timeout_seconds = timeout_seconds + condition_timeout_seconds * len(conditions)
     try:
         completed = subprocess.run(
             command,
             check=False,
             capture_output=True,
             text=True,
-            timeout=timeout_seconds,
+            timeout=worker_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
         return [
@@ -290,8 +407,13 @@ def _isolated(
                 "successes": 0,
                 "recovery_rate": 0.0,
                 "timed_out": True,
-                "timeout_seconds": timeout_seconds,
-                "error": f"method/size worker exceeded {timeout_seconds}s timeout",
+                "timeout_seconds": worker_timeout_seconds,
+                "timeout_stage": "encode-or-worker-orchestration",
+                "error": (
+                    f"method/size worker exceeded derived {worker_timeout_seconds}s budget "
+                    f"({timeout_seconds}s encode/orchestration + "
+                    f"{condition_timeout_seconds}s x {len(conditions)} conditions)"
+                ),
             }
             for condition in conditions
         ]
@@ -369,6 +491,8 @@ def _summary(rows: list[dict[str, object]], conditions: tuple[str, ...]) -> dict
             if int(row["size_bytes"]) == largest
             and row.get("condition") == "dropout-5"
             and "recovery_rate" in row
+            and row.get("recovery_rate") is not None
+            and "error" not in row
         ]
         if clean:
             density_winner = max(clean, key=lambda row: float(row["logical_bits_per_nucleotide"]))
@@ -424,7 +548,18 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("matched-codec-results"))
     parser.add_argument("--redundancy", type=float, default=0.25)
     parser.add_argument("--trials", type=int)
-    parser.add_argument("--timeout-seconds", type=int, default=1200)
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=1200,
+        help="encode/orchestration watchdog budget before per-condition budgets are added",
+    )
+    parser.add_argument(
+        "--condition-timeout-seconds",
+        type=int,
+        default=300,
+        help="hard deadline for one method x size x channel condition",
+    )
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--method", choices=METHODS)
     parser.add_argument("--size", type=int)
@@ -474,6 +609,7 @@ def main() -> None:
                     args.redundancy,
                     trials,
                     conditions,
+                    args.condition_timeout_seconds,
                 )
             )
         )
@@ -492,6 +628,7 @@ def main() -> None:
                     trials,
                     conditions,
                     args.timeout_seconds,
+                    args.condition_timeout_seconds,
                 )
             )
 
@@ -506,10 +643,16 @@ def main() -> None:
         "trials_per_condition": trials,
         "conditions": list(conditions),
         "methods": list(METHODS),
-        "worker_timeout_seconds": args.timeout_seconds,
+        "encode_orchestration_timeout_seconds": args.timeout_seconds,
+        "condition_timeout_seconds": args.condition_timeout_seconds,
+        "derived_worker_timeout_seconds": (
+            args.timeout_seconds + args.condition_timeout_seconds * len(conditions)
+        ),
         "fairness": (
             "same deterministic payload bytes, 152-nt ceiling, nominal 25% redundancy budget, "
-            "channel rates, trial seeds and SHA-256 exact-recovery definition; OligoArk splits "
+            "channel rates, trial seeds and SHA-256 exact-recovery definition; clean trials "
+            "reuse immutable encoded artifacts, dropout-only trials skip mutation work, and "
+            "noisy channels use sparse event sampling; OligoArk splits "
             "the budget between XOR parity and fountain symbols"
         ),
         "claim_scope": (
