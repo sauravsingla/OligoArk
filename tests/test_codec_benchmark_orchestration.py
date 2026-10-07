@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+import importlib.util
 import random
+from pathlib import Path
+from types import ModuleType
 
-from benchmarks.run_dna_fountain_baseline import (
-    _bernoulli_positions,
-    _channel_sequences,
-    _mutate_sequence,
-)
+
+def _benchmark_module() -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / "benchmarks" / "run_dna_fountain_baseline.py"
+    spec = importlib.util.spec_from_file_location("run_dna_fountain_baseline", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_BENCHMARK = _benchmark_module()
+_bernoulli_positions = _BENCHMARK._bernoulli_positions
+_channel_sequences = _BENCHMARK._channel_sequences
+_mutate_sequence = _BENCHMARK._mutate_sequence
 
 
 def test_clean_channel_reuses_immutable_sequences() -> None:
