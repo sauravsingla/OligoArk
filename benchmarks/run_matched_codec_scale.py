@@ -103,13 +103,13 @@ def _metrics(
     }
 
 
-class _ConditionDeadline(TimeoutError):
-    """Raised when one method x size x channel condition exceeds its measured budget."""
+class _TrialDeadline(TimeoutError):
+    """Raised when one matched benchmark trial exceeds its measured budget."""
 
 
 def _alarm_handler(signum: int, frame: object) -> None:
     del signum, frame
-    raise _ConditionDeadline
+    raise _TrialDeadline
 
 
 def _condition_row(
@@ -129,13 +129,14 @@ def _condition_row(
     condition_timeout_seconds: int,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    """Run all requested trials; a timeout is a retained failed trial, never an omitted run."""
     successes = 0
     completed_trials = 0
+    timeout_trials = 0
     decode_seconds = 0.0
     channel_seconds = 0.0
     trial_results: list[dict[str, object]] = []
     condition_started = time.perf_counter()
-    current_stage = "channel"
     previous_handler: Any = None
     deadline_enabled = (
         condition_timeout_seconds > 0
@@ -145,77 +146,79 @@ def _condition_row(
     if deadline_enabled:
         previous_handler = signal.getsignal(signal.SIGALRM)
         signal.signal(signal.SIGALRM, _alarm_handler)
-        signal.setitimer(signal.ITIMER_REAL, condition_timeout_seconds)
 
-    timed_out = False
-    timeout_stage: str | None = None
     try:
         for trial in range(trials):
             trial_seed = 20_260_000 + trial
             current_stage = "channel"
-            channel_started = time.perf_counter()
-            reads = _channel_sequences(sequences, condition_name, trial_seed)
-            trial_channel_seconds = time.perf_counter() - channel_started
-            channel_seconds += trial_channel_seconds
-
-            current_stage = "decode"
-            decode_started = time.perf_counter()
-            error: str | None = None
-            success = False
+            trial_started = time.perf_counter()
+            decode_started: float | None = None
+            if deadline_enabled:
+                signal.setitimer(signal.ITIMER_REAL, condition_timeout_seconds)
             try:
-                recovered = decode(reads)
-                success = recovered == payload
-                successes += int(success)
-            except ValueError as exc:
-                error = str(exc)
-            trial_decode_seconds = time.perf_counter() - decode_started
-            decode_seconds += trial_decode_seconds
-            completed_trials += 1
-            trial_results.append(
-                {
-                    "trial": trial,
-                    "seed": trial_seed,
-                    "success": success,
-                    "sha256_verified": success,
-                    "channel_seconds": round(trial_channel_seconds, 6),
-                    "decode_seconds": round(trial_decode_seconds, 6),
-                    "peak_rss_mib": round(_peak_rss_mib(), 3),
-                    "error": error,
-                }
-            )
-    except _ConditionDeadline:
-        timed_out = True
-        timeout_stage = current_stage
-        trial_results.append(
-            {
-                "trial": completed_trials,
-                "seed": 20_260_000 + completed_trials,
-                "success": False,
-                "sha256_verified": False,
-                "timed_out": True,
-                "timeout_stage": timeout_stage,
-                "elapsed_condition_seconds": round(
-                    time.perf_counter() - condition_started,
-                    6,
-                ),
-            }
-        )
+                channel_started = time.perf_counter()
+                reads = _channel_sequences(sequences, condition_name, trial_seed)
+                trial_channel_seconds = time.perf_counter() - channel_started
+                channel_seconds += trial_channel_seconds
+
+                current_stage = "decode"
+                decode_started = time.perf_counter()
+                error: str | None = None
+                success = False
+                try:
+                    recovered = decode(reads)
+                    success = recovered == payload
+                    successes += int(success)
+                except ValueError as exc:
+                    error = str(exc)
+                trial_decode_seconds = time.perf_counter() - decode_started
+                decode_seconds += trial_decode_seconds
+                completed_trials += 1
+                trial_results.append(
+                    {
+                        "trial": trial,
+                        "seed": trial_seed,
+                        "success": success,
+                        "sha256_verified": success,
+                        "channel_seconds": round(trial_channel_seconds, 6),
+                        "decode_seconds": round(trial_decode_seconds, 6),
+                        "peak_rss_mib": round(_peak_rss_mib(), 3),
+                        "error": error,
+                    }
+                )
+            except _TrialDeadline:
+                timeout_trials += 1
+                elapsed = time.perf_counter() - trial_started
+                if current_stage == "decode" and decode_started is not None:
+                    observed_decode = time.perf_counter() - decode_started
+                else:
+                    observed_decode = 0.0
+                trial_results.append(
+                    {
+                        "trial": trial,
+                        "seed": trial_seed,
+                        "success": False,
+                        "sha256_verified": False,
+                        "timed_out": True,
+                        "timeout_stage": current_stage,
+                        "timeout_seconds": condition_timeout_seconds,
+                        "elapsed_trial_seconds": round(elapsed, 6),
+                        "observed_decode_seconds_before_timeout": round(
+                            observed_decode,
+                            6,
+                        ),
+                        "peak_rss_mib": round(_peak_rss_mib(), 3),
+                    }
+                )
+            finally:
+                if deadline_enabled:
+                    signal.setitimer(signal.ITIMER_REAL, 0.0)
     finally:
         if deadline_enabled:
-            signal.setitimer(signal.ITIMER_REAL, 0.0)
             signal.signal(signal.SIGALRM, previous_handler)
 
-    completed_failures = completed_trials - successes
-    if timed_out:
-        recovery_rate: float | None = None
-        low: float | None = None
-        high: float | None = None
-    else:
-        recovery_rate = round(successes / trials, 6)
-        wilson_low, wilson_high = wilson_interval(successes, trials)
-        low = round(wilson_low, 6)
-        high = round(wilson_high, 6)
-
+    recovery_rate = round(successes / trials, 6)
+    wilson_low, wilson_high = wilson_interval(successes, trials)
     strand_count = len(sequences)
     row: dict[str, object] = {
         "method": method,
@@ -228,11 +231,11 @@ def _condition_row(
         "trials": trials,
         "completed_trials": completed_trials,
         "successes": successes,
-        "failed_trials": completed_failures,
-        "timeout_trials": trials - completed_trials,
+        "failed_trials": trials - successes,
+        "timeout_trials": timeout_trials,
         "recovery_rate": recovery_rate,
-        "recovery_ci95_low": low,
-        "recovery_ci95_high": high,
+        "recovery_ci95_low": round(wilson_low, 6),
+        "recovery_ci95_high": round(wilson_high, 6),
         "sha256_verified_success_definition": True,
         "strand_count": strand_count,
         "data_units": data_units,
@@ -260,22 +263,29 @@ def _condition_row(
             trials=max(1, completed_trials),
         ),
     }
-    if timed_out:
+    if timeout_trials:
+        timeout_stages = sorted(
+            {
+                str(trial["timeout_stage"])
+                for trial in trial_results
+                if trial.get("timed_out")
+            }
+        )
         row.update(
             {
                 "timed_out": True,
                 "timeout_seconds": condition_timeout_seconds,
-                "timeout_stage": timeout_stage,
+                "timeout_scope": "per-trial",
+                "timeout_stage": ",".join(timeout_stages),
                 "error": (
-                    f"condition exceeded {condition_timeout_seconds}s deadline "
-                    f"during {timeout_stage}"
+                    f"{timeout_trials}/{trials} trials exceeded the "
+                    f"{condition_timeout_seconds}s per-trial deadline"
                 ),
             }
         )
     if extra:
         row.update(extra)
     return row
-
 
 def _worker(
     method: str,
@@ -410,7 +420,9 @@ def _isolated(
         "--condition-timeout-seconds",
         str(condition_timeout_seconds),
     ]
-    worker_timeout_seconds = timeout_seconds + condition_timeout_seconds * len(conditions)
+    worker_timeout_seconds = (
+        timeout_seconds + condition_timeout_seconds * trials * len(conditions)
+    )
     try:
         completed = subprocess.run(
             command,
@@ -435,7 +447,8 @@ def _isolated(
                 "error": (
                     f"method/size worker exceeded derived {worker_timeout_seconds}s budget "
                     f"({timeout_seconds}s encode/orchestration + "
-                    f"{condition_timeout_seconds}s x {len(conditions)} conditions)"
+                    f"{condition_timeout_seconds}s x {trials} trials x "
+                    f"{len(conditions)} conditions)"
                 ),
             }
             for condition in conditions
@@ -605,7 +618,7 @@ def main() -> None:
         "--condition-timeout-seconds",
         type=int,
         default=300,
-        help="hard deadline for one method x size x channel condition",
+        help="hard per-trial deadline; retained timeouts count as failed trials",
     )
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--method", choices=METHODS)
@@ -698,9 +711,11 @@ def main() -> None:
         "argv": [sys.executable, *sys.argv],
         "channel_engine": "sparse-geometric-v1",
         "encode_orchestration_timeout_seconds": args.timeout_seconds,
-        "condition_timeout_seconds": args.condition_timeout_seconds,
+        "trial_timeout_seconds": args.condition_timeout_seconds,
+        "timeout_scope": "per-trial",
         "derived_worker_timeout_seconds": (
-            args.timeout_seconds + args.condition_timeout_seconds * len(conditions)
+            args.timeout_seconds
+            + args.condition_timeout_seconds * trials * len(conditions)
         ),
         "fairness": (
             "same deterministic payload bytes, 152-nt ceiling, nominal 25% redundancy budget, "
