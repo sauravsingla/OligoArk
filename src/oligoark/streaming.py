@@ -19,6 +19,7 @@ from .framing import (
     DecodedFrame,
     decode_frame,
     decode_frame_packed,
+    decode_frame_resilient,
     encode_frame_packed,
     frame_overhead_bytes,
 )
@@ -79,6 +80,7 @@ class StreamingRecoveryReport:
     undecodable_records: int
     xor_recovered_strands: int
     fountain_recovered_strands: int
+    indel_repaired_records: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -109,7 +111,11 @@ def _counts(size: int, config: ArchiveConfig) -> tuple[int, int, int]:
 
 def _encoded_nt(size: int, config: ArchiveConfig) -> int:
     data, parity, fountain = _counts(size, config)
-    overhead = frame_overhead_bytes(config.rs_nsym)
+    overhead = frame_overhead_bytes(
+        config.rs_nsym,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+    )
     if size == 0:
         data_nt = 4 * overhead
     else:
@@ -157,6 +163,8 @@ def _encode(
         adaptive_masks=config.adaptive_masks,
         sequence_constraints=config.sequence_constraints,
         mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
     )
 
 
@@ -182,7 +190,11 @@ def archive_file_streaming(
         "fountain_strands": fountain_count,
         "strand_count": data_count + parity_count + fountain_count,
         "encoded_nucleotides": nt_count,
-        "record_encoding": "length-prefixed 2-bit packed OligoArk v1 frames",
+        "record_encoding": (
+            "length-prefixed 2-bit packed OligoArk compact frames"
+            if resolved.compact_framing
+            else "length-prefixed 2-bit packed OligoArk v1 frames"
+        ),
         "note": "software archive container; no wet-lab performance is implied",
     }
     metadata_bytes = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
@@ -313,31 +325,34 @@ def _decode(
     config: ArchiveConfig,
     fault: StreamingFaultProfile,
     ordinal: int,
-) -> tuple[DecodedFrame | None, bool, bool]:
+    total_data: int,
+) -> tuple[DecodedFrame | None, bool, bool, bool]:
+    decode_kwargs = {
+        "rs_nsym": config.rs_nsym,
+        "mask_search_limit": config.mask_search_limit,
+        "compact_framing": config.compact_framing,
+        "compact_index_bytes": config.compact_index_bytes,
+        "expected_total_data": total_data if config.compact_framing else None,
+    }
     try:
-        clean = decode_frame_packed(
-            packed,
-            rs_nsym=config.rs_nsym,
-            mask_search_limit=config.mask_search_limit,
-        )
+        clean = decode_frame_packed(packed, **decode_kwargs)
     except ValueError:
-        return None, False, True
+        return None, False, True, False
     if _drop(clean, config, fault, ordinal):
-        return None, True, False
+        return None, True, False, False
     if fault.substitution_rate == fault.insertion_rate == fault.deletion_rate == 0:
-        return clean, False, False
+        return clean, False, False, False
+
+    mutated = _mutate(bytes_to_dna(packed), fault, ordinal)
     try:
-        return (
-            decode_frame(
-                _mutate(bytes_to_dna(packed), fault, ordinal),
-                rs_nsym=config.rs_nsym,
-                mask_search_limit=config.mask_search_limit,
-            ),
-            False,
-            False,
-        )
+        return decode_frame(mutated, **decode_kwargs), False, False, False
     except ValueError:
-        return None, False, True
+        if not config.indel_rescue:
+            return None, False, True, False
+    try:
+        return decode_frame_resilient(mutated, **decode_kwargs), False, False, True
+    except ValueError:
+        return None, False, True, False
 
 
 def _read_chunk(output: BinaryIO, index: int, width: int) -> bytes:
@@ -402,7 +417,7 @@ def recover_file_streaming(
     resolved_fault.validate()
     source, destination = Path(archive_path), Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    dropped = undecodable = xor_recovered = fountain_recovered = 0
+    dropped = undecodable = xor_recovered = fountain_recovered = indel_repaired = 0
 
     with source.open("rb") as archive_handle:
         metadata = _metadata(archive_handle)
@@ -429,14 +444,16 @@ def recover_file_streaming(
                 packed = _read_record(archive_handle)
                 if packed is None:
                     raise ValueError("archive ended before declared strand count")
-                frame, was_dropped, was_bad = _decode(
+                frame, was_dropped, was_bad, was_indel_repaired = _decode(
                     packed,
                     config,
                     resolved_fault,
                     ordinal,
+                    total,
                 )
                 dropped += int(was_dropped)
                 undecodable += int(was_bad)
+                indel_repaired += int(was_indel_repaired)
                 if frame is None or frame.total_data != total:
                     continue
                 if frame.is_parity:
@@ -502,11 +519,12 @@ def recover_file_streaming(
                     packed = _read_record(archive_handle)
                     if packed is None:
                         raise ValueError("archive ended inside fountain records")
-                    frame, _, _ = _decode(
+                    frame, _, _, _ = _decode(
                         packed,
                         config,
                         resolved_fault,
                         fountain_ordinal_start + offset,
+                        total,
                     )
                     if (
                         frame is not None
@@ -546,6 +564,7 @@ def recover_file_streaming(
         undecodable_records=undecodable,
         xor_recovered_strands=xor_recovered,
         fountain_recovered_strands=fountain_recovered,
+        indel_repaired_records=indel_repaired,
     )
     if strict and not verified:
         raise ValueError(
