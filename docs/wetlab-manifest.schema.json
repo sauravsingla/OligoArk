@@ -9,6 +9,7 @@
     "status",
     "physical_execution_status",
     "claim_scope",
+    "software",
     "source",
     "codec",
     "outputs",
@@ -179,6 +180,25 @@
     "physical_execution_status": {
       "type": "string",
       "const": "prepared, not physically executed"
+    },
+    "software": {
+      "type": "object",
+      "required": [
+        "oligoark_version",
+        "git_commit"
+      ],
+      "properties": {
+        "oligoark_version": {
+          "type": "string"
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
