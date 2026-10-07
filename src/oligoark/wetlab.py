@@ -11,7 +11,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import subprocess
 from dataclasses import asdict, dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import cast
 
@@ -68,6 +70,24 @@ def _file_sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _software_record() -> dict[str, object]:
+    try:
+        package_version = version("oligoark")
+    except PackageNotFoundError:
+        package_version = "unknown"
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    commit = completed.stdout.strip() if completed.returncode == 0 else ""
+    return {
+        "oligoark_version": package_version,
+        "git_commit": commit or None,
+    }
 
 
 def _write_fasta(strands: list[str], path: Path) -> None:
@@ -171,6 +191,7 @@ def prepare_wetlab_bundle(
             "evidence requires documented synthesis, storage, sequencing, preprocessing, "
             "and final SHA-256 verification of these OligoArk-generated strands."
         ),
+        "software": _software_record(),
         "source": {
             "file_name": source.name,
             "bytes": len(payload),
