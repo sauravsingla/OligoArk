@@ -681,11 +681,13 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
                 config,
             )
 
-    missing = [index for index in range(total_data) if index not in data_chunks]
-    if missing:
+    final_missing = [
+        index for index in range(total_data) if index not in data_chunks
+    ]
+    if final_missing:
         raise ValueError(
-            f"Archive is not recoverable; missing {len(missing)} data strand(s): "
-            f"{missing[:20]}"
+            f"Archive is not recoverable; missing {len(final_missing)} data strand(s): "
+            f"{final_missing[:20]}"
         )
     raw = b"".join(data_chunks[index] for index in range(total_data))
     original_size = int(cast(int, archive.metadata["original_size"]))
