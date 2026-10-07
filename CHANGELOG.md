@@ -3,11 +3,23 @@
 ## Unreleased
 
 ### Added
+- Compact `oligoark-stream-v2` binary archives with sequential file encoding/recovery,
+  2-bit-packed strand records, direct-to-offset recovery, and SHA-256 integrity verification.
+- Configurable 152-, 200-, and 248-nt physical sequence profiles plus a dedicated fast
+  software-scale profile.
+- Reproducible 1 KiB through 100 MiB storage-scale benchmark with isolated-process throughput,
+  peak-RSS, density, redundancy, archive-overhead, and exact-recovery metrics.
+- Independent clean-room DNA Fountain-style baseline and matched 152-nt comparison runner with
+  Wilson 95% recovery intervals.
+- Pull-request smoke validation and a scheduled/manual 100 MiB acceptance workflow whose
+  milestone statement is gated on clean plus controlled-loss SHA-256 recovery.
 - Lightweight deterministic `multistart_trace_consensus()` using multiple observed-read anchors, bidirectional refinement, candidate pruning and optional known-length scoring without GPU/deep-learning dependencies.
 - Leakage-controlled CNR calibration: 48 deterministic calibration clusters are excluded from the unchanged 96-cluster held-out physical-read benchmark before configuration selection.
 - Paired held-out comparisons against prior OligoArk graph/alignment and iterative-trace methods in addition to the pinned external BBS baseline.
 
 ### Validation
+- The 100 MiB scalability statement is a release acceptance criterion, not a pre-claimed
+  result: the benchmark emits it only after both required SHA-256-verified runs pass.
 - Calibration selected the 3-anchor, 1-round bidirectional configuration at 68/96 exact reconstructions across 5- and 10-read calibration trials versus 53/96 for the prior iterative trace baseline, within the predeclared 4× runtime budget.
 - On the unchanged 96-cluster physical CNR held-out set, multi-start trace improved exact recovery from 44/96 to 53/96 versus iterative trace at five reads, and from 63/96 to 80/96 at ten reads; it also exceeded graph/alignment's 33/96 and 65/96.
 - BBS remained stronger at 72–73/96 across five five-read repetitions and 93/96 in all five ten-read repetitions, so no state-of-the-art claim is made.
