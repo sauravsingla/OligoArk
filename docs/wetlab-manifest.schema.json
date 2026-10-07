@@ -7,6 +7,7 @@
     "schema_version",
     "experiment_id",
     "status",
+    "physical_execution_status",
     "claim_scope",
     "source",
     "codec",
@@ -18,8 +19,13 @@
     "summary"
   ],
   "properties": {
-    "schema_version": {"const": 1},
-    "experiment_id": {"type": "string", "minLength": 1},
+    "schema_version": {
+      "const": 1
+    },
+    "experiment_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "status": {
       "type": "string",
       "enum": [
@@ -30,13 +36,24 @@
         "physical-read-archive-recovery-failed"
       ]
     },
-    "claim_scope": {"type": "string"},
+    "claim_scope": {
+      "type": "string"
+    },
     "source": {
       "type": "object",
-      "required": ["file_name", "bytes", "sha256"],
+      "required": [
+        "file_name",
+        "bytes",
+        "sha256"
+      ],
       "properties": {
-        "file_name": {"type": "string"},
-        "bytes": {"type": "integer", "minimum": 0},
+        "file_name": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
         "sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
@@ -46,50 +63,102 @@
     },
     "codec": {
       "type": "object",
-      "required": ["profile", "target_strand_nt", "config"],
+      "required": [
+        "profile",
+        "target_strand_nt",
+        "config"
+      ],
       "properties": {
-        "profile": {"type": "string"},
-        "target_strand_nt": {"type": "integer", "minimum": 1},
-        "config": {"type": "object"}
+        "profile": {
+          "type": "string"
+        },
+        "target_strand_nt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "config": {
+          "type": "object"
+        }
       },
       "additionalProperties": false
     },
     "outputs": {
       "type": "object",
-      "required": ["archive", "synthesis_fasta", "synthesis_csv"],
+      "required": [
+        "archive",
+        "synthesis_fasta",
+        "synthesis_csv"
+      ],
       "properties": {
-        "archive": {"type": "string"},
-        "synthesis_fasta": {"type": "string"},
-        "synthesis_csv": {"type": "string"}
+        "archive": {
+          "type": "string"
+        },
+        "synthesis_fasta": {
+          "type": "string"
+        },
+        "synthesis_csv": {
+          "type": "string"
+        },
+        "provider_metadata_template": {
+          "type": "string"
+        },
+        "preprocessing_record_template": {
+          "type": "string"
+        },
+        "read_depth_plan": {
+          "type": "string"
+        },
+        "bundle_checksums": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "sequencing_input_contract": {
       "type": "object",
-      "required": ["accepted_formats", "orientation", "required_record_content"],
+      "required": [
+        "accepted_formats",
+        "orientation",
+        "required_record_content"
+      ],
       "properties": {
         "accepted_formats": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "minItems": 1
         },
-        "orientation": {"type": "string"},
-        "required_record_content": {"type": "string"}
+        "orientation": {
+          "type": "string"
+        },
+        "required_record_content": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "planned_read_depths_per_strand": {
       "type": "array",
-      "items": {"type": "integer", "minimum": 1},
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
       "minItems": 1
     },
     "controls": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "minItems": 1
     },
-    "success_criterion": {"type": "string"},
-    "provider_note": {"type": "string"},
+    "success_criterion": {
+      "type": "string"
+    },
+    "provider_note": {
+      "type": "string"
+    },
     "summary": {
       "type": "object",
       "required": [
@@ -103,8 +172,13 @@
         "encoded_nucleotides",
         "logical_bits_per_nucleotide",
         "target_strand_nt",
-        "claim_status"
+        "claim_status",
+        "physical_execution_status"
       ]
+    },
+    "physical_execution_status": {
+      "type": "string",
+      "const": "prepared, not physically executed"
     }
   },
   "additionalProperties": false
