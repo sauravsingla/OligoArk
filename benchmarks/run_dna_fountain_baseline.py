@@ -503,6 +503,7 @@ def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
 
 
 def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
+    methods = tuple(dict.fromkeys(str(row["method"]) for row in rows if "method" in row))
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -515,7 +516,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     ]
     if clean_rows:
         plt.figure(figsize=(8, 4))
-        for method in METHODS:
+        for method in methods:
             selected = sorted(
                 (row for row in clean_rows if row.get("method") == method),
                 key=lambda row: int(row["size_bytes"]),
@@ -537,7 +538,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
         plt.close()
 
         plt.figure(figsize=(8, 4))
-        for method in METHODS:
+        for method in methods:
             selected = sorted(
                 (row for row in clean_rows if row.get("method") == method),
                 key=lambda row: int(row["size_bytes"]),
@@ -572,7 +573,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     conditions = list(dict.fromkeys(str(row["condition"]) for row in at_largest))
     x_values = list(range(len(conditions)))
     plt.figure(figsize=(9, 4))
-    for method in METHODS:
+    for method in methods:
         selected = {
             str(row["condition"]): row
             for row in at_largest
