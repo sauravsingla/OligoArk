@@ -253,7 +253,7 @@ def prepare_wetlab_bundle(
         encoding="utf-8",
     )
 
-    provider_template = {
+    provider_template: dict[str, object] = {
         "physical_execution_status": summary.physical_execution_status,
         "synthesis_provider": None,
         "provider_order_id": None,
@@ -282,7 +282,7 @@ def prepare_wetlab_bundle(
         encoding="utf-8",
     )
 
-    preprocessing_template = {
+    preprocessing_template: dict[str, object] = {
         "physical_execution_status": summary.physical_execution_status,
         "raw_read_checksums_sha256": {},
         "commands": [],
