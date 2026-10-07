@@ -570,15 +570,15 @@ def decode_rotating_ternary_baseline(
                 continue
 
             parity_start = group_index * width
-            recovered = bytearray(parity[parity_start : parity_start + width])
+            recovered_chunk = bytearray(parity[parity_start : parity_start + width])
             for index in range(start_index, end_index):
                 if index == missing_index or not data_present[index]:
                     continue
                 data_start = index * width
                 for offset in range(width):
-                    recovered[offset] ^= data[data_start + offset]
+                    recovered_chunk[offset] ^= data[data_start + offset]
             data_start = missing_index * width
-            data[data_start : data_start + width] = recovered
+            data[data_start : data_start + width] = recovered_chunk
             data_present[missing_index] = 1
 
     missing: list[int] = []
@@ -593,7 +593,7 @@ def decode_rotating_ternary_baseline(
             f"missing chunks: {missing}"
         )
 
-    recovered = bytes(data[: archive.original_size])
-    if hashlib.sha256(recovered).hexdigest() != archive.sha256:
+    recovered_bytes = bytes(data[: archive.original_size])
+    if hashlib.sha256(recovered_bytes).hexdigest() != archive.sha256:
         raise ValueError("rotating ternary baseline failed SHA-256 verification")
-    return recovered
+    return recovered_bytes
