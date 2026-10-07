@@ -36,6 +36,7 @@ class WetLabBundleSummary:
     logical_bits_per_nucleotide: float
     target_strand_nt: int
     claim_status: str = "prepared-not-executed"
+    physical_execution_status: str = "prepared, not physically executed"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -44,6 +45,7 @@ class WetLabBundleSummary:
 @dataclass(frozen=True)
 class WetLabRecoverySummary:
     input_reads: int
+    input_reads_sha256: str
     source_bytes: int
     expected_sha256: str
     recovered_sha256: str
@@ -58,6 +60,14 @@ class WetLabRecoverySummary:
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _write_fasta(strands: list[str], path: Path) -> None:
@@ -81,6 +91,7 @@ def _write_oligo_csv(archive: DNAArchive, path: Path) -> None:
             mask_search_limit=int(cast(int, config["mask_search_limit"])),
             compact_framing=bool(config.get("compact_framing", False)),
             compact_index_bytes=int(cast(int, config.get("compact_index_bytes", 3))),
+            compact_typed_index=bool(config.get("compact_typed_index", False)),
             expected_total_data=total if bool(config.get("compact_framing", False)) else None,
         )
         metrics = sequence_metrics(sequence)
@@ -202,8 +213,93 @@ def prepare_wetlab_bundle(
         ),
         "summary": summary.to_dict(),
     }
+    manifest["physical_execution_status"] = summary.physical_execution_status
+    manifest["outputs"] = {
+        **cast(dict[str, object], manifest["outputs"]),
+        "provider_metadata_template": "provider-metadata.template.json",
+        "preprocessing_record_template": "preprocessing-record.template.json",
+        "read_depth_plan": "read-depth-plan.json",
+        "bundle_checksums": "bundle-checksums.sha256",
+    }
     (output / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    provider_template = {
+        "physical_execution_status": summary.physical_execution_status,
+        "synthesis_provider": None,
+        "provider_order_id": None,
+        "lot_or_batch_id": None,
+        "synthesis_technology": None,
+        "ordered_at": None,
+        "received_at": None,
+        "delivered_amount": None,
+        "provider_qc_files": [],
+        "storage": {
+            "container": None,
+            "conditions": None,
+            "start_at": None,
+            "end_at": None,
+        },
+        "sequencing": {
+            "provider": None,
+            "platform": None,
+            "run_id": None,
+            "replicate_ids": [],
+            "raw_read_files": [],
+        },
+    }
+    (output / "provider-metadata.template.json").write_text(
+        json.dumps(provider_template, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    preprocessing_template = {
+        "physical_execution_status": summary.physical_execution_status,
+        "raw_read_checksums_sha256": {},
+        "commands": [],
+        "tool_versions": {},
+        "adapter_primer_trimming": None,
+        "orientation_logic": None,
+        "quality_filter": None,
+        "notes": (
+            "Populate this record from the actual sequencing workflow. Do not replace "
+            "physical reads with simulated or software-generated reads."
+        ),
+    }
+    (output / "preprocessing-record.template.json").write_text(
+        json.dumps(preprocessing_template, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    read_depth_plan = {
+        "physical_execution_status": summary.physical_execution_status,
+        "reads_per_designed_strand": [1, 5, 10, 20],
+        "downsampling_seed_base": 20261007,
+        "report_each_replicate_separately": True,
+        "acceptance": "exact recovered payload SHA-256 match at each reported depth",
+    }
+    (output / "read-depth-plan.json").write_text(
+        json.dumps(read_depth_plan, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    checksum_names = (
+        "archive.json",
+        "oligos.fasta",
+        "oligos.csv",
+        "manifest.json",
+        "provider-metadata.template.json",
+        "preprocessing-record.template.json",
+        "read-depth-plan.json",
+    )
+    checksum_lines = [
+        f"{_file_sha256(output / name)}  {name}"
+        for name in checksum_names
+    ]
+    (output / "bundle-checksums.sha256").write_text(
+        "\n".join(checksum_lines) + "\n",
         encoding="utf-8",
     )
     return summary
@@ -246,6 +342,7 @@ def recover_wetlab_reads(
 
     summary = WetLabRecoverySummary(
         input_reads=len(reads),
+        input_reads_sha256=_file_sha256(Path(reads_path)),
         source_bytes=len(recovered),
         expected_sha256=expected,
         recovered_sha256=actual,
