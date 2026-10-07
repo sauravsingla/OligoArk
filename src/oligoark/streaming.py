@@ -360,6 +360,36 @@ def _write_chunk(
     return True
 
 
+def _recover_fountain_frame(
+    frame: DecodedFrame,
+    output: BinaryIO,
+    known: bytearray,
+    total: int,
+    config: ArchiveConfig,
+) -> bool:
+    indexes = indexes_for_seed(
+        total,
+        frame.index,
+        max_degree=config.fountain_max_degree,
+    )
+    missing_indexes = [index for index in indexes if not known[index]]
+    if len(missing_indexes) != 1:
+        return False
+    parts = [frame.payload] + [
+        _read_chunk(output, index, config.chunk_size)
+        for index in indexes
+        if known[index]
+    ]
+    payload = xor_bytes(parts, config.chunk_size)
+    return _write_chunk(
+        output,
+        known,
+        missing_indexes[0],
+        payload,
+        config.chunk_size,
+    )
+
+
 def recover_file_streaming(
     archive_path: str | Path,
     output_path: str | Path,
@@ -386,11 +416,13 @@ def recover_file_streaming(
         expected = str(metadata["sha256"])
         known = bytearray(total)
         known_count = 0
-        fountain_frames: list[DecodedFrame] = []
+        fountain_start: int | None = None
+        fountain_records = int(cast(int, metadata.get("fountain_strands", 0)))
 
         with destination.open("wb+") as output:
             output.truncate(size)
             for ordinal in range(records):
+                record_start = archive_handle.tell()
                 packed = _read_record(archive_handle)
                 if packed is None:
                     raise ValueError("archive ended before declared strand count")
@@ -430,10 +462,19 @@ def recover_file_streaming(
                             known_count += 1
                             xor_recovered += 1
                 elif frame.is_fountain:
-                    # Clean/XOR-resolved hybrid archives need no fountain state at all. Retain
-                    # fountain equations only when an unresolved data erasure remains.
-                    if known_count != total:
-                        fountain_frames.append(frame)
+                    # Keep fountain state on disk. Remember the first fountain record and
+                    # opportunistically peel degree-one equations during the initial pass.
+                    if fountain_start is None:
+                        fountain_start = record_start
+                    if known_count != total and _recover_fountain_frame(
+                        frame,
+                        output,
+                        known,
+                        total,
+                        config,
+                    ):
+                        known_count += 1
+                        fountain_recovered += 1
                 else:
                     if _write_chunk(
                         output,
@@ -444,33 +485,44 @@ def recover_file_streaming(
                     ):
                         known_count += 1
 
+            # If peeling stalled during the initial pass, rescan only the on-disk fountain
+            # records. This trades extra sequential I/O for bounded memory instead of retaining
+            # every unresolved fountain payload in a Python list.
             changed = True
-            while changed and fountain_frames:
+            while (
+                changed
+                and fountain_start is not None
+                and fountain_records > 0
+                and known_count != total
+            ):
                 changed = False
-                for frame in fountain_frames:
-                    indexes = indexes_for_seed(
-                        total,
-                        frame.index,
-                        max_degree=config.fountain_max_degree,
-                    )
-                    missing_indexes = [index for index in indexes if not known[index]]
-                    if len(missing_indexes) == 1:
-                        parts = [frame.payload] + [
-                            _read_chunk(output, index, config.chunk_size)
-                            for index in indexes
-                            if known[index]
-                        ]
-                        payload = xor_bytes(parts, config.chunk_size)
-                        if _write_chunk(
+                archive_handle.seek(fountain_start)
+                for _ in range(fountain_records):
+                    packed = _read_record(archive_handle)
+                    if packed is None:
+                        raise ValueError("archive ended inside fountain records")
+                    try:
+                        frame = decode_frame_packed(
+                            packed,
+                            rs_nsym=config.rs_nsym,
+                            mask_search_limit=config.mask_search_limit,
+                        )
+                    except ValueError:
+                        continue
+                    if (
+                        frame.is_fountain
+                        and frame.total_data == total
+                        and _recover_fountain_frame(
+                            frame,
                             output,
                             known,
-                            missing_indexes[0],
-                            payload,
-                            config.chunk_size,
-                        ):
-                            known_count += 1
-                            fountain_recovered += 1
-                            changed = True
+                            total,
+                            config,
+                        )
+                    ):
+                        known_count += 1
+                        fountain_recovered += 1
+                        changed = True
             # Redundancy payloads are padded to chunk width. If the final short chunk was
             # reconstructed, trim any padded tail before hashing the recovered file.
             output.truncate(size)
