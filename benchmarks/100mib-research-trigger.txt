@@ -1,0 +1,5 @@
+100 MiB matched-codec research trigger
+
+This marker intentionally triggers .github/workflows/codec-100mib-research.yml after
+the validated indel-recovery changes merge to main. Update this file to request a
+future deliberate rerun. The benchmark retains all negative trials and timeouts.
