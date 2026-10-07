@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import platform
 import random
 import resource
@@ -105,6 +106,27 @@ def _peak_rss_mib() -> float:
     return value / 1024
 
 
+def _event_positions(length: int, rate: float, rng: random.Random) -> set[int]:
+    """Sample Bernoulli event positions using geometric gaps.
+
+    This is distribution-equivalent to testing every position independently, but the work
+    scales with the number of events instead of the number of nucleotides when rates are low.
+    """
+    if length <= 0 or rate <= 0.0:
+        return set()
+    if rate >= 1.0:
+        return set(range(length))
+    log_survival = math.log1p(-rate)
+    positions: set[int] = set()
+    position = -1
+    while True:
+        gap = int(math.log1p(-rng.random()) / log_survival)
+        position += gap + 1
+        if position >= length:
+            return positions
+        positions.add(position)
+
+
 def _mutate_sequence(
     sequence: str,
     *,
@@ -113,20 +135,28 @@ def _mutate_sequence(
     deletion_rate: float,
     rng: random.Random,
 ) -> str:
+    """Apply a sparse deterministic mutation channel without per-base RNG calls."""
     if substitution_rate == insertion_rate == deletion_rate == 0:
         return sequence
+
+    deletions = _event_positions(len(sequence), deletion_rate, rng)
+    substitutions = _event_positions(len(sequence), substitution_rate, rng)
+    insertions = _event_positions(len(sequence) + 1, insertion_rate, rng)
+    if not deletions and not substitutions and not insertions:
+        return sequence
+
     dna = "ACGT"
     output: list[str] = []
-    for base in sequence:
-        if rng.random() < deletion_rate:
-            continue
-        if rng.random() < insertion_rate:
+    for position, base in enumerate(sequence):
+        if position in insertions:
             output.append(rng.choice(dna))
-        if rng.random() < substitution_rate:
+        if position in deletions:
+            continue
+        if position in substitutions:
             output.append(rng.choice(dna.replace(base, "")))
         else:
             output.append(base)
-    if rng.random() < insertion_rate:
+    if len(sequence) in insertions:
         output.append(rng.choice(dna))
     return "".join(output)
 
@@ -135,17 +165,36 @@ def _channel_sequences(
     sequences: tuple[str, ...] | list[str],
     condition_name: str,
     seed: int,
-) -> list[str]:
+) -> tuple[str, ...] | list[str]:
+    """Apply one matched channel realization.
+
+    Clean trials reuse the immutable encoded artifact directly. Dropout-only trials avoid
+    mutation work entirely. Noisy trials use one deterministic RNG plus sparse event sampling
+    rather than constructing one Random instance and scanning every nucleotide per strand.
+    """
     condition = CONDITIONS[condition_name]
+    if not any(condition.values()):
+        return sequences
+
     rng = random.Random(seed)
-    selected = list(sequences)
     drop_count = min(
-        len(selected),
-        round(len(selected) * condition["dropout_rate"]),
+        len(sequences),
+        round(len(sequences) * condition["dropout_rate"]),
     )
-    dropped = set(rng.sample(range(len(selected)), drop_count)) if drop_count else set()
+    dropped = set(rng.sample(range(len(sequences)), drop_count)) if drop_count else set()
+    has_mutation = any(
+        condition[name] > 0
+        for name in ("substitution_rate", "insertion_rate", "deletion_rate")
+    )
+    if not has_mutation:
+        return [
+            sequence
+            for index, sequence in enumerate(sequences)
+            if index not in dropped
+        ]
+
     reads: list[str] = []
-    for index, sequence in enumerate(selected):
+    for index, sequence in enumerate(sequences):
         if index in dropped:
             continue
         reads.append(
@@ -154,7 +203,7 @@ def _channel_sequences(
                 substitution_rate=condition["substitution_rate"],
                 insertion_rate=condition["insertion_rate"],
                 deletion_rate=condition["deletion_rate"],
-                rng=random.Random((seed << 32) ^ index),
+                rng=rng,
             )
         )
     return reads
@@ -454,6 +503,7 @@ def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
 
 
 def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
+    methods = tuple(dict.fromkeys(str(row["method"]) for row in rows if "method" in row))
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -466,7 +516,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     ]
     if clean_rows:
         plt.figure(figsize=(8, 4))
-        for method in METHODS:
+        for method in methods:
             selected = sorted(
                 (row for row in clean_rows if row.get("method") == method),
                 key=lambda row: int(row["size_bytes"]),
@@ -488,7 +538,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
         plt.close()
 
         plt.figure(figsize=(8, 4))
-        for method in METHODS:
+        for method in methods:
             selected = sorted(
                 (row for row in clean_rows if row.get("method") == method),
                 key=lambda row: int(row["size_bytes"]),
@@ -513,7 +563,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
         {
             int(row["size_bytes"])
             for row in rows
-            if "recovery_rate" in row and "error" not in row
+            if row.get("recovery_rate") is not None and "error" not in row
         }
     )
     if not successful_sizes:
@@ -523,11 +573,13 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     conditions = list(dict.fromkeys(str(row["condition"]) for row in at_largest))
     x_values = list(range(len(conditions)))
     plt.figure(figsize=(9, 4))
-    for method in METHODS:
+    for method in methods:
         selected = {
             str(row["condition"]): row
             for row in at_largest
-            if row.get("method") == method and "recovery_rate" in row
+            if row.get("method") == method
+            and row.get("recovery_rate") is not None
+            and "error" not in row
         }
         if not all(name in selected for name in conditions):
             continue

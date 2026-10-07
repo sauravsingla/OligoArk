@@ -12,7 +12,14 @@ from typing import cast
 
 from .dna import SequenceConstraints, sequence_metrics
 from .ecc import build_xor_parity, recover_one_missing
-from .fountain import FountainSymbol, indexes_for_seed, make_symbols, peel_decode
+from .fountain import (
+    FOUNTAIN_LAYOUTS,
+    FountainSymbol,
+    indexes_for_seed,
+    make_symbols,
+    peel_decode,
+    symbol_count,
+)
 from .framing import decode_frame, decode_frame_resilient, encode_frame, frame_overhead_bytes
 from .reconstruct import GraphConsensusReconstructor, ReadReconstructor, TraceConsensusReconstructor
 
@@ -31,12 +38,14 @@ class ArchiveConfig:
     fountain_redundancy: float = 0.25
     fountain_seed: int = 1
     fountain_max_degree: int = 4
+    fountain_layout: str = "random"
     min_gc_fraction: float = 0.35
     max_gc_fraction: float = 0.65
     max_homopolymer: int = 4
     mask_search_limit: int = 64
     compact_framing: bool = False
     compact_index_bytes: int = 3
+    inline_mask_framing: bool = False
     indel_rescue: bool = False
 
     @property
@@ -54,6 +63,7 @@ class ArchiveConfig:
             self.rs_nsym,
             compact_framing=self.compact_framing,
             compact_index_bytes=self.compact_index_bytes,
+            inline_mask_framing=self.inline_mask_framing,
         )
         if self.chunk_size + overhead - 1 > 255:
             raise ValueError("chunk_size + protected header + rs_nsym must be <= 255 bytes")
@@ -71,10 +81,16 @@ class ArchiveConfig:
             raise ValueError("fountain_seed must fit in an unsigned 32-bit integer")
         if not 1 <= self.fountain_max_degree <= 32:
             raise ValueError("fountain_max_degree must be between 1 and 32")
+        if self.fountain_layout not in FOUNTAIN_LAYOUTS:
+            raise ValueError(
+                f"fountain_layout must be one of {sorted(FOUNTAIN_LAYOUTS)}"
+            )
         if not 1 <= self.mask_search_limit <= 256:
             raise ValueError("mask_search_limit must be between 1 and 256")
         if not 2 <= self.compact_index_bytes <= 4:
             raise ValueError("compact_index_bytes must be between 2 and 4")
+        if self.inline_mask_framing and not self.compact_framing:
+            raise ValueError("inline_mask_framing requires compact_framing")
         self.sequence_constraints.validate()
 
     @classmethod
@@ -89,12 +105,14 @@ class ArchiveConfig:
             "fountain_redundancy",
             "fountain_seed",
             "fountain_max_degree",
+            "fountain_layout",
             "min_gc_fraction",
             "max_gc_fraction",
             "max_homopolymer",
             "mask_search_limit",
             "compact_framing",
             "compact_index_bytes",
+            "inline_mask_framing",
             "indel_rescue",
         }
         unknown = sorted(set(values) - allowed)
@@ -119,12 +137,18 @@ class ArchiveConfig:
         compact_framing = values.get("compact_framing", False)
         if not isinstance(compact_framing, bool):
             raise ValueError("compact_framing must be a boolean")
+        inline_mask_framing = values.get("inline_mask_framing", False)
+        if not isinstance(inline_mask_framing, bool):
+            raise ValueError("inline_mask_framing must be a boolean")
         indel_rescue = values.get("indel_rescue", False)
         if not isinstance(indel_rescue, bool):
             raise ValueError("indel_rescue must be a boolean")
         redundancy_scheme = values.get("redundancy_scheme", "xor")
         if not isinstance(redundancy_scheme, str):
             raise ValueError("redundancy_scheme must be a string")
+        fountain_layout = values.get("fountain_layout", "random")
+        if not isinstance(fountain_layout, str):
+            raise ValueError("fountain_layout must be a string")
 
         config = cls(
             chunk_size=integer("chunk_size", 96),
@@ -135,12 +159,14 @@ class ArchiveConfig:
             fountain_redundancy=number("fountain_redundancy", 0.25),
             fountain_seed=integer("fountain_seed", 1),
             fountain_max_degree=integer("fountain_max_degree", 4),
+            fountain_layout=fountain_layout,
             min_gc_fraction=number("min_gc_fraction", 0.35),
             max_gc_fraction=number("max_gc_fraction", 0.65),
             max_homopolymer=integer("max_homopolymer", 4),
             mask_search_limit=integer("mask_search_limit", 64),
             compact_framing=compact_framing,
             compact_index_bytes=integer("compact_index_bytes", 3),
+            inline_mask_framing=inline_mask_framing,
             indel_rescue=indel_rescue,
         )
         config.validate()
@@ -307,6 +333,7 @@ def _encode_common(
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
     )
 
 
@@ -315,7 +342,12 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     config.validate()
     total = max(1, math.ceil(len(data) / config.chunk_size))
     if config.compact_framing:
-        max_index = (1 << (8 * config.compact_index_bytes)) - 1
+        index_bits = (
+            8 * config.compact_index_bytes - 2
+            if config.inline_mask_framing
+            else 8 * config.compact_index_bytes
+        )
+        max_index = (1 << index_bits) - 1
         if total - 1 > max_index:
             raise ValueError(
                 "compact framing index capacity exceeded; increase compact_index_bytes"
@@ -333,12 +365,21 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
 
     fountain_symbols: list[FountainSymbol] = []
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
-        count = max(1, math.ceil(total * config.fountain_redundancy))
-        max_seed = (
-            (1 << (8 * config.compact_index_bytes)) - 1
-            if config.compact_framing
-            else 0xFFFFFFFF
+        count = symbol_count(
+            total,
+            config.fountain_redundancy,
+            max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
         )
+        if config.compact_framing:
+            seed_bits = (
+                8 * config.compact_index_bytes - 2
+                if config.inline_mask_framing
+                else 8 * config.compact_index_bytes
+            )
+            max_seed = (1 << seed_bits) - 1
+        else:
+            max_seed = 0xFFFFFFFF
         if config.fountain_seed + count - 1 > max_seed:
             raise ValueError("fountain seed range exceeds configured frame index capacity")
         fountain_symbols = make_symbols(
@@ -347,6 +388,7 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
             width=config.chunk_size,
             seed=config.fountain_seed,
             max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
         )
 
     strands = [
@@ -390,45 +432,85 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     return archive
 
 
+def _store_decoded_frame(
+    frame: object,
+    *,
+    total_data: int,
+    config: ArchiveConfig,
+    data_chunks: dict[int, bytes],
+    parity_chunks: dict[int, bytes],
+    fountain_symbols: list[FountainSymbol],
+) -> bool:
+    from .framing import DecodedFrame
+
+    if not isinstance(frame, DecodedFrame) or frame.total_data != total_data:
+        return False
+    if frame.is_fountain:
+        indexes = indexes_for_seed(
+            total_data,
+            frame.index,
+            max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
+            first_seed=config.fountain_seed,
+        )
+        fountain_symbols.append(FountainSymbol(frame.index, indexes, frame.payload))
+        return True
+    if frame.is_parity:
+        parity_chunks.setdefault(frame.index, frame.payload)
+        return True
+    if 0 <= frame.index < total_data:
+        data_chunks.setdefault(frame.index, frame.payload)
+        return True
+    return False
+
+
 def _decode_available_frames(
     archive: DNAArchive,
     strands: Iterable[str],
-) -> tuple[dict[int, bytes], dict[int, bytes], list[FountainSymbol]]:
+) -> tuple[
+    dict[int, bytes],
+    dict[int, bytes],
+    list[FountainSymbol],
+    list[str],
+]:
+    """Decode the cheap fast path first and defer expensive indel search.
+
+    Length-shifted reads that fail direct decoding are retained for a second-stage rescue only
+    if sparse erasure recovery is insufficient. This avoids brute-force single-indel search
+    across tens of thousands of strands when parity alone can reconstruct the archive.
+    """
     config_obj = cast(dict[str, object], archive.metadata["config"])
     config = ArchiveConfig.from_mapping(config_obj)
     total_data = int(cast(int, archive.metadata["data_strands"]))
     data_chunks: dict[int, bytes] = {}
     parity_chunks: dict[int, bytes] = {}
     fountain_symbols: list[FountainSymbol] = []
+    indel_candidates: list[str] = []
 
     for strand in strands:
         try:
-            decoder = decode_frame_resilient if config.indel_rescue else decode_frame
-            frame = decoder(
+            frame = decode_frame(
                 strand,
                 rs_nsym=config.rs_nsym,
                 mask_search_limit=config.mask_search_limit,
                 compact_framing=config.compact_framing,
                 compact_index_bytes=config.compact_index_bytes,
                 expected_total_data=total_data if config.compact_framing else None,
+                inline_mask_framing=config.inline_mask_framing,
             )
         except ValueError:
+            if config.indel_rescue and len(strand) % 4 in {1, 3}:
+                indel_candidates.append(strand)
             continue
-        if frame.total_data != total_data:
-            continue
-        if frame.is_fountain:
-            indexes = indexes_for_seed(
-                total_data,
-                frame.index,
-                max_degree=config.fountain_max_degree,
-            )
-            fountain_symbols.append(FountainSymbol(frame.index, indexes, frame.payload))
-        elif frame.is_parity:
-            parity_chunks.setdefault(frame.index, frame.payload)
-        elif 0 <= frame.index < total_data:
-            data_chunks.setdefault(frame.index, frame.payload)
-    return data_chunks, parity_chunks, fountain_symbols
-
+        _store_decoded_frame(
+            frame,
+            total_data=total_data,
+            config=config,
+            data_chunks=data_chunks,
+            parity_chunks=parity_chunks,
+            fountain_symbols=fountain_symbols,
+        )
+    return data_chunks, parity_chunks, fountain_symbols, indel_candidates
 
 def _apply_redundancy(
     data_chunks: dict[int, bytes],
@@ -466,9 +548,11 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
     config = ArchiveConfig.from_mapping(config_obj)
     total_data = int(cast(int, archive.metadata["data_strands"]))
     selected_strands = archive.strands if strands is None else strands
-    data_chunks, parity_chunks, fountain_symbols = _decode_available_frames(
-        archive,
-        selected_strands,
+    data_chunks, parity_chunks, fountain_symbols, indel_candidates = (
+        _decode_available_frames(
+            archive,
+            selected_strands,
+        )
     )
     data_chunks = _apply_redundancy(
         data_chunks,
@@ -477,9 +561,54 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
         total_data,
         config,
     )
+
+    if len(data_chunks) < total_data and config.indel_rescue and indel_candidates:
+        for candidate_number, strand in enumerate(indel_candidates, start=1):
+            try:
+                frame = decode_frame_resilient(
+                    strand,
+                    rs_nsym=config.rs_nsym,
+                    mask_search_limit=config.mask_search_limit,
+                    compact_framing=config.compact_framing,
+                    compact_index_bytes=config.compact_index_bytes,
+                    expected_total_data=total_data if config.compact_framing else None,
+                    inline_mask_framing=config.inline_mask_framing,
+                )
+            except ValueError:
+                continue
+            changed = _store_decoded_frame(
+                frame,
+                total_data=total_data,
+                config=config,
+                data_chunks=data_chunks,
+                parity_chunks=parity_chunks,
+                fountain_symbols=fountain_symbols,
+            )
+            if changed and candidate_number % 32 == 0:
+                data_chunks = _apply_redundancy(
+                    data_chunks,
+                    parity_chunks,
+                    fountain_symbols,
+                    total_data,
+                    config,
+                )
+                if len(data_chunks) == total_data:
+                    break
+        if len(data_chunks) < total_data:
+            data_chunks = _apply_redundancy(
+                data_chunks,
+                parity_chunks,
+                fountain_symbols,
+                total_data,
+                config,
+            )
+
     missing = [index for index in range(total_data) if index not in data_chunks]
     if missing:
-        raise ValueError(f"Archive is not recoverable; missing data strand(s): {missing}")
+        raise ValueError(
+            f"Archive is not recoverable; missing {len(missing)} data strand(s): "
+            f"{missing[:20]}"
+        )
     raw = b"".join(data_chunks[index] for index in range(total_data))
     original_size = int(cast(int, archive.metadata["original_size"]))
     raw = raw[:original_size]

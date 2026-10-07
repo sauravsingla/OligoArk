@@ -1,0 +1,265 @@
+name: Codec research validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/codec-research-validation.yml"
+      - "benchmarks/run_matched_codec_scale.py"
+      - "benchmarks/run_dna_fountain_baseline.py"
+      - "src/oligoark/**"
+      - "tests/test_matched_codec_runtime.py"
+      - "tests/test_streaming.py"
+  workflow_dispatch:
+    inputs:
+      size_mib:
+        description: "Payload size in MiB"
+        required: true
+        default: "100"
+        type: choice
+        options:
+          - "10"
+          - "100"
+      trials:
+        description: "Trials per channel condition"
+        required: true
+        default: "10"
+      condition_timeout_seconds:
+        description: "Hard deadline per trial; timed-out trials are retained as failures"
+        required: true
+        default: "300"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-10mib:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        method:
+          - oligoark-compact-hybrid
+          - oligoark-compact-v3-hybrid
+          - dna-fountain-cleanroom
+          - goldman-rotating-xor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run 10 MiB matched codec research validation
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          OUT="matched-codec-results/${METHOD}"
+          python benchmarks/run_matched_codec_scale.py \
+            --profile research-10 \
+            --method "${METHOD}" \
+            --trials 10 \
+            --condition-timeout-seconds 75 \
+            --timeout-seconds 1200 \
+            --output "${OUT}"
+          test -s "${OUT}/results.json"
+          test -s "${OUT}/results.csv"
+          test -s "${OUT}/trial-results.json"
+          test -s "${OUT}/trial-results.csv"
+          test -s "${OUT}/metadata.json"
+          test -s "${OUT}/summary.json"
+      - name: Validate complete 10 MiB trial accounting
+        if: always()
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          OUT="matched-codec-results/${METHOD}"
+          python - "${OUT}/results.json" "${OUT}/metadata.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          rows = json.loads(Path(sys.argv[1]).read_text())
+          metadata = json.loads(Path(sys.argv[2]).read_text())
+          conditions = list(metadata["conditions"])
+          expected_trials = int(metadata["trials_per_condition"])
+          if len(rows) != len(conditions):
+              raise SystemExit(
+                  f"expected {len(conditions)} condition rows, found {len(rows)}"
+              )
+          by_condition = {row["condition"]: row for row in rows}
+          if sorted(by_condition) != sorted(conditions):
+              raise SystemExit(
+                  f"condition mismatch: expected {conditions}, found {sorted(by_condition)}"
+              )
+          for condition in conditions:
+              row = by_condition[condition]
+              trials = int(row["trials"])
+              completed = int(row["completed_trials"])
+              timeouts = int(row["timeout_trials"])
+              successes = int(row["successes"])
+              failures = int(row["failed_trials"])
+              trial_results = list(row["trial_results"])
+              if trials != expected_trials:
+                  raise SystemExit(
+                      f"{condition}: expected {expected_trials} trials, found {trials}"
+                  )
+              if len(trial_results) != trials:
+                  raise SystemExit(
+                      f"{condition}: expected {trials} retained trial records, "
+                      f"found {len(trial_results)}"
+                  )
+              if completed + timeouts != trials:
+                  raise SystemExit(
+                      f"{condition}: completed({completed}) + timeouts({timeouts}) "
+                      f"!= trials({trials})"
+                  )
+              if successes + failures != trials:
+                  raise SystemExit(
+                      f"{condition}: successes({successes}) + failures({failures}) "
+                      f"!= trials({trials})"
+                  )
+              observed = sorted(int(item["trial"]) for item in trial_results)
+              if observed != list(range(trials)):
+                  raise SystemExit(
+                      f"{condition}: trial indexes are incomplete or duplicated: {observed}"
+                  )
+              for item in trial_results:
+                  if item.get("timed_out"):
+                      if item.get("success") is not False or item.get("sha256_verified") is not False:
+                          raise SystemExit(
+                              f"{condition}: timed-out trial was not retained as a failure"
+                          )
+          print(
+              "validated complete trial accounting; scientific failures/timeouts "
+              "remain in the artifacts and do not count as harness failures"
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matched-codec-10mib-${{ matrix.method }}-${{ github.run_id }}
+          path: matched-codec-results/
+          if-no-files-found: error
+
+  manual-size:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        method:
+          - oligoark-compact-hybrid
+          - oligoark-compact-v3-hybrid
+          - dna-fountain-cleanroom
+          - goldman-rotating-xor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run selected matched codec research validation
+        env:
+          METHOD: ${{ matrix.method }}
+          SIZE_MIB: ${{ inputs.size_mib }}
+          TRIALS: ${{ inputs.trials }}
+          CONDITION_TIMEOUT: ${{ inputs.condition_timeout_seconds }}
+        run: |
+          SIZE_BYTES=$((SIZE_MIB * 1024 * 1024))
+          OUT="matched-codec-results/${METHOD}-${SIZE_MIB}mib"
+          python benchmarks/run_matched_codec_scale.py \
+            --profile research-10 \
+            --size "${SIZE_BYTES}" \
+            --method "${METHOD}" \
+            --trials "${TRIALS}" \
+            --condition-timeout-seconds "${CONDITION_TIMEOUT}" \
+            --timeout-seconds 1200 \
+            --output "${OUT}"
+          test -s "${OUT}/results.json"
+          test -s "${OUT}/results.csv"
+          test -s "${OUT}/trial-results.json"
+          test -s "${OUT}/trial-results.csv"
+          test -s "${OUT}/metadata.json"
+          test -s "${OUT}/summary.json"
+      - name: Validate complete manual trial accounting
+        if: always()
+        env:
+          METHOD: ${{ matrix.method }}
+          SIZE_MIB: ${{ inputs.size_mib }}
+        run: |
+          OUT="matched-codec-results/${METHOD}-${SIZE_MIB}mib"
+          python - "${OUT}/results.json" "${OUT}/metadata.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          rows = json.loads(Path(sys.argv[1]).read_text())
+          metadata = json.loads(Path(sys.argv[2]).read_text())
+          conditions = list(metadata["conditions"])
+          expected_trials = int(metadata["trials_per_condition"])
+          if len(rows) != len(conditions):
+              raise SystemExit(
+                  f"expected {len(conditions)} condition rows, found {len(rows)}"
+              )
+          by_condition = {row["condition"]: row for row in rows}
+          if sorted(by_condition) != sorted(conditions):
+              raise SystemExit(
+                  f"condition mismatch: expected {conditions}, found {sorted(by_condition)}"
+              )
+          for condition in conditions:
+              row = by_condition[condition]
+              trials = int(row["trials"])
+              completed = int(row["completed_trials"])
+              timeouts = int(row["timeout_trials"])
+              successes = int(row["successes"])
+              failures = int(row["failed_trials"])
+              trial_results = list(row["trial_results"])
+              if trials != expected_trials:
+                  raise SystemExit(
+                      f"{condition}: expected {expected_trials} trials, found {trials}"
+                  )
+              if len(trial_results) != trials:
+                  raise SystemExit(
+                      f"{condition}: expected {trials} retained trial records, "
+                      f"found {len(trial_results)}"
+                  )
+              if completed + timeouts != trials:
+                  raise SystemExit(
+                      f"{condition}: completed({completed}) + timeouts({timeouts}) "
+                      f"!= trials({trials})"
+                  )
+              if successes + failures != trials:
+                  raise SystemExit(
+                      f"{condition}: successes({successes}) + failures({failures}) "
+                      f"!= trials({trials})"
+                  )
+              observed = sorted(int(item["trial"]) for item in trial_results)
+              if observed != list(range(trials)):
+                  raise SystemExit(
+                      f"{condition}: trial indexes are incomplete or duplicated: {observed}"
+                  )
+              for item in trial_results:
+                  if item.get("timed_out"):
+                      if item.get("success") is not False or item.get("sha256_verified") is not False:
+                          raise SystemExit(
+                              f"{condition}: timed-out trial was not retained as a failure"
+                          )
+          print(
+              "validated complete trial accounting; scientific failures/timeouts "
+              "remain in the artifacts and do not count as harness failures"
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matched-codec-${{ inputs.size_mib }}mib-${{ matrix.method }}-${{ github.run_id }}
+          path: matched-codec-results/
+          if-no-files-found: error

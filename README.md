@@ -24,10 +24,11 @@ OligoArk focuses on making this process scalable and reliable.
 
 ## What works today?
 
-OligoArk has four strong results:
+OligoArk has five strong results:
 
 - exact recovery of a **1 GiB mixed dataset** with about **44 MiB peak RAM**;
-- exact recovery with **1% and 5% strand loss**;
+- a completed **10 MiB matched codec comparison** with 10 trials per condition;
+- the new **152-nt compact-v3 hybrid** achieved exact recovery in **10/10 trials at both 1% and 5% strand loss**;
 - much better recovery from **insert/delete and mixed DNA errors** on 248-nt strands;
 - about **51% better storage density** on the improved 248-nt profile.
 
@@ -81,20 +82,36 @@ Higher bits/nt means more useful data can be stored in the same number of DNA ba
 
 ## Comparison with other DNA-storage codecs
 
-The largest fully completed fair comparison is currently **1 MiB**.
+The largest fully completed fair matched comparison is now **10 MiB**, using the same
+deterministic payload, a maximum strand length of **152 nt**, approximately **25% redundancy**,
+the same fault definitions and trial seeds, and **10 trials per condition**. Success requires
+exact reconstruction verified by SHA-256.
 
-| Method | Density | Clean | 1% loss | 5% loss | Substitution |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| OligoArk Fountain | 0.463 bits/nt | 5/5 | 0/5 | 0/5 | **5/5** |
-| DNA Fountain | **1.347 bits/nt** | 5/5 | **5/5** | **5/5** | 0/5 |
-| Goldman-style + XOR | 0.515 bits/nt | 5/5 | 0/5 | 0/5 | 0/5 |
+| Method | Density | Clean | 1% loss | 5% loss | Substitution | Insert/Delete | Mixed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| OligoArk compact hybrid (previous) | 1.221 bits/nt | 10/10 | 0/10 | 0/10 | 0/10 | timeout 10/10 | timeout 10/10 |
+| **OligoArk compact-v3 hybrid** | **1.263 bits/nt** | **10/10** | **10/10** | **10/10** | **9/10** | timeout 10/10 | **9/10** |
+| DNA Fountain clean-room | **1.347 bits/nt** | 10/10 | **10/10** | **10/10** | 0/10 | 0/10 | 0/10 |
+| Goldman-style + XOR | 0.515 bits/nt | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
 
-In simple terms, **DNA Fountain is still better in this test for density and strand-loss
-recovery**, while OligoArk performed better in the tested substitution condition.
+The new 152-nt OligoArk v3 profile uses **1.263 bits/nt** at **25.0007% measured strand
+redundancy**. It improves density by about **3.45%** over the previous compact OligoArk profile
+while preserving the 152-nt limit.
 
-OligoArk also attempted **10 MiB and 100 MiB** matched comparisons with 10 trials per
-condition, but the workers exceeded the 1,200-second limit. These are reported as
-**timeouts, not successful results**.
+For the 10 MiB encode, OligoArk v3 took **89.34 s**, compared with **399.55 s** for the
+clean-room DNA Fountain implementation. Peak RSS observed across v3 conditions was about
+**443 MiB**, versus about **1.89 GiB** for DNA Fountain.
+
+The main result is that OligoArk v3 now matches DNA Fountain in this benchmark at **1% and 5%
+strand loss (10/10 exact recoveries in both conditions)** while also recovering **9/10**
+substitution trials and **9/10** mixed-fault trials. DNA Fountain recovered 10/10 at 1% and 5%
+dropout but 0/10 in the tested substitution, indel, and mixed conditions.
+
+The remaining weakness is the 152-nt v3 **indel-only condition**, where all 10 trials exceeded
+the configured **75-second per-trial deadline**. These are retained as explicit timeouts, not
+reported as successful recovery.
+
+A matched **100 MiB** comparison has not yet been claimed as complete.
 
 ## Other physical-read datasets
 
@@ -127,7 +144,7 @@ OligoArk can now prepare a real lab experiment. The repo includes:
 - read-depth plans;
 - exact SHA-256 verification.
 
-**Current status: ready for a wet-lab experiment, but not yet physically tested end to end.**
+**Current status: prepared, not physically executed.**
 
 A full physical proof still needs:
 
@@ -136,8 +153,8 @@ match**
 
 ## Current limitations
 
-The main things still to improve are the large 10–100 MiB matched codec comparison and a true
-wet-lab OligoArk storage experiment.
+The main things still to improve are **152-nt indel recovery**, the **100 MiB matched codec
+comparison**, and a true wet-lab OligoArk storage experiment.
 
 The software results are strong, but OligoArk should not yet be described as better than every
 DNA-storage codec or as a fully proven physical DNA-storage system.

@@ -14,7 +14,7 @@ from typing import BinaryIO, cast
 from .archive import ArchiveConfig
 from .dna import SequenceConstraints, bytes_to_dna
 from .ecc import xor_bytes
-from .fountain import indexes_for_seed
+from .fountain import indexes_for_seed, symbol_count
 from .framing import (
     DecodedFrame,
     decode_frame,
@@ -105,7 +105,12 @@ def _counts(size: int, config: ArchiveConfig) -> tuple[int, int, int]:
     )
     fountain = 0
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
-        fountain = max(1, math.ceil(data * config.fountain_redundancy))
+        fountain = symbol_count(
+            data,
+            config.fountain_redundancy,
+            max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
+        )
     return data, parity, fountain
 
 
@@ -115,6 +120,7 @@ def _encoded_nt(size: int, config: ArchiveConfig) -> int:
         config.rs_nsym,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
     )
     if size == 0:
         data_nt = 4 * overhead
@@ -165,6 +171,7 @@ def _encode(
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
     )
 
 
@@ -180,7 +187,12 @@ def archive_file_streaming(
     size, sha256 = _digest(source_path)
     data_count, parity_count, fountain_count = _counts(size, resolved)
     if resolved.compact_framing:
-        max_index = (1 << (8 * resolved.compact_index_bytes)) - 1
+        index_bits = (
+            8 * resolved.compact_index_bytes - 2
+            if resolved.inline_mask_framing
+            else 8 * resolved.compact_index_bytes
+        )
+        max_index = (1 << index_bits) - 1
         if data_count - 1 > max_index:
             raise ValueError(
                 "compact framing index capacity exceeded; increase compact_index_bytes"
@@ -241,7 +253,13 @@ def archive_file_streaming(
 
         for offset in range(fountain_count):
             seed = resolved.fountain_seed + offset
-            indexes = indexes_for_seed(data_count, seed, max_degree=resolved.fountain_max_degree)
+            indexes = indexes_for_seed(
+                data_count,
+                seed,
+                max_degree=resolved.fountain_max_degree,
+                layout=resolved.fountain_layout,
+                first_seed=resolved.fountain_seed,
+            )
             parts: list[bytes] = []
             for source_index in indexes:
                 input_handle.seek(source_index * resolved.chunk_size)
@@ -344,6 +362,7 @@ def _decode(
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
             expected_total_data=expected_total,
+            inline_mask_framing=config.inline_mask_framing,
         )
     except ValueError:
         return None, False, True, False
@@ -361,6 +380,7 @@ def _decode(
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
             expected_total_data=expected_total,
+            inline_mask_framing=config.inline_mask_framing,
         )
         return frame, False, False, False
     except ValueError:
@@ -375,6 +395,7 @@ def _decode(
             compact_framing=config.compact_framing,
             compact_index_bytes=config.compact_index_bytes,
             expected_total_data=expected_total,
+            inline_mask_framing=config.inline_mask_framing,
         )
         return frame, False, False, True
     except ValueError:
@@ -411,6 +432,8 @@ def _recover_fountain_frame(
         total,
         frame.index,
         max_degree=config.fountain_max_degree,
+        layout=config.fountain_layout,
+        first_seed=config.fountain_seed,
     )
     missing_indexes = [index for index in indexes if not known[index]]
     if len(missing_indexes) != 1:

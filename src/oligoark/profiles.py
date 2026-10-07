@@ -16,10 +16,13 @@ class PhysicalStrandProfile:
     parity_group_size: int = 8
     redundancy_scheme: str = "xor"
     fountain_redundancy: float = 0.25
+    fountain_max_degree: int = 4
+    fountain_layout: str = "random"
     adaptive_masks: bool = True
     mask_search_limit: int = 64
     compact_framing: bool = False
     compact_index_bytes: int = 3
+    inline_mask_framing: bool = False
     indel_rescue: bool = False
 
     @property
@@ -32,6 +35,7 @@ class PhysicalStrandProfile:
             self.rs_nsym,
             compact_framing=self.compact_framing,
             compact_index_bytes=self.compact_index_bytes,
+            inline_mask_framing=self.inline_mask_framing,
         )
         maximum_frame_payload = 255 - (overhead - 1)
         maximum = min(
@@ -51,6 +55,7 @@ class PhysicalStrandProfile:
             self.rs_nsym,
             compact_framing=self.compact_framing,
             compact_index_bytes=self.compact_index_bytes,
+            inline_mask_framing=self.inline_mask_framing,
         )
         return 4 * (overhead + self.chunk_size)
 
@@ -62,9 +67,12 @@ class PhysicalStrandProfile:
             "adaptive_masks": self.adaptive_masks,
             "redundancy_scheme": self.redundancy_scheme,
             "fountain_redundancy": self.fountain_redundancy,
+            "fountain_max_degree": self.fountain_max_degree,
+            "fountain_layout": self.fountain_layout,
             "mask_search_limit": self.mask_search_limit,
             "compact_framing": self.compact_framing,
             "compact_index_bytes": self.compact_index_bytes,
+            "inline_mask_framing": self.inline_mask_framing,
             "indel_rescue": self.indel_rescue,
         }
         values.update(overrides)
@@ -87,6 +95,19 @@ PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
         152,
         rs_nsym=2,
         compact_framing=True,
+        indel_rescue=True,
+    ),
+    "oligoark-152-compact-v3": PhysicalStrandProfile(
+        "oligoark-152-compact-v3",
+        152,
+        rs_nsym=2,
+        parity_group_size=24,
+        fountain_redundancy=5.0 / 24.0,
+        fountain_max_degree=24,
+        fountain_layout="interleaved",
+        mask_search_limit=16,
+        compact_framing=True,
+        inline_mask_framing=True,
         indel_rescue=True,
     ),
     "oligoark-200-compact": PhysicalStrandProfile(
