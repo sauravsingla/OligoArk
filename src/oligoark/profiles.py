@@ -77,4 +77,6 @@ def physical_strand_profile(name: str) -> PhysicalStrandProfile:
         return PHYSICAL_STRAND_PROFILES[name]
     except KeyError as exc:
         choices = ", ".join(sorted(PHYSICAL_STRAND_PROFILES))
-        raise ValueError(f"Unknown physical strand profile {name!r}; choose from {choices}") from exc
+        raise ValueError(
+            f"Unknown physical strand profile {name!r}; choose from {choices}"
+        ) from exc
