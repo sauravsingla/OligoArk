@@ -261,6 +261,7 @@ def _condition_row(
         row.update(extra)
     return row
 
+
 def _worker(
     method: str,
     size: int,
