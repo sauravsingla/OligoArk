@@ -317,11 +317,20 @@ def _isolated(
 
 
 def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
-    fields = sorted({key for row in rows for key in row})
+    flattened = [
+        {
+            key: json.dumps(value, sort_keys=True)
+            if isinstance(value, (dict, list))
+            else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ]
+    fields = sorted({key for row in flattened for key in row})
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(flattened)
 
 
 def _summary(rows: list[dict[str, object]], conditions: tuple[str, ...]) -> dict[str, object]:
@@ -374,12 +383,34 @@ def _summary(rows: list[dict[str, object]], conditions: tuple[str, ...]) -> dict
                 row["method"] for row in dropout if float(row["recovery_rate"]) == best_rate
             ]
 
+    targets: dict[str, object] = {}
+    for target in RESEARCH_SIZES:
+        target_rows = [row for row in rows if int(row["size_bytes"]) == target]
+        if not target_rows:
+            continue
+        failures = [
+            {
+                "method": row.get("method"),
+                "condition": row.get("condition"),
+                "timed_out": bool(row.get("timed_out")),
+                "error": row.get("error"),
+            }
+            for row in target_rows
+            if "error" in row
+        ]
+        targets[str(target)] = {
+            "common_completed": target in common_sizes,
+            "failure_rows": len(failures),
+            "failures": failures,
+        }
+
     return {
         "largest_common_completed_size_bytes": largest,
         "common_completed_sizes_bytes": common_sizes,
         "failure_rows": sum("error" in row for row in rows),
         "timed_out_rows": sum(bool(row.get("timed_out")) for row in rows),
         "comparison_at_largest_common_size": comparison,
+        "research_target_status": targets,
     }
 
 
