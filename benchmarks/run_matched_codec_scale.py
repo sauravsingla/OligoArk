@@ -44,6 +44,7 @@ from oligoark.profiles import physical_strand_profile
 
 METHODS = (
     "oligoark-compact-hybrid",
+    "oligoark-compact-v3-hybrid",
     "dna-fountain-cleanroom",
     "goldman-rotating-xor",
 )
@@ -274,8 +275,13 @@ def _worker(
     payload_sha256 = hashlib.sha256(payload).hexdigest()
     started = time.perf_counter()
 
-    if method == "oligoark-compact-hybrid":
-        profile = physical_strand_profile("oligoark-152-compact").with_scheme("hybrid")
+    if method in {"oligoark-compact-hybrid", "oligoark-compact-v3-hybrid"}:
+        profile_name = (
+            "oligoark-152-compact-v3"
+            if method == "oligoark-compact-v3-hybrid"
+            else "oligoark-152-compact"
+        )
+        profile = physical_strand_profile(profile_name).with_scheme("hybrid")
         xor_share = 1.0 / profile.parity_group_size
         fountain_share = max(0.0, redundancy - xor_share)
         config = profile.to_archive_config(fountain_redundancy=fountain_share)
@@ -302,7 +308,9 @@ def _worker(
                         "xor": round(xor_share, 6),
                         "fountain": round(fountain_share, 6),
                     },
+                    "profile_name": profile_name,
                     "compact_framing": config.compact_framing,
+                    "inline_mask_framing": config.inline_mask_framing,
                     "rs_nsym": config.rs_nsym,
                     "chunk_size": config.chunk_size,
                 },
