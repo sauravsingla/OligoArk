@@ -432,21 +432,64 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     return archive
 
 
+def _store_decoded_frame(
+    frame: object,
+    *,
+    total_data: int,
+    config: ArchiveConfig,
+    data_chunks: dict[int, bytes],
+    parity_chunks: dict[int, bytes],
+    fountain_symbols: list[FountainSymbol],
+) -> bool:
+    from .framing import DecodedFrame
+
+    if not isinstance(frame, DecodedFrame) or frame.total_data != total_data:
+        return False
+    if frame.is_fountain:
+        indexes = indexes_for_seed(
+            total_data,
+            frame.index,
+            max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
+            first_seed=config.fountain_seed,
+        )
+        fountain_symbols.append(FountainSymbol(frame.index, indexes, frame.payload))
+        return True
+    if frame.is_parity:
+        parity_chunks.setdefault(frame.index, frame.payload)
+        return True
+    if 0 <= frame.index < total_data:
+        data_chunks.setdefault(frame.index, frame.payload)
+        return True
+    return False
+
+
 def _decode_available_frames(
     archive: DNAArchive,
     strands: Iterable[str],
-) -> tuple[dict[int, bytes], dict[int, bytes], list[FountainSymbol]]:
+) -> tuple[
+    dict[int, bytes],
+    dict[int, bytes],
+    list[FountainSymbol],
+    list[str],
+]:
+    """Decode the cheap fast path first and defer expensive indel search.
+
+    Length-shifted reads that fail direct decoding are retained for a second-stage rescue only
+    if sparse erasure recovery is insufficient. This avoids brute-force single-indel search
+    across tens of thousands of strands when parity alone can reconstruct the archive.
+    """
     config_obj = cast(dict[str, object], archive.metadata["config"])
     config = ArchiveConfig.from_mapping(config_obj)
     total_data = int(cast(int, archive.metadata["data_strands"]))
     data_chunks: dict[int, bytes] = {}
     parity_chunks: dict[int, bytes] = {}
     fountain_symbols: list[FountainSymbol] = []
+    indel_candidates: list[str] = []
 
     for strand in strands:
         try:
-            decoder = decode_frame_resilient if config.indel_rescue else decode_frame
-            frame = decoder(
+            frame = decode_frame(
                 strand,
                 rs_nsym=config.rs_nsym,
                 mask_search_limit=config.mask_search_limit,
@@ -456,24 +499,18 @@ def _decode_available_frames(
                 inline_mask_framing=config.inline_mask_framing,
             )
         except ValueError:
+            if config.indel_rescue and len(strand) % 4 in {1, 3}:
+                indel_candidates.append(strand)
             continue
-        if frame.total_data != total_data:
-            continue
-        if frame.is_fountain:
-            indexes = indexes_for_seed(
-                total_data,
-                frame.index,
-                max_degree=config.fountain_max_degree,
-                layout=config.fountain_layout,
-                first_seed=config.fountain_seed,
-            )
-            fountain_symbols.append(FountainSymbol(frame.index, indexes, frame.payload))
-        elif frame.is_parity:
-            parity_chunks.setdefault(frame.index, frame.payload)
-        elif 0 <= frame.index < total_data:
-            data_chunks.setdefault(frame.index, frame.payload)
-    return data_chunks, parity_chunks, fountain_symbols
-
+        _store_decoded_frame(
+            frame,
+            total_data=total_data,
+            config=config,
+            data_chunks=data_chunks,
+            parity_chunks=parity_chunks,
+            fountain_symbols=fountain_symbols,
+        )
+    return data_chunks, parity_chunks, fountain_symbols, indel_candidates
 
 def _apply_redundancy(
     data_chunks: dict[int, bytes],
@@ -511,9 +548,11 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
     config = ArchiveConfig.from_mapping(config_obj)
     total_data = int(cast(int, archive.metadata["data_strands"]))
     selected_strands = archive.strands if strands is None else strands
-    data_chunks, parity_chunks, fountain_symbols = _decode_available_frames(
-        archive,
-        selected_strands,
+    data_chunks, parity_chunks, fountain_symbols, indel_candidates = (
+        _decode_available_frames(
+            archive,
+            selected_strands,
+        )
     )
     data_chunks = _apply_redundancy(
         data_chunks,
@@ -522,9 +561,54 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
         total_data,
         config,
     )
+
+    if len(data_chunks) < total_data and config.indel_rescue and indel_candidates:
+        for candidate_number, strand in enumerate(indel_candidates, start=1):
+            try:
+                frame = decode_frame_resilient(
+                    strand,
+                    rs_nsym=config.rs_nsym,
+                    mask_search_limit=config.mask_search_limit,
+                    compact_framing=config.compact_framing,
+                    compact_index_bytes=config.compact_index_bytes,
+                    expected_total_data=total_data if config.compact_framing else None,
+                    inline_mask_framing=config.inline_mask_framing,
+                )
+            except ValueError:
+                continue
+            changed = _store_decoded_frame(
+                frame,
+                total_data=total_data,
+                config=config,
+                data_chunks=data_chunks,
+                parity_chunks=parity_chunks,
+                fountain_symbols=fountain_symbols,
+            )
+            if changed and candidate_number % 32 == 0:
+                data_chunks = _apply_redundancy(
+                    data_chunks,
+                    parity_chunks,
+                    fountain_symbols,
+                    total_data,
+                    config,
+                )
+                if len(data_chunks) == total_data:
+                    break
+        if len(data_chunks) < total_data:
+            data_chunks = _apply_redundancy(
+                data_chunks,
+                parity_chunks,
+                fountain_symbols,
+                total_data,
+                config,
+            )
+
     missing = [index for index in range(total_data) if index not in data_chunks]
     if missing:
-        raise ValueError(f"Archive is not recoverable; missing data strand(s): {missing}")
+        raise ValueError(
+            f"Archive is not recoverable; missing {len(missing)} data strand(s): "
+            f"{missing[:20]}"
+        )
     raw = b"".join(data_chunks[index] for index in range(total_data))
     original_size = int(cast(int, archive.metadata["original_size"]))
     raw = raw[:original_size]
