@@ -82,6 +82,7 @@ def _write_oligo_csv(archive: DNAArchive, path: Path) -> None:
             compact_framing=bool(config.get("compact_framing", False)),
             compact_index_bytes=int(cast(int, config.get("compact_index_bytes", 3))),
             expected_total_data=total if bool(config.get("compact_framing", False)) else None,
+            inline_mask_framing=bool(config.get("inline_mask_framing", False)),
         )
         metrics = sequence_metrics(sequence)
         rows.append(
