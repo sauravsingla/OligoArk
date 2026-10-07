@@ -15,7 +15,13 @@ from .archive import ArchiveConfig
 from .dna import SequenceConstraints, bytes_to_dna
 from .ecc import xor_bytes
 from .fountain import indexes_for_seed
-from .framing import DecodedFrame, decode_frame, decode_frame_packed, encode_frame_packed, frame_overhead_bytes
+from .framing import (
+    DecodedFrame,
+    decode_frame,
+    decode_frame_packed,
+    encode_frame_packed,
+    frame_overhead_bytes,
+)
 
 _MAGIC = b"OAB2"
 _HEADER = struct.Struct(">4sI")
@@ -90,7 +96,11 @@ def _digest(path: Path) -> tuple[int, str]:
 
 def _counts(size: int, config: ArchiveConfig) -> tuple[int, int, int]:
     data = max(1, math.ceil(size / config.chunk_size))
-    parity = math.ceil(data / config.parity_group_size) if config.redundancy_scheme in {"xor", "hybrid"} else 0
+    parity = (
+        math.ceil(data / config.parity_group_size)
+        if config.redundancy_scheme in {"xor", "hybrid"}
+        else 0
+    )
     fountain = 0
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
         fountain = max(1, math.ceil(data * config.fountain_redundancy))
@@ -128,7 +138,15 @@ def _read_record(handle: BinaryIO) -> bytes | None:
     return packed
 
 
-def _encode(payload: bytes, *, index: int, total: int, config: ArchiveConfig, parity: bool = False, fountain: bool = False) -> bytes:
+def _encode(
+    payload: bytes,
+    *,
+    index: int,
+    total: int,
+    config: ArchiveConfig,
+    parity: bool = False,
+    fountain: bool = False,
+) -> bytes:
     return encode_frame_packed(
         payload,
         index=index,
@@ -142,7 +160,11 @@ def _encode(payload: bytes, *, index: int, total: int, config: ArchiveConfig, pa
     )
 
 
-def archive_file_streaming(source: str | Path, destination: str | Path, config: ArchiveConfig | None = None) -> StreamingArchiveStatistics:
+def archive_file_streaming(
+    source: str | Path,
+    destination: str | Path,
+    config: ArchiveConfig | None = None,
+) -> StreamingArchiveStatistics:
     """Create an oligoark-stream-v2 archive without retaining all strands in RAM."""
     resolved = config or ArchiveConfig()
     resolved.validate()
@@ -257,13 +279,22 @@ def _mutate(sequence: str, fault: StreamingFaultProfile, ordinal: int) -> str:
             continue
         if rng.random() < fault.insertion_rate:
             out.append(rng.choice(dna))
-        out.append(rng.choice(dna.replace(base, "")) if rng.random() < fault.substitution_rate else base)
+        out.append(
+            rng.choice(dna.replace(base, ""))
+            if rng.random() < fault.substitution_rate
+            else base
+        )
     if rng.random() < fault.insertion_rate:
         out.append(rng.choice(dna))
     return "".join(out)
 
 
-def _drop(frame: DecodedFrame, config: ArchiveConfig, fault: StreamingFaultProfile, ordinal: int) -> bool:
+def _drop(
+    frame: DecodedFrame,
+    config: ArchiveConfig,
+    fault: StreamingFaultProfile,
+    ordinal: int,
+) -> bool:
     if fault.dropout_rate <= 0:
         return False
     if not fault.controlled_dropout:
@@ -277,9 +308,18 @@ def _drop(frame: DecodedFrame, config: ArchiveConfig, fault: StreamingFaultProfi
     return random.Random((fault.seed << 20) ^ (frame.index // group)).random() < probability
 
 
-def _decode(packed: bytes, config: ArchiveConfig, fault: StreamingFaultProfile, ordinal: int) -> tuple[DecodedFrame | None, bool, bool]:
+def _decode(
+    packed: bytes,
+    config: ArchiveConfig,
+    fault: StreamingFaultProfile,
+    ordinal: int,
+) -> tuple[DecodedFrame | None, bool, bool]:
     try:
-        clean = decode_frame_packed(packed, rs_nsym=config.rs_nsym, mask_search_limit=config.mask_search_limit)
+        clean = decode_frame_packed(
+            packed,
+            rs_nsym=config.rs_nsym,
+            mask_search_limit=config.mask_search_limit,
+        )
     except ValueError:
         return None, False, True
     if _drop(clean, config, fault, ordinal):
@@ -305,7 +345,13 @@ def _read_chunk(output: BinaryIO, index: int, width: int) -> bytes:
     return output.read(width)
 
 
-def _write_chunk(output: BinaryIO, known: bytearray, index: int, payload: bytes, width: int) -> bool:
+def _write_chunk(
+    output: BinaryIO,
+    known: bytearray,
+    index: int,
+    payload: bytes,
+    width: int,
+) -> bool:
     if not 0 <= index < len(known) or known[index]:
         return False
     output.seek(index * width)
@@ -339,7 +385,6 @@ def recover_file_streaming(
         size = int(cast(int, metadata["original_size"]))
         expected = str(metadata["sha256"])
         known = bytearray(total)
-        parity_frames: list[DecodedFrame] = []
         fountain_frames: list[DecodedFrame] = []
 
         with destination.open("wb+") as output:
@@ -348,44 +393,78 @@ def recover_file_streaming(
                 packed = _read_record(archive_handle)
                 if packed is None:
                     raise ValueError("archive ended before declared strand count")
-                frame, was_dropped, was_bad = _decode(packed, config, resolved_fault, ordinal)
+                frame, was_dropped, was_bad = _decode(
+                    packed,
+                    config,
+                    resolved_fault,
+                    ordinal,
+                )
                 dropped += int(was_dropped)
                 undecodable += int(was_bad)
                 if frame is None or frame.total_data != total:
                     continue
                 if frame.is_parity:
-                    parity_frames.append(frame)
-                elif frame.is_fountain:
-                    fountain_frames.append(frame)
-                else:
-                    _write_chunk(output, known, frame.index, frame.payload, config.chunk_size)
-
-            changed = True
-            while changed:
-                changed = False
-                for frame in parity_frames:
+                    # XOR parity records are emitted directly after their data group. Recover
+                    # the group's one controlled erasure immediately instead of retaining all
+                    # parity payloads in memory.
                     start = frame.index * config.parity_group_size
                     end = min(start + config.parity_group_size, total)
-                    missing = [index for index in range(start, end) if not known[index]]
-                    if len(missing) == 1:
+                    missing_indexes = [
+                        index for index in range(start, end) if not known[index]
+                    ]
+                    if len(missing_indexes) == 1:
                         parts = [frame.payload] + [
                             _read_chunk(output, index, config.chunk_size)
                             for index in range(start, end)
                             if known[index]
                         ]
-                        if _write_chunk(output, known, missing[0], xor_bytes(parts, config.chunk_size), config.chunk_size):
+                        payload = xor_bytes(parts, config.chunk_size)
+                        if _write_chunk(
+                            output,
+                            known,
+                            missing_indexes[0],
+                            payload,
+                            config.chunk_size,
+                        ):
                             xor_recovered += 1
-                            changed = True
+                elif frame.is_fountain:
+                    # Clean/XOR-resolved hybrid archives need no fountain state at all. Retain
+                    # fountain equations only when an unresolved data erasure remains.
+                    if sum(known) != total:
+                        fountain_frames.append(frame)
+                else:
+                    _write_chunk(
+                        output,
+                        known,
+                        frame.index,
+                        frame.payload,
+                        config.chunk_size,
+                    )
+
+            changed = True
+            while changed and fountain_frames:
+                changed = False
                 for frame in fountain_frames:
-                    indexes = indexes_for_seed(total, frame.index, max_degree=config.fountain_max_degree)
-                    missing = [index for index in indexes if not known[index]]
-                    if len(missing) == 1:
+                    indexes = indexes_for_seed(
+                        total,
+                        frame.index,
+                        max_degree=config.fountain_max_degree,
+                    )
+                    missing_indexes = [index for index in indexes if not known[index]]
+                    if len(missing_indexes) == 1:
                         parts = [frame.payload] + [
                             _read_chunk(output, index, config.chunk_size)
                             for index in indexes
                             if known[index]
                         ]
-                        if _write_chunk(output, known, missing[0], xor_bytes(parts, config.chunk_size), config.chunk_size):
+                        payload = xor_bytes(parts, config.chunk_size)
+                        if _write_chunk(
+                            output,
+                            known,
+                            missing_indexes[0],
+                            payload,
+                            config.chunk_size,
+                        ):
                             fountain_recovered += 1
                             changed = True
             output.flush()
@@ -410,5 +489,8 @@ def recover_file_streaming(
         fountain_recovered_strands=fountain_recovered,
     )
     if strict and not verified:
-        raise ValueError(f"streaming recovery failed SHA-256 verification ({missing} data strands missing)")
+        raise ValueError(
+            "streaming recovery failed SHA-256 verification "
+            f"({missing} data strands missing)"
+        )
     return report
