@@ -410,7 +410,11 @@ def decode_frame_resilient(
                 identities.add(identity)
                 successful.append(frame)
             if len(successful) > 1:
-                raise ValueError("single-indel rescue produced ambiguous valid frames") from direct_error
+                raise ValueError(
+                    "single-indel rescue produced ambiguous valid frames"
+                ) from direct_error
         if successful:
             return successful[0]
-        raise ValueError("Unable to decode OligoArk strand after single-indel rescue") from direct_error
+        raise ValueError(
+            "Unable to decode OligoArk strand after single-indel rescue"
+        ) from direct_error
