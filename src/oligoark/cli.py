@@ -28,8 +28,10 @@ from .physical import (
     read_sequences,
 )
 from .policy import ChannelProfile, PolicyObjective, recommend_codec_policy
+from .profiles import PHYSICAL_STRAND_PROFILES, physical_strand_profile
 from .reconstruct import TraceConsensusReconstructor
 from .simulator import SimulationConfig, simulate_channel
+from .streaming import archive_file_streaming, recover_file_streaming
 from .tiering import (
     EconomicAssumptions,
     LifecycleAssumptions,
@@ -70,6 +72,42 @@ def _recover(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def _archive_stream(args: argparse.Namespace) -> None:
+    source = Path(args.input)
+    profile = physical_strand_profile(args.profile)
+    overrides: dict[str, object] = {
+        "redundancy_scheme": args.redundancy_scheme,
+        "fountain_redundancy": args.fountain_redundancy,
+    }
+    if profile.name == "scale-1024":
+        overrides.update(
+            {
+                "min_gc_fraction": 0.0,
+                "max_gc_fraction": 1.0,
+                "max_homopolymer": 1024,
+            }
+        )
+    config = profile.to_archive_config(**overrides)
+    output = Path(args.output or f"{source}.oligoark.bin")
+    stats = archive_file_streaming(source, output, config)
+    print(
+        json.dumps(
+            {
+                "output": str(output),
+                "profile": profile.name,
+                **stats.to_dict(),
+            },
+            indent=2,
+        )
+    )
+
+
+def _recover_stream(args: argparse.Namespace) -> None:
+    output = Path(args.output)
+    report = recover_file_streaming(args.archive, output)
+    print(json.dumps({"output": str(output), **report.to_dict()}, indent=2))
 
 
 def _simulate(args: argparse.Namespace) -> None:
@@ -333,6 +371,33 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("archive")
     command.add_argument("--output", required=True)
     command.set_defaults(func=_recover)
+
+    command = sub.add_parser(
+        "archive-stream",
+        help="stream a file into the compact bounded-memory OligoArk binary archive",
+    )
+    command.add_argument("input")
+    command.add_argument("--output")
+    command.add_argument(
+        "--profile",
+        choices=tuple(sorted(PHYSICAL_STRAND_PROFILES)),
+        default="scale-1024",
+    )
+    command.add_argument(
+        "--redundancy-scheme",
+        choices=("none", "xor", "fountain", "hybrid"),
+        default="xor",
+    )
+    command.add_argument("--fountain-redundancy", type=float, default=0.25)
+    command.set_defaults(func=_archive_stream)
+
+    command = sub.add_parser(
+        "recover-stream",
+        help="stream-recover and SHA-256 verify a compact OligoArk binary archive",
+    )
+    command.add_argument("archive")
+    command.add_argument("--output", required=True)
+    command.set_defaults(func=_recover_stream)
 
     command = sub.add_parser("simulate", help="simulate a noisy DNA channel")
     command.add_argument("archive")
