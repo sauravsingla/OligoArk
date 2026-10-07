@@ -6,9 +6,9 @@ import pytest
 
 from oligoark.archive import ArchiveConfig, archive_bytes, recover_bytes
 from oligoark.framing import (
+    compact_inline_frame_hint,
     decode_frame,
     decode_frame_packed,
-    compact_inline_frame_hint,
     decode_frame_resilient,
     encode_frame,
     encode_frame_packed,
