@@ -20,7 +20,7 @@ class PhysicalStrandProfile:
     mask_search_limit: int = 64
     compact_framing: bool = False
     compact_index_bytes: int = 3
-    indel_rescue: bool = True
+    indel_rescue: bool = False
 
     @property
     def packed_bytes(self) -> int:
@@ -87,18 +87,21 @@ PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
         152,
         rs_nsym=2,
         compact_framing=True,
+        indel_rescue=True,
     ),
     "oligoark-200-compact": PhysicalStrandProfile(
         "oligoark-200-compact",
         200,
         rs_nsym=2,
         compact_framing=True,
+        indel_rescue=True,
     ),
     "oligoark-248-compact": PhysicalStrandProfile(
         "oligoark-248-compact",
         248,
         rs_nsym=2,
         compact_framing=True,
+        indel_rescue=True,
     ),
     "scale-1024": PhysicalStrandProfile(
         "scale-1024",
