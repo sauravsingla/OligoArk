@@ -264,6 +264,31 @@ def _decode_compact_with_mask(
     )
 
 
+def _decode_indicated_mask(
+    raw: bytes,
+    *,
+    rs_nsym: int,
+    compact_framing: bool,
+    compact_index_bytes: int,
+    expected_total_data: int | None,
+) -> DecodedFrame:
+    """Decode using only the mask identifier carried by this candidate frame."""
+    if not raw:
+        raise ValueError("empty packed frame")
+    mask_id = raw[0]
+    if compact_framing:
+        if expected_total_data is None:
+            raise ValueError("compact framing requires expected_total_data")
+        return _decode_compact_with_mask(
+            raw,
+            mask_id,
+            rs_nsym,
+            expected_total_data=expected_total_data,
+            compact_index_bytes=compact_index_bytes,
+        )
+    return _decode_legacy_with_mask(raw, mask_id, rs_nsym)
+
+
 def decode_frame_packed(
     raw: bytes,
     *,
@@ -389,10 +414,10 @@ def decode_frame_resilient(
         identities: set[tuple[int, int, bytes, bool, bool]] = set()
         for candidate in _single_indel_candidates(sequence):
             try:
-                frame = decode_frame(
-                    candidate,
+                raw = dna_to_bytes(candidate)
+                frame = _decode_indicated_mask(
+                    raw,
                     rs_nsym=rs_nsym,
-                    mask_search_limit=mask_search_limit,
                     compact_framing=compact_framing,
                     compact_index_bytes=compact_index_bytes,
                     expected_total_data=expected_total_data,
