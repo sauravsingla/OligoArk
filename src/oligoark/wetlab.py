@@ -11,7 +11,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import subprocess
 from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -72,21 +71,28 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _repository_commit() -> str | None:
+    """Read the current Git commit without invoking a shell or external process."""
+    git_dir = Path(__file__).resolve().parents[2] / ".git"
+    head = git_dir / "HEAD"
+    try:
+        value = head.read_text(encoding="utf-8").strip()
+        if value.startswith("ref: "):
+            ref_path = git_dir / value[5:]
+            return ref_path.read_text(encoding="utf-8").strip() or None
+        return value or None
+    except OSError:
+        return None
+
+
 def _software_record() -> dict[str, object]:
     try:
         package_version = version("oligoark")
     except PackageNotFoundError:
         package_version = "unknown"
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    commit = completed.stdout.strip() if completed.returncode == 0 else ""
     return {
         "oligoark_version": package_version,
-        "git_commit": commit or None,
+        "git_commit": _repository_commit(),
     }
 
 
