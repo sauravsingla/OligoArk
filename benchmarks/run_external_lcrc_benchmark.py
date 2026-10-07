@@ -14,8 +14,9 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from oligoark.reconstruct import (
     confidence_fusion_trace_consensus,
