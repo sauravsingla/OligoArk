@@ -563,7 +563,7 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
         {
             int(row["size_bytes"])
             for row in rows
-            if "recovery_rate" in row and "error" not in row
+            if row.get("recovery_rate") is not None and "error" not in row
         }
     )
     if not successful_sizes:
@@ -577,7 +577,9 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
         selected = {
             str(row["condition"]): row
             for row in at_largest
-            if row.get("method") == method and "recovery_rate" in row
+            if row.get("method") == method
+            and row.get("recovery_rate") is not None
+            and "error" not in row
         }
         if not all(name in selected for name in conditions):
             continue
