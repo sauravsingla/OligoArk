@@ -1,0 +1,137 @@
+name: DNAformer Pilot Illumina generalization
+
+on:
+  push:
+    branches:
+      - benchmark/dnaformer-pilot-illumina-generalization
+    paths:
+      - ".github/workflows/dnaformer-pilot-generalization.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dnaformer-pilot-generalization
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out OligoArk
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install and run focused tests
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+          python -m pytest tests/test_external_dnaformer_pilot_benchmark.py tests/test_reconstruct.py -q
+
+      - name: Cache DNAformer Pilot dataset
+        id: pilot-cache
+        uses: actions/cache@v4
+        with:
+          path: .external/BinnedPilotIllumina.txt
+          key: dnaformer-pilot-illumina-02b16f63adf5ac85e302c151eaa8ad48
+
+      - name: Download pinned DNAformer Pilot Illumina dataset
+        if: steps.pilot-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .external
+          curl -L --fail --retry 5 --retry-all-errors \
+            --silent --show-error \
+            "https://zenodo.org/records/13896773/files/BinnedPilotIllumina.txt?download=1" \
+            -o .external/BinnedPilotIllumina.txt
+
+      - name: Verify dataset provenance
+        run: |
+          test -s .external/BinnedPilotIllumina.txt
+          test "$(md5sum .external/BinnedPilotIllumina.txt | cut -d' ' -f1)" = \
+            "02b16f63adf5ac85e302c151eaa8ad48"
+          sha256sum .external/BinnedPilotIllumina.txt
+
+      - name: Check out pinned BBS baseline
+        uses: actions/checkout@v4
+        with:
+          repository: GZHoffie/bbs
+          ref: 3e4ab46871929819e4f3e34a831c57cac88bb456
+          path: .external/bbs
+          fetch-depth: 1
+
+      - name: Pin Rust toolchain
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup default 1.85.1
+
+      - name: Cache BBS build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .external/bbs/target
+          key: ${{ runner.os }}-bbs-3e4ab468-rust-1.85.1
+
+      - name: Build pinned BBS
+        run: |
+          test "$(git -C .external/bbs rev-parse HEAD)" = \
+            "3e4ab46871929819e4f3e34a831c57cac88bb456"
+          cargo build --manifest-path .external/bbs/Cargo.toml --release --locked
+
+      - name: Run third independent physical benchmark
+        run: |
+          python benchmarks/run_external_dnaformer_pilot_benchmark.py \
+            --dataset .external/BinnedPilotIllumina.txt \
+            --bbs-bin .external/bbs/target/release/bbs \
+            --development-size 48 \
+            --held-out-size 96 \
+            --development-seed 20261013 \
+            --held-out-seed 20261014 \
+            --bbs-repeats 5 \
+            --output-dir external-dnaformer-pilot-results
+
+      - name: Show concise result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("external-dnaformer-pilot-results/summary.json").read_text())
+          print("dataset", data["metadata"]["dataset"])
+          print("development", data["development_diagnostic_only"])
+          for row in data["held_out_summaries"]:
+              print(
+                  row["method"],
+                  "coverage=", row["coverage"],
+                  "exact=", f'{row["successes"]}/{row["trials"]}',
+                  "rate=", row["exact_recovery_rate"],
+                  "mean_ed=", row["mean_edit_distance"],
+                  "seconds=", row["elapsed_seconds"],
+                  "rss_mb=", row["peak_rss_mb"],
+              )
+          print("paired", data["paired_exact_recovery_vs_first_bbs_repeat"])
+          print("BBS repeats", data["bbs_repeat_summaries"])
+          PY
+
+      - name: Validate outputs
+        run: |
+          test -s external-dnaformer-pilot-results/summary.json
+          test -s external-dnaformer-pilot-results/raw-results.json
+          test -s external-dnaformer-pilot-results/raw-results.csv
+          test -s external-dnaformer-pilot-results/development-clusters.json
+          test -s external-dnaformer-pilot-results/held-out-clusters.json
+          python -m json.tool external-dnaformer-pilot-results/summary.json > /dev/null
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnaformer-pilot-illumina-generalization
+          path: external-dnaformer-pilot-results/
+          if-no-files-found: error
+          retention-days: 90
