@@ -31,7 +31,14 @@ from oligoark.baselines import (
 )
 from oligoark.experiments import wilson_interval
 from oligoark.profiles import physical_strand_profile
-from run_dna_fountain_baseline import CONDITIONS, KIB, MIB, _channel_sequences, _payload, _write_plots
+from run_dna_fountain_baseline import (
+    CONDITIONS,
+    KIB,
+    MIB,
+    _channel_sequences,
+    _payload,
+    _write_plots,
+)
 
 METHODS = (
     "oligoark-fountain",
