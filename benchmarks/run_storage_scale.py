@@ -1,8 +1,8 @@
 """Scalable OligoArk archive benchmark.
 
 The benchmark distinguishes software archive scaling from physical-read reconstruction.
-The 100 MiB acceptance profile emits the milestone sentence only after SHA-256 verified
-clean and controlled-loss recovery both succeed.
+The 1 GiB acceptance profile emits the milestone sentence only after SHA-256 verified
+clean and controlled-loss recovery all succeed.
 """
 
 from __future__ import annotations
@@ -217,6 +217,9 @@ def _worker(
         "strand_profile": strand_profile,
         "chunk_size": config.chunk_size,
         "rs_nsym": config.rs_nsym,
+        "compact_framing": config.compact_framing,
+        "compact_index_bytes": config.compact_index_bytes,
+        "indel_rescue_enabled": config.indel_rescue,
         "fault_config": _fault_to_dict(fault),
         "sha256_verified": recovered_ok,
         "exact_recovery_rate": 1.0 if recovered_ok else 0.0,
@@ -259,6 +262,7 @@ def _worker(
                 "undecodable_records": report.undecodable_records,
                 "xor_recovered_strands": report.xor_recovered_strands,
                 "fountain_recovered_strands": report.fountain_recovered_strands,
+                "indel_repaired_records": report.indel_repaired_records,
                 "output_sha256": report.output_sha256,
             }
         )
