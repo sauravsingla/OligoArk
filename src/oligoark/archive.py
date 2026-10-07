@@ -37,6 +37,7 @@ class ArchiveConfig:
     mask_search_limit: int = 64
     compact_framing: bool = False
     compact_index_bytes: int = 3
+    compact_typed_index: bool = False
     indel_rescue: bool = False
 
     @property
@@ -54,6 +55,7 @@ class ArchiveConfig:
             self.rs_nsym,
             compact_framing=self.compact_framing,
             compact_index_bytes=self.compact_index_bytes,
+            compact_typed_index=self.compact_typed_index,
         )
         if self.chunk_size + overhead - 1 > 255:
             raise ValueError("chunk_size + protected header + rs_nsym must be <= 255 bytes")
@@ -95,6 +97,7 @@ class ArchiveConfig:
             "mask_search_limit",
             "compact_framing",
             "compact_index_bytes",
+            "compact_typed_index",
             "indel_rescue",
         }
         unknown = sorted(set(values) - allowed)
@@ -119,6 +122,9 @@ class ArchiveConfig:
         compact_framing = values.get("compact_framing", False)
         if not isinstance(compact_framing, bool):
             raise ValueError("compact_framing must be a boolean")
+        compact_typed_index = values.get("compact_typed_index", False)
+        if not isinstance(compact_typed_index, bool):
+            raise ValueError("compact_typed_index must be a boolean")
         indel_rescue = values.get("indel_rescue", False)
         if not isinstance(indel_rescue, bool):
             raise ValueError("indel_rescue must be a boolean")
@@ -141,6 +147,7 @@ class ArchiveConfig:
             mask_search_limit=integer("mask_search_limit", 64),
             compact_framing=compact_framing,
             compact_index_bytes=integer("compact_index_bytes", 3),
+            compact_typed_index=compact_typed_index,
             indel_rescue=indel_rescue,
         )
         config.validate()
@@ -307,6 +314,7 @@ def _encode_common(
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        compact_typed_index=config.compact_typed_index,
     )
 
 
@@ -315,7 +323,8 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     config.validate()
     total = max(1, math.ceil(len(data) / config.chunk_size))
     if config.compact_framing:
-        max_index = (1 << (8 * config.compact_index_bytes)) - 1
+        reserved_kind_bits = 2 if config.compact_typed_index else 0
+        max_index = (1 << (8 * config.compact_index_bytes - reserved_kind_bits)) - 1
         if total - 1 > max_index:
             raise ValueError(
                 "compact framing index capacity exceeded; increase compact_index_bytes"
@@ -335,7 +344,10 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
         count = max(1, math.ceil(total * config.fountain_redundancy))
         max_seed = (
-            (1 << (8 * config.compact_index_bytes)) - 1
+            (1 << (
+                8 * config.compact_index_bytes
+                - (2 if config.compact_typed_index else 0)
+            )) - 1
             if config.compact_framing
             else 0xFFFFFFFF
         )
@@ -410,6 +422,7 @@ def _decode_available_frames(
                 mask_search_limit=config.mask_search_limit,
                 compact_framing=config.compact_framing,
                 compact_index_bytes=config.compact_index_bytes,
+                compact_typed_index=config.compact_typed_index,
                 expected_total_data=total_data if config.compact_framing else None,
             )
         except ValueError:
