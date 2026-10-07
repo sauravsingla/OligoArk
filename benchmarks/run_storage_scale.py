@@ -114,11 +114,19 @@ def _heterogeneous_block() -> bytes:
 
     mixed_archive = io.BytesIO()
     with zipfile.ZipFile(mixed_archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("notes.txt", text)
-        bundle.writestr("records.jsonl", jsonl)
-        bundle.writestr("module.py", source)
-        bundle.writestr("image.ppm", ppm)
-        bundle.writestr("payload.bin", binary)
+        def add_member(name: str, payload: bytes) -> None:
+            # ZipFile.writestr(name, data) otherwise embeds the current local time, which
+            # makes the supposedly deterministic heterogeneous fixture differ per worker.
+            info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o600 << 16
+            bundle.writestr(info, payload)
+
+        add_member("notes.txt", text)
+        add_member("records.jsonl", jsonl)
+        add_member("module.py", source)
+        add_member("image.ppm", ppm)
+        add_member("payload.bin", binary)
     return (
         text
         + jsonl
