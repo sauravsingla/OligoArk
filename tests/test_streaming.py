@@ -75,7 +75,12 @@ def test_packed_frame_is_compatible_with_text_frame() -> None:
 
 @pytest.mark.parametrize(
     ("name", "target"),
-    [("oligoark-152", 152), ("oligoark-200", 200), ("oligoark-248", 248)],
+    [
+        ("oligoark-152", 152),
+        ("oligoark-152-compact-v3", 152),
+        ("oligoark-200", 200),
+        ("oligoark-248", 248),
+    ],
 )
 def test_physical_profiles_fit_requested_oligo_length(name: str, target: int) -> None:
     profile = physical_strand_profile(name)
@@ -91,6 +96,7 @@ def test_physical_profiles_fit_requested_oligo_length(name: str, target: int) ->
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
     )
     assert len(packed) * 4 == target
     assert profile.actual_nucleotides == target
@@ -276,6 +282,81 @@ def test_single_indel_rescue_recovers_compact_frame(kind: str) -> None:
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
         expected_total_data=100,
+    )
+    assert decoded.index == 77
+    assert decoded.payload == payload
+
+
+def test_inline_mask_152_profile_saves_one_byte_without_dropping_protection() -> None:
+    previous = physical_strand_profile("oligoark-152-compact")
+    profile = physical_strand_profile("oligoark-152-compact-v3")
+    config = profile.to_archive_config()
+    assert previous.chunk_size == 29
+    assert profile.chunk_size == 30
+    assert config.rs_nsym == 2
+    assert config.inline_mask_framing is True
+
+    payload = bytes(range(config.chunk_size))
+    packed = encode_frame_packed(
+        payload,
+        index=123_456,
+        total_data=300_000,
+        is_parity=False,
+        rs_nsym=config.rs_nsym,
+        adaptive_masks=config.adaptive_masks,
+        sequence_constraints=config.sequence_constraints,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
+    )
+    decoded = decode_frame_packed(
+        packed,
+        rs_nsym=config.rs_nsym,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        expected_total_data=300_000,
+        inline_mask_framing=config.inline_mask_framing,
+    )
+    assert decoded.index == 123_456
+    assert decoded.payload == payload
+    assert len(packed) * 4 == 152
+
+
+@pytest.mark.parametrize("kind", ["insertion", "deletion"])
+def test_inline_mask_152_profile_keeps_single_indel_rescue(kind: str) -> None:
+    profile = physical_strand_profile("oligoark-152-compact-v3")
+    config = profile.to_archive_config()
+    payload = bytes(range(config.chunk_size))
+    packed = encode_frame_packed(
+        payload,
+        index=77,
+        total_data=100,
+        is_parity=False,
+        rs_nsym=config.rs_nsym,
+        adaptive_masks=config.adaptive_masks,
+        sequence_constraints=config.sequence_constraints,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
+    )
+    sequence = "".join("ACGT"[(byte >> shift) & 3] for byte in packed for shift in (6, 4, 2, 0))
+    position = len(sequence) // 2
+    mutated = (
+        sequence[:position] + "A" + sequence[position:]
+        if kind == "insertion"
+        else sequence[:position] + sequence[position + 1 :]
+    )
+    decoded = decode_frame_resilient(
+        mutated,
+        rs_nsym=config.rs_nsym,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        expected_total_data=100,
+        inline_mask_framing=config.inline_mask_framing,
     )
     assert decoded.index == 77
     assert decoded.payload == payload
