@@ -25,7 +25,11 @@ class PhysicalStrandProfile:
 
     @property
     def chunk_size(self) -> int:
-        maximum = min(229, self.packed_bytes - frame_overhead_bytes(self.rs_nsym))
+        maximum_frame_payload = 255 - (frame_overhead_bytes(self.rs_nsym) - 1)
+        maximum = min(
+            maximum_frame_payload,
+            self.packed_bytes - frame_overhead_bytes(self.rs_nsym),
+        )
         if maximum < 8:
             raise ValueError(
                 f"target_nucleotides={self.target_nucleotides} is too short for "
@@ -61,6 +65,7 @@ PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
     "scale-1024": PhysicalStrandProfile(
         "scale-1024",
         1024,
+        rs_nsym=0,
         adaptive_masks=False,
         mask_search_limit=1,
     ),
