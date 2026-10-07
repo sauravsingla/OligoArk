@@ -24,7 +24,7 @@ def test_wetlab_bundle_is_self_describing_and_clean_roundtrip(tmp_path) -> None:
         fountain_redundancy=0.125,
     )
 
-    assert summary.claim_status == "prepared-not-executed"
+    assert summary.claim_status == "prepared, not physically executed"
     assert summary.source_bytes == len(payload)
     assert summary.strand_count > summary.data_strands
     assert (bundle / "archive.json").exists()
@@ -32,7 +32,7 @@ def test_wetlab_bundle_is_self_describing_and_clean_roundtrip(tmp_path) -> None:
     assert (bundle / "oligos.csv").exists()
 
     manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["status"] == "prepared-not-executed"
+    assert manifest["status"] == "prepared, not physically executed"
     assert manifest["success_criterion"].startswith("Recovered payload SHA-256")
     assert manifest["planned_read_depths_per_strand"] == [1, 5, 10, 20]
 
@@ -53,5 +53,5 @@ def test_wetlab_manifest_does_not_claim_physical_execution(tmp_path) -> None:
     prepare_wetlab_bundle(source, bundle)
 
     manifest_text = (bundle / "manifest.json").read_text(encoding="utf-8")
-    assert "prepared-not-executed" in manifest_text
+    assert "prepared, not physically executed" in manifest_text
     assert "End-to-end physical-storage evidence requires" in manifest_text
