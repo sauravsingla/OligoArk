@@ -97,6 +97,8 @@ PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
         "oligoark-152-compact-v3",
         152,
         rs_nsym=2,
+        parity_group_size=6,
+        mask_search_limit=16,
         compact_framing=True,
         inline_mask_framing=True,
         indel_rescue=True,
