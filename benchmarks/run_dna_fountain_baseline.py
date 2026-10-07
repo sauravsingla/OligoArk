@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import platform
 import random
 import resource
@@ -105,6 +106,26 @@ def _peak_rss_mib() -> float:
     return value / 1024
 
 
+def _bernoulli_positions(length: int, rate: float, rng: random.Random) -> set[int]:
+    """Sample independent Bernoulli event positions using geometric skips.
+
+    This is distribution-equivalent to checking every position independently but costs
+    O(number of events) random draws instead of O(length), which matters for sparse DNA
+    channel rates across millions of short strands.
+    """
+    if length <= 0 or rate <= 0:
+        return set()
+    if rate >= 1:
+        return set(range(length))
+    log_survival = math.log1p(-rate)
+    positions: set[int] = set()
+    position = int(math.log1p(-rng.random()) / log_survival)
+    while position < length:
+        positions.add(position)
+        position += 1 + int(math.log1p(-rng.random()) / log_survival)
+    return positions
+
+
 def _mutate_sequence(
     sequence: str,
     *,
@@ -115,18 +136,25 @@ def _mutate_sequence(
 ) -> str:
     if substitution_rate == insertion_rate == deletion_rate == 0:
         return sequence
+
+    substitutions = _bernoulli_positions(len(sequence), substitution_rate, rng)
+    insertions = _bernoulli_positions(len(sequence) + 1, insertion_rate, rng)
+    deletions = _bernoulli_positions(len(sequence), deletion_rate, rng)
+    if not substitutions and not insertions and not deletions:
+        return sequence
+
     dna = "ACGT"
     output: list[str] = []
-    for base in sequence:
-        if rng.random() < deletion_rate:
-            continue
-        if rng.random() < insertion_rate:
+    for index, base in enumerate(sequence):
+        if index in insertions:
             output.append(rng.choice(dna))
-        if rng.random() < substitution_rate:
+        if index in deletions:
+            continue
+        if index in substitutions:
             output.append(rng.choice(dna.replace(base, "")))
         else:
             output.append(base)
-    if rng.random() < insertion_rate:
+    if len(sequence) in insertions:
         output.append(rng.choice(dna))
     return "".join(output)
 
