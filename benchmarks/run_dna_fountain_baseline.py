@@ -135,17 +135,38 @@ def _channel_sequences(
     sequences: tuple[str, ...] | list[str],
     condition_name: str,
     seed: int,
-) -> list[str]:
+) -> tuple[str, ...] | list[str]:
+    """Apply the deterministic channel without copying or reseeding unnecessarily.
+
+    Large matched-codec runs can contain millions of strands. The earlier implementation
+    copied the complete archive and constructed one Random instance per strand even for
+    clean and dropout-only trials. Those allocations dominated runtime at 10 MiB+ while
+    contributing no channel randomness. These fast paths preserve the same dropout sample,
+    per-strand mutation seeds, ordering and mutated sequences.
+    """
     condition = CONDITIONS[condition_name]
     rng = random.Random(seed)
-    selected = list(sequences)
     drop_count = min(
-        len(selected),
-        round(len(selected) * condition["dropout_rate"]),
+        len(sequences),
+        round(len(sequences) * condition["dropout_rate"]),
     )
-    dropped = set(rng.sample(range(len(selected)), drop_count)) if drop_count else set()
+    dropped = set(rng.sample(range(len(sequences)), drop_count)) if drop_count else set()
+
+    has_mutation = any(
+        condition[name] > 0
+        for name in ("substitution_rate", "insertion_rate", "deletion_rate")
+    )
+    if not has_mutation:
+        if not dropped:
+            return sequences
+        return [
+            sequence
+            for index, sequence in enumerate(sequences)
+            if index not in dropped
+        ]
+
     reads: list[str] = []
-    for index, sequence in enumerate(selected):
+    for index, sequence in enumerate(sequences):
         if index in dropped:
             continue
         reads.append(
