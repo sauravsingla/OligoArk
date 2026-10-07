@@ -68,7 +68,7 @@ def _mask(data: bytes, mask_id: int) -> bytes:
     return bytes(out)
 
 
-def encode_frame(
+def encode_frame_packed(
     payload: bytes,
     *,
     index: int,
@@ -79,8 +79,12 @@ def encode_frame(
     is_fountain: bool = False,
     sequence_constraints: SequenceConstraints | None = None,
     mask_search_limit: int = 64,
-) -> str:
-    """Encode one protected strand while enforcing optional hard sequence constraints."""
+) -> bytes:
+    """Encode one frame directly into its compact 2-bit-packed byte representation.
+
+    This is the binary equivalent of :func:`encode_frame`. It avoids expanding every base
+    into an ASCII character when a caller is writing a compact on-disk archive.
+    """
     if not 1 <= mask_search_limit <= 256:
         raise ValueError("mask_search_limit must be between 1 and 256")
     constraints = sequence_constraints or SequenceConstraints()
@@ -103,10 +107,21 @@ def encode_frame(
     )
     protected = rs_encode(header + payload, rs_nsym)
     candidate_ids = range(mask_search_limit) if adaptive_masks else range(1)
-    valid: list[tuple[float, str]] = []
 
+    # Scale benchmarks can intentionally request an unconstrained software profile. In that
+    # case mask 0 is always legal, so do not expand to DNA merely to prove a tautology.
+    if (
+        not adaptive_masks
+        and constraints.min_gc_fraction == 0.0
+        and constraints.max_gc_fraction == 1.0
+        and constraints.max_homopolymer >= 4 * (1 + len(protected))
+    ):
+        return bytes([0]) + _mask(protected, 0)
+
+    valid: list[tuple[float, bytes]] = []
     for mask_id in candidate_ids:
-        dna = bytes_to_dna(bytes([mask_id]) + _mask(protected, mask_id))
+        packed = bytes([mask_id]) + _mask(protected, mask_id)
+        dna = bytes_to_dna(packed)
         if constraints.accepts(dna):
             target = (constraints.min_gc_fraction + constraints.max_gc_fraction) / 2.0
             score = quality_penalty(
@@ -114,13 +129,40 @@ def encode_frame(
                 gc_target=target,
                 max_homopolymer=constraints.max_homopolymer,
             )
-            valid.append((score, dna))
+            valid.append((score, packed))
 
     if not valid:
         raise SequenceConstraintError(
             "No deterministic mask candidate satisfied configured GC/homopolymer constraints"
         )
     return min(valid, key=lambda item: item[0])[1]
+
+
+def encode_frame(
+    payload: bytes,
+    *,
+    index: int,
+    total_data: int,
+    is_parity: bool,
+    rs_nsym: int,
+    adaptive_masks: bool,
+    is_fountain: bool = False,
+    sequence_constraints: SequenceConstraints | None = None,
+    mask_search_limit: int = 64,
+) -> str:
+    """Encode one protected strand while enforcing optional hard sequence constraints."""
+    packed = encode_frame_packed(
+        payload,
+        index=index,
+        total_data=total_data,
+        is_parity=is_parity,
+        is_fountain=is_fountain,
+        rs_nsym=rs_nsym,
+        adaptive_masks=adaptive_masks,
+        sequence_constraints=sequence_constraints,
+        mask_search_limit=mask_search_limit,
+    )
+    return bytes_to_dna(packed)
 
 
 def _decode_with_mask(raw: bytes, mask_id: int, rs_nsym: int) -> DecodedFrame:
@@ -148,26 +190,21 @@ def _decode_with_mask(raw: bytes, mask_id: int, rs_nsym: int) -> DecodedFrame:
     )
 
 
-def decode_frame(
-    sequence: str,
+def decode_frame_packed(
+    raw: bytes,
     *,
     rs_nsym: int,
     mask_search_limit: int = 256,
 ) -> DecodedFrame:
-    """Decode a strand, with a bounded fallback search for a damaged mask byte."""
+    """Decode a compact 2-bit-packed frame without expanding it to an ASCII DNA string."""
     if not 1 <= mask_search_limit <= 256:
         raise ValueError("mask_search_limit must be between 1 and 256")
-    raw = dna_to_bytes(sequence)
     if len(raw) < 1 + _HEADER.size + rs_nsym:
         raise ValueError("Strand is shorter than the OligoArk frame")
 
     indicated = raw[0]
     candidates = [indicated]
-    candidates.extend(
-        mask_id
-        for mask_id in range(mask_search_limit)
-        if mask_id != indicated
-    )
+    candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
     errors: list[Exception] = []
     for mask_id in candidates:
         try:
@@ -175,3 +212,17 @@ def decode_frame(
         except ValueError as exc:
             errors.append(exc)
     raise ValueError("Unable to decode OligoArk strand with any deterministic mask") from errors[-1]
+
+
+def decode_frame(
+    sequence: str,
+    *,
+    rs_nsym: int,
+    mask_search_limit: int = 256,
+) -> DecodedFrame:
+    """Decode a strand, with a bounded fallback search for a damaged mask byte."""
+    return decode_frame_packed(
+        dna_to_bytes(sequence),
+        rs_nsym=rs_nsym,
+        mask_search_limit=mask_search_limit,
+    )
