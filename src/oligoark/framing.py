@@ -322,6 +322,8 @@ def decode_frame_packed(
     for mask_id in candidates:
         try:
             if compact_framing:
+                if expected_total_data is None:
+                    raise ValueError("compact framing requires expected_total_data")
                 return _decode_compact_with_mask(
                     raw,
                     mask_id,
