@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sauravsingla/OligoArk/docs/wetlab-manifest.schema.json",
+  "title": "OligoArk wet-lab experiment manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "status",
+    "claim_scope",
+    "source",
+    "codec",
+    "outputs",
+    "sequencing_input_contract",
+    "planned_read_depths_per_strand",
+    "controls",
+    "success_criterion",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "status": {
+      "type": "string",
+      "enum": [
+        "prepared-not-executed",
+        "synthesized",
+        "sequenced",
+        "physical-read-archive-recovery-verified",
+        "physical-read-archive-recovery-failed"
+      ]
+    },
+    "claim_scope": {"type": "string"},
+    "source": {
+      "type": "object",
+      "required": ["file_name", "bytes", "sha256"],
+      "properties": {
+        "file_name": {"type": "string"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "codec": {
+      "type": "object",
+      "required": ["profile", "target_strand_nt", "config"],
+      "properties": {
+        "profile": {"type": "string"},
+        "target_strand_nt": {"type": "integer", "minimum": 1},
+        "config": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "outputs": {
+      "type": "object",
+      "required": ["archive", "synthesis_fasta", "synthesis_csv"],
+      "properties": {
+        "archive": {"type": "string"},
+        "synthesis_fasta": {"type": "string"},
+        "synthesis_csv": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "sequencing_input_contract": {
+      "type": "object",
+      "required": ["accepted_formats", "orientation", "required_record_content"],
+      "properties": {
+        "accepted_formats": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "orientation": {"type": "string"},
+        "required_record_content": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "planned_read_depths_per_strand": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1},
+      "minItems": 1
+    },
+    "controls": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "success_criterion": {"type": "string"},
+    "provider_note": {"type": "string"},
+    "summary": {
+      "type": "object",
+      "required": [
+        "source_bytes",
+        "source_sha256",
+        "profile",
+        "strand_count",
+        "data_strands",
+        "parity_strands",
+        "fountain_strands",
+        "encoded_nucleotides",
+        "logical_bits_per_nucleotide",
+        "target_strand_nt",
+        "claim_status"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
