@@ -53,6 +53,9 @@ flowchart LR
 | `ecc.py` | Pure-Python Reed-Solomon plus XOR erasure helpers |
 | `fountain.py` | Seeded LT-style XOR symbols and peeling decode |
 | `archive.py` | Archive creation/validation/recovery, graph fallback orchestration, SHA-256 verification |
+| `streaming.py` | Bounded-memory compact binary archive creation/recovery and controlled scale faults |
+| `profiles.py` | Named software/physical strand-length profiles |
+| `baselines.py` | Independent clean-room DNA Fountain-style software baseline |
 | `simulator.py` | Seeded substitution/insertion/deletion/dropout/duplication software channel |
 | `reconstruct.py` | Explicit weighted similarity graphs, components, medoid and alignment consensus |
 | `validation.py` | Direct-vs-medoid-vs-alignment graph-rescue ablation and diagnostics |
@@ -81,6 +84,11 @@ flowchart LR
 12. **ML remains optional and interpretable.** Core operation requires no PyTorch; the learned baselines are deterministic and dependency-free.
 
 ## Archive format and compatibility
+
+The JSON archive remains `oligoark-archive-v1`. Large-file experiments can instead use
+`oligoark-stream-v2`, which stores the same logical v1 strand frames as length-prefixed
+2-bit-packed records so bases do not occupy one ASCII byte each. The streaming container is
+an additional format rather than a migration: existing JSON archives remain readable.
 
 The JSON archive remains `oligoark-archive-v1`. v0.1-v0.4-style configuration mappings remain readable because later fields retain backward-compatible defaults. The v0.5 validation pass does not introduce an archive-format migration.
 
