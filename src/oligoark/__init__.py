@@ -10,6 +10,12 @@ from .archive import (
     recover_bytes,
     recover_from_reads,
 )
+from .baselines import (
+    DnaFountainBaselineArchive,
+    DnaFountainBaselineConfig,
+    decode_dna_fountain_baseline,
+    encode_dna_fountain_baseline,
+)
 from .dna import SequenceConstraintError, SequenceConstraints
 from .experiments import (
     CalibrationRecord,
@@ -70,6 +76,11 @@ from .physical import (
     read_sequences,
 )
 from .policy import ChannelProfile, CodecPolicy, PolicyObjective, recommend_codec_policy
+from .profiles import (
+    PHYSICAL_STRAND_PROFILES,
+    PhysicalStrandProfile,
+    physical_strand_profile,
+)
 from .reconstruct import (
     EdgeScorer,
     GraphConsensusReconstructor,
@@ -87,6 +98,13 @@ from .reconstruct import (
     medoid_consensus,
     multistart_trace_consensus,
     targeted_trace_consensus,
+)
+from .streaming import (
+    StreamingArchiveStatistics,
+    StreamingFaultProfile,
+    StreamingRecoveryReport,
+    archive_file_streaming,
+    recover_file_streaming,
 )
 from .tiering import (
     EconomicAssumptions,
@@ -115,6 +133,13 @@ __all__ = [
     "CodecPolicy",
     "CodecSearchSpace",
     "DNAArchive",
+    "DnaFountainBaselineArchive",
+    "DnaFountainBaselineConfig",
+    "PHYSICAL_STRAND_PROFILES",
+    "PhysicalStrandProfile",
+    "StreamingArchiveStatistics",
+    "StreamingFaultProfile",
+    "StreamingRecoveryReport",
     "EconomicAssumptions",
     "EdgeScorer",
     "EmpiricalPolicyModel",
@@ -162,10 +187,13 @@ __all__ = [
     "aggregate_experiments",
     "alignment_consensus",
     "archive_bytes",
+    "archive_file_streaming",
     "archive_statistics",
     "build_similarity_graph",
     "confidence_fusion_trace_consensus",
     "compare_reconstruction_modes",
+    "decode_dna_fountain_baseline",
+    "encode_dna_fountain_baseline",
     "enumerate_candidate_specs",
     "evaluate_learning_from_records",
     "evaluate_optimized_archive_plan",
@@ -180,9 +208,11 @@ __all__ = [
     "optimize_codec",
     "paired_strategy_effects",
     "plan_archive",
+    "physical_strand_profile",
     "policy_observations_from_records",
     "publication_profile",
     "recover_bytes",
+    "recover_file_streaming",
     "recover_from_reads",
     "recommend_codec_policy",
     "read_sequences",
