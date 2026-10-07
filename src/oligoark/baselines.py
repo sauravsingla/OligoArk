@@ -220,8 +220,13 @@ def decode_dna_fountain_baseline(
     archive: DnaFountainBaselineArchive,
     sequences: tuple[str, ...] | list[str] | None = None,
 ) -> bytes:
-    selected = archive.sequences if sequences is None else tuple(sequences)
-    equations: list[tuple[set[int], bytes]] = []
+    selected = archive.sequences if sequences is None else sequences
+
+    # Decode directly into the mutable peeling representation. The earlier implementation
+    # first retained every equation as a set/bytes tuple and then duplicated all sets and
+    # payloads for peeling, roughly doubling graph memory at multi-MiB scales.
+    unknown_sets: list[set[int]] = []
+    residuals: list[bytearray] = []
     for sequence in selected:
         try:
             packet = rs_decode(dna_to_bytes(sequence), archive.config.rs_nsym)
@@ -236,14 +241,13 @@ def decode_dna_fountain_baseline(
             archive.config.c,
             archive.config.delta,
         )
-        equations.append((set(droplet_indexes), packet[4:]))
+        unknown_sets.append(set(droplet_indexes))
+        residuals.append(bytearray(packet[4:]))
 
-    # Peel degree-one equations with an adjacency queue. The previous implementation
-    # rescanned every unresolved equation after each peeling wave, which became the dominant
-    # cost at multi-MiB scales. Each edge is now visited only when one of its chunks is solved.
+    # Peel degree-one equations with an adjacency queue. Chunk payloads are held in an
+    # indexed list rather than a hash table, avoiding millions of integer hash entries at
+    # the 100 MiB target while preserving the exact same peeling decisions.
     width = archive.config.chunk_size
-    unknown_sets = [set(indexes) for indexes, _ in equations]
-    residuals = [bytearray(payload) for _, payload in equations]
     incident: list[list[int]] = [[] for _ in range(archive.chunk_count)]
     ready: deque[int] = deque()
     for equation_id, indexes in enumerate(unknown_sets):
@@ -252,14 +256,14 @@ def decode_dna_fountain_baseline(
         if len(indexes) == 1:
             ready.append(equation_id)
 
-    known: dict[int, bytes] = {}
+    known: list[bytes | None] = [None] * archive.chunk_count
     while ready:
         equation_id = ready.popleft()
         unknown = unknown_sets[equation_id]
         if len(unknown) != 1:
             continue
         index = next(iter(unknown))
-        if index in known:
+        if known[index] is not None:
             continue
         payload = bytes(residuals[equation_id])
         known[index] = payload
@@ -275,28 +279,39 @@ def decode_dna_fountain_baseline(
             if len(dependent) == 1:
                 ready.append(dependent_id)
 
-    missing = [index for index in range(archive.chunk_count) if index not in known]
+    missing = [index for index, payload in enumerate(known) if payload is None]
     if missing:
+        known_map = {
+            index: payload
+            for index, payload in enumerate(known)
+            if payload is not None
+        }
         pending = [
             (indexes, bytes(residuals[equation_id]))
             for equation_id, indexes in enumerate(unknown_sets)
             if indexes
         ]
-        known = _gaussian_recover(
+        recovered_map = _gaussian_recover(
             pending,
-            known,
+            known_map,
             total=archive.chunk_count,
             width=width,
         )
-        missing = [index for index in range(archive.chunk_count) if index not in known]
+        for index, payload in recovered_map.items():
+            known[index] = payload
+        missing = [index for index, payload in enumerate(known) if payload is None]
     if missing:
         raise ValueError(
             "DNA Fountain baseline is not recoverable; "
             f"missing chunks: {missing[:20]}"
         )
-    recovered = b"".join(
-        known[index] for index in range(archive.chunk_count)
-    )[: archive.original_size]
+
+    parts: list[bytes] = []
+    for payload in known:
+        if payload is None:
+            raise ValueError("DNA Fountain internal recovery state is incomplete")
+        parts.append(payload)
+    recovered = b"".join(parts)[: archive.original_size]
     if hashlib.sha256(recovered).hexdigest() != archive.sha256:
         raise ValueError("DNA Fountain baseline failed SHA-256 verification")
     return recovered
