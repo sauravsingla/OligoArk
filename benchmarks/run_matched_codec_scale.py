@@ -418,7 +418,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--profile",
-        choices=("ci", "full", "scale", "research"),
+        choices=("ci", "full", "scale", "research", "research-10", "research-100"),
         default="full",
     )
     parser.add_argument("--output", type=Path, default=Path("matched-codec-results"))
@@ -442,6 +442,14 @@ def main() -> None:
     elif args.profile == "research":
         default_conditions = tuple(CONDITIONS)
         sizes = RESEARCH_SIZES
+        default_trials = 10
+    elif args.profile == "research-10":
+        default_conditions = tuple(CONDITIONS)
+        sizes = (10 * MIB,)
+        default_trials = 10
+    elif args.profile == "research-100":
+        default_conditions = tuple(CONDITIONS)
+        sizes = (100 * MIB,)
         default_trials = 10
     else:
         default_conditions = tuple(CONDITIONS)
