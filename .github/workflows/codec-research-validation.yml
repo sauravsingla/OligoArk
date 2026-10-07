@@ -64,7 +64,7 @@ jobs:
             --profile research-10 \
             --method "${METHOD}" \
             --trials 10 \
-            --condition-timeout-seconds 300 \
+            --condition-timeout-seconds 75 \
             --timeout-seconds 1200 \
             --output "${OUT}"
           test -s "${OUT}/results.json"
@@ -73,7 +73,25 @@ jobs:
           test -s "${OUT}/trial-results.csv"
           test -s "${OUT}/metadata.json"
           test -s "${OUT}/summary.json"
+      - name: Require all requested 10 MiB trials to finish
+        if: always()
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          OUT="matched-codec-results/${METHOD}"
+          python - "${OUT}/summary.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          summary = json.loads(Path(sys.argv[1]).read_text())
+          if summary["failure_rows"]:
+              raise SystemExit(
+                  f"incomplete matched comparison: {summary['failure_rows']} timeout/error rows"
+              )
+          PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: matched-codec-10mib-${{ matrix.method }}-${{ github.run_id }}
           path: matched-codec-results/
@@ -121,7 +139,26 @@ jobs:
           test -s "${OUT}/trial-results.csv"
           test -s "${OUT}/metadata.json"
           test -s "${OUT}/summary.json"
+      - name: Require all requested manual trials to finish
+        if: always()
+        env:
+          METHOD: ${{ matrix.method }}
+          SIZE_MIB: ${{ inputs.size_mib }}
+        run: |
+          OUT="matched-codec-results/${METHOD}-${SIZE_MIB}mib"
+          python - "${OUT}/summary.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          summary = json.loads(Path(sys.argv[1]).read_text())
+          if summary["failure_rows"]:
+              raise SystemExit(
+                  f"incomplete matched comparison: {summary['failure_rows']} timeout/error rows"
+              )
+          PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: matched-codec-${{ inputs.size_mib }}mib-${{ matrix.method }}-${{ github.run_id }}
           path: matched-codec-results/
