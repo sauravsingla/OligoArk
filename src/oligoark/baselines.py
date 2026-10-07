@@ -244,10 +244,9 @@ def decode_dna_fountain_baseline(
 ) -> bytes:
     selected = archive.sequences if sequences is None else sequences
 
-    # Decode directly into the mutable peeling representation. The earlier implementation
-    # first retained every equation as a set/bytes tuple and then duplicated all sets and
-    # payloads for peeling, roughly doubling graph memory at multi-MiB scales.
-    unknown_sets: list[set[int]] = []
+    # Keep each droplet's source indexes immutable. Peeling only needs an unresolved count;
+    # a Python set per droplet is unnecessary overhead and becomes costly at multi-MiB scale.
+    equation_indexes: list[tuple[int, ...]] = []
     residuals: list[bytearray] = []
     for sequence in selected:
         try:
@@ -257,22 +256,20 @@ def decode_dna_fountain_baseline(
         if len(packet) != 4 + archive.config.chunk_size:
             continue
         seed = int.from_bytes(packet[:4], "big")
-        droplet_indexes = _droplet_indexes(
+        indexes = _droplet_indexes(
             archive.chunk_count,
             seed,
             archive.config.c,
             archive.config.delta,
         )
-        unknown_sets.append(set(droplet_indexes))
+        equation_indexes.append(indexes)
         residuals.append(bytearray(packet[4:]))
 
-    # Peel degree-one equations with an adjacency queue. Chunk payloads are held in an
-    # indexed list rather than a hash table, avoiding millions of integer hash entries at
-    # the 100 MiB target while preserving the exact same peeling decisions.
     width = archive.config.chunk_size
     incident: list[list[int]] = [[] for _ in range(archive.chunk_count)]
+    unresolved_counts = [len(indexes) for indexes in equation_indexes]
     ready: deque[int] = deque()
-    for equation_id, indexes in enumerate(unknown_sets):
+    for equation_id, indexes in enumerate(equation_indexes):
         for index in indexes:
             incident[index].append(equation_id)
         if len(indexes) == 1:
@@ -281,24 +278,30 @@ def decode_dna_fountain_baseline(
     known: list[bytes | None] = [None] * archive.chunk_count
     while ready:
         equation_id = ready.popleft()
-        unknown = unknown_sets[equation_id]
-        if len(unknown) != 1:
+        if unresolved_counts[equation_id] != 1:
             continue
-        index = next(iter(unknown))
-        if known[index] is not None:
+        indexes = equation_indexes[equation_id]
+        index = next(
+            (
+                candidate
+                for candidate in indexes
+                if known[candidate] is None
+            ),
+            None,
+        )
+        if index is None:
             continue
         payload = bytes(residuals[equation_id])
         known[index] = payload
 
         for dependent_id in incident[index]:
-            dependent = unknown_sets[dependent_id]
-            if index not in dependent:
+            if unresolved_counts[dependent_id] <= 0:
                 continue
-            dependent.remove(index)
             residual = residuals[dependent_id]
             for offset in range(width):
                 residual[offset] ^= payload[offset]
-            if len(dependent) == 1:
+            unresolved_counts[dependent_id] -= 1
+            if unresolved_counts[dependent_id] == 1:
                 ready.append(dependent_id)
 
     missing = [index for index, payload in enumerate(known) if payload is None]
@@ -308,11 +311,17 @@ def decode_dna_fountain_baseline(
             for index, payload in enumerate(known)
             if payload is not None
         }
-        pending = [
-            (indexes, bytes(residuals[equation_id]))
-            for equation_id, indexes in enumerate(unknown_sets)
-            if indexes
-        ]
+        pending: list[tuple[set[int], bytes]] = []
+        for equation_id, indexes in enumerate(equation_indexes):
+            if unresolved_counts[equation_id] <= 0:
+                continue
+            unresolved = {
+                index
+                for index in indexes
+                if known[index] is None
+            }
+            if unresolved:
+                pending.append((unresolved, bytes(residuals[equation_id])))
         recovered_map = _gaussian_recover(
             pending,
             known_map,
