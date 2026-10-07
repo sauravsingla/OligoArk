@@ -1,0 +1,58 @@
+name: Storage completion validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  one-gib-storage:
+    if: ${{ github.event.pull_request.number == 38 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run 1 GiB acceptance and physical matrix
+        run: python benchmarks/run_storage_scale.py --profile storage
+      - name: Enforce 1 GiB milestone
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("storage-scale-results/summary.json").read_text())
+          if not summary["milestone_achieved"]:
+              raise SystemExit(summary["milestone_failure"])
+          print(summary["milestone_statement"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storage-completion-${{ github.run_id }}
+          path: storage-scale-results/
+          if-no-files-found: error
+
+  matched-codecs:
+    if: ${{ github.event.pull_request.number == 38 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run matched codec comparison
+        run: python benchmarks/run_dna_fountain_baseline.py --profile full --trials 5 --timeout-seconds 900
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-codecs-${{ github.run_id }}
+          path: dna-fountain-results/
+          if-no-files-found: error
