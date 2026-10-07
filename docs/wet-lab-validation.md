@@ -27,7 +27,7 @@ From the repository root:
 
     python benchmarks/run_wetlab_validation.py prepare pilot.bin \
       --output wetlab-bundle \
-      --profile oligoark-200 \
+      --profile oligoark-200-compact \
       --scheme hybrid \
       --fountain-redundancy 0.125
 
