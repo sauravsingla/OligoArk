@@ -814,6 +814,7 @@ def main() -> None:
                         encode_failure_peak,
                     )
                 )
+                _write_json_atomic(args.output / "partial-results.json", rows)
                 continue
             encode_records.append(encode_meta)
 
@@ -829,6 +830,7 @@ def main() -> None:
                         checkpoint_path=checkpoint,
                     )
                 )
+                _write_json_atomic(args.output / "partial-results.json", rows)
 
             if not args.keep_encoded_artifacts:
                 os.chmod(artifact_path, 0o644)
