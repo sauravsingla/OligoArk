@@ -160,6 +160,57 @@ def encode_dna_fountain_baseline(
     )
 
 
+def _mask_indexes(mask: int) -> tuple[int, ...]:
+    indexes: list[int] = []
+    while mask:
+        bit = mask & -mask
+        indexes.append(bit.bit_length() - 1)
+        mask ^= bit
+    return tuple(indexes)
+
+
+def _gaussian_recover(
+    equations: list[tuple[set[int], bytes]],
+    known: dict[int, bytes],
+    *,
+    total: int,
+    width: int,
+) -> dict[int, bytes]:
+    """Solve residual XOR equations exactly when LT peeling stalls."""
+    pivots: dict[int, tuple[int, bytes]] = {}
+    for indexes, payload in equations:
+        mask = 0
+        residual_parts = [payload]
+        for index in indexes:
+            if index in known:
+                residual_parts.append(known[index])
+            else:
+                mask |= 1 << index
+        residual = xor_bytes(residual_parts, width)
+        while mask:
+            pivot = (mask & -mask).bit_length() - 1
+            if pivot not in pivots:
+                pivots[pivot] = (mask, residual)
+                break
+            pivot_mask, pivot_payload = pivots[pivot]
+            mask ^= pivot_mask
+            residual = xor_bytes([residual, pivot_payload], width)
+
+    recovered = dict(known)
+    for pivot in sorted(pivots, reverse=True):
+        mask, payload = pivots[pivot]
+        residual_parts = [payload]
+        unresolved = False
+        for index in _mask_indexes(mask & ~(1 << pivot)):
+            if index not in recovered:
+                unresolved = True
+                break
+            residual_parts.append(recovered[index])
+        if not unresolved:
+            recovered[pivot] = xor_bytes(residual_parts, width)
+    return {index: recovered[index] for index in range(total) if index in recovered}
+
+
 def decode_dna_fountain_baseline(
     archive: DnaFountainBaselineArchive,
     sequences: tuple[str, ...] | list[str] | None = None,
@@ -206,6 +257,14 @@ def decode_dna_fountain_baseline(
         pending = next_pending
 
     missing = [index for index in range(archive.chunk_count) if index not in known]
+    if missing:
+        known = _gaussian_recover(
+            equations,
+            known,
+            total=archive.chunk_count,
+            width=archive.config.chunk_size,
+        )
+        missing = [index for index in range(archive.chunk_count) if index not in known]
     if missing:
         raise ValueError(
             "DNA Fountain baseline is not recoverable; "
