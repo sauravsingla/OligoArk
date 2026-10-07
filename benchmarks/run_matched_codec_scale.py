@@ -64,6 +64,17 @@ def _peak_rss_mib() -> float:
     return value / 1024
 
 
+def _git_commit() -> str | None:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    value = completed.stdout.strip()
+    return value if completed.returncode == 0 and value else None
+
+
 def _artifact_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -762,15 +773,23 @@ def main() -> None:
         "python_version": platform.python_version(),
         "platform": platform.platform(),
         "profile": args.profile,
+        "git_commit": _git_commit(),
+        "command": [sys.executable, *sys.argv],
         "payload_sizes_bytes": list(sizes),
         "redundancy_budget": args.redundancy,
         "target_max_strand_nt": 152,
         "trials_per_condition": trials,
+        "trial_seeds": [20_260_000 + trial for trial in range(trials)],
+        "payload_generation_seed": 2026,
         "conditions": list(conditions),
         "methods": list(METHODS),
         "encode_timeout_seconds": args.encode_timeout_seconds,
         "condition_timeout_seconds": args.condition_timeout_seconds,
         "encoded_artifacts_kept": args.keep_encoded_artifacts,
+        "channel_sampler": (
+            "deterministic geometric-skip Bernoulli mutation positions; dropout is sampled "
+            "without replacement at the requested strand-loss fraction"
+        ),
         "orchestration": (
             "one immutable pickle artifact per method x size; every condition loads the same "
             "artifact in an isolated worker; condition checkpoints preserve completed trials "
