@@ -24,7 +24,7 @@ on:
         required: true
         default: "10"
       condition_timeout_seconds:
-        description: "Hard deadline per method x size x condition"
+        description: "Hard deadline per trial; timed-out trials are retained as failures"
         required: true
         default: "300"
 
@@ -73,22 +73,72 @@ jobs:
           test -s "${OUT}/trial-results.csv"
           test -s "${OUT}/metadata.json"
           test -s "${OUT}/summary.json"
-      - name: Require all requested 10 MiB trials to finish
+      - name: Validate complete 10 MiB trial accounting
         if: always()
         env:
           METHOD: ${{ matrix.method }}
         run: |
           OUT="matched-codec-results/${METHOD}"
-          python - "${OUT}/summary.json" <<'PY'
+          python - "${OUT}/results.json" "${OUT}/metadata.json" <<'PY'
           import json
           import sys
           from pathlib import Path
 
-          summary = json.loads(Path(sys.argv[1]).read_text())
-          if summary["failure_rows"]:
+          rows = json.loads(Path(sys.argv[1]).read_text())
+          metadata = json.loads(Path(sys.argv[2]).read_text())
+          conditions = list(metadata["conditions"])
+          expected_trials = int(metadata["trials_per_condition"])
+          if len(rows) != len(conditions):
               raise SystemExit(
-                  f"incomplete matched comparison: {summary['failure_rows']} timeout/error rows"
+                  f"expected {len(conditions)} condition rows, found {len(rows)}"
               )
+          by_condition = {row["condition"]: row for row in rows}
+          if sorted(by_condition) != sorted(conditions):
+              raise SystemExit(
+                  f"condition mismatch: expected {conditions}, found {sorted(by_condition)}"
+              )
+          for condition in conditions:
+              row = by_condition[condition]
+              trials = int(row["trials"])
+              completed = int(row["completed_trials"])
+              timeouts = int(row["timeout_trials"])
+              successes = int(row["successes"])
+              failures = int(row["failed_trials"])
+              trial_results = list(row["trial_results"])
+              if trials != expected_trials:
+                  raise SystemExit(
+                      f"{condition}: expected {expected_trials} trials, found {trials}"
+                  )
+              if len(trial_results) != trials:
+                  raise SystemExit(
+                      f"{condition}: expected {trials} retained trial records, "
+                      f"found {len(trial_results)}"
+                  )
+              if completed + timeouts != trials:
+                  raise SystemExit(
+                      f"{condition}: completed({completed}) + timeouts({timeouts}) "
+                      f"!= trials({trials})"
+                  )
+              if successes + failures != trials:
+                  raise SystemExit(
+                      f"{condition}: successes({successes}) + failures({failures}) "
+                      f"!= trials({trials})"
+                  )
+              observed = sorted(int(item["trial"]) for item in trial_results)
+              if observed != list(range(trials)):
+                  raise SystemExit(
+                      f"{condition}: trial indexes are incomplete or duplicated: {observed}"
+                  )
+              for item in trial_results:
+                  if item.get("timed_out"):
+                      if item.get("success") is not False or item.get("sha256_verified") is not False:
+                          raise SystemExit(
+                              f"{condition}: timed-out trial was not retained as a failure"
+                          )
+          print(
+              "validated complete trial accounting; scientific failures/timeouts "
+              "remain in the artifacts and do not count as harness failures"
+          )
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -139,23 +189,73 @@ jobs:
           test -s "${OUT}/trial-results.csv"
           test -s "${OUT}/metadata.json"
           test -s "${OUT}/summary.json"
-      - name: Require all requested manual trials to finish
+      - name: Validate complete manual trial accounting
         if: always()
         env:
           METHOD: ${{ matrix.method }}
           SIZE_MIB: ${{ inputs.size_mib }}
         run: |
           OUT="matched-codec-results/${METHOD}-${SIZE_MIB}mib"
-          python - "${OUT}/summary.json" <<'PY'
+          python - "${OUT}/results.json" "${OUT}/metadata.json" <<'PY'
           import json
           import sys
           from pathlib import Path
 
-          summary = json.loads(Path(sys.argv[1]).read_text())
-          if summary["failure_rows"]:
+          rows = json.loads(Path(sys.argv[1]).read_text())
+          metadata = json.loads(Path(sys.argv[2]).read_text())
+          conditions = list(metadata["conditions"])
+          expected_trials = int(metadata["trials_per_condition"])
+          if len(rows) != len(conditions):
               raise SystemExit(
-                  f"incomplete matched comparison: {summary['failure_rows']} timeout/error rows"
+                  f"expected {len(conditions)} condition rows, found {len(rows)}"
               )
+          by_condition = {row["condition"]: row for row in rows}
+          if sorted(by_condition) != sorted(conditions):
+              raise SystemExit(
+                  f"condition mismatch: expected {conditions}, found {sorted(by_condition)}"
+              )
+          for condition in conditions:
+              row = by_condition[condition]
+              trials = int(row["trials"])
+              completed = int(row["completed_trials"])
+              timeouts = int(row["timeout_trials"])
+              successes = int(row["successes"])
+              failures = int(row["failed_trials"])
+              trial_results = list(row["trial_results"])
+              if trials != expected_trials:
+                  raise SystemExit(
+                      f"{condition}: expected {expected_trials} trials, found {trials}"
+                  )
+              if len(trial_results) != trials:
+                  raise SystemExit(
+                      f"{condition}: expected {trials} retained trial records, "
+                      f"found {len(trial_results)}"
+                  )
+              if completed + timeouts != trials:
+                  raise SystemExit(
+                      f"{condition}: completed({completed}) + timeouts({timeouts}) "
+                      f"!= trials({trials})"
+                  )
+              if successes + failures != trials:
+                  raise SystemExit(
+                      f"{condition}: successes({successes}) + failures({failures}) "
+                      f"!= trials({trials})"
+                  )
+              observed = sorted(int(item["trial"]) for item in trial_results)
+              if observed != list(range(trials)):
+                  raise SystemExit(
+                      f"{condition}: trial indexes are incomplete or duplicated: {observed}"
+                  )
+              for item in trial_results:
+                  if item.get("timed_out"):
+                      if item.get("success") is not False or item.get("sha256_verified") is not False:
+                          raise SystemExit(
+                              f"{condition}: timed-out trial was not retained as a failure"
+                          )
+          print(
+              "validated complete trial accounting; scientific failures/timeouts "
+              "remain in the artifacts and do not count as harness failures"
+          )
           PY
       - uses: actions/upload-artifact@v4
         if: always()
