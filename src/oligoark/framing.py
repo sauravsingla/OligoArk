@@ -322,8 +322,9 @@ def _decode_compact_inline_with_mask(
     expected_total_data: int,
     compact_index_bytes: int,
 ) -> DecodedFrame:
-    if raw[0] & _COMPACT_INLINE_TAG_MASK != _COMPACT_INLINE_TAG:
-        raise ValueError("Not a supported inline-mask compact OligoArk strand")
+    # The selector byte is intentionally outside RS protection. Treat its low nibble only
+    # as a mask hint and ignore the high tag bits during decode; the bounded mask search plus
+    # protected flags/index, RS and CRC16 remain the acceptance checks.
     protected = _mask(raw[1:], mask_id)
     try:
         inner = rs_decode(protected, rs_nsym)
