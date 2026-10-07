@@ -1,0 +1,122 @@
+name: LCRC NGS physical generalization
+
+on:
+  push:
+    branches:
+      - benchmark/lcrc-ont-generalization
+    paths:
+      - ".github/workflows/lcrc-ngs-physical-generalization.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lcrc-ngs-physical-generalization
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out OligoArk
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install and run focused tests
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+          python -m pytest tests/test_external_lcrc_ngs_benchmark.py tests/test_reconstruct.py -q
+
+      - name: Check out pinned LCRC physical dataset
+        uses: actions/checkout@v4
+        with:
+          repository: dna-storage-lab/DNAStorage_LCRC
+          ref: ce35bb2720c49ea6d1e6bc17903655b45f9c6c51
+          path: .external/lcrc
+          fetch-depth: 1
+
+      - name: Verify LCRC provenance
+        run: |
+          test "$(git -C .external/lcrc rev-parse HEAD)" =             "ce35bb2720c49ea6d1e6bc17903655b45f9c6c51"
+          test "$(git -C .external/lcrc hash-object LCRC_SmallScale/reference/DNA_oligoPool/oligoPool_11.7K.fa)" =             "3676efd8535e0b5554408154234ed4e2dd1d18ab"
+          test "$(git -C .external/lcrc hash-object LCRC_SmallScale/fastq/HFS_Pool_11.7K_NGS_PEmerged.fastq.gz)" =             "c9926ac7e348e0aba8906ccf6dfd02133ad6b433"
+          sha256sum             .external/lcrc/LCRC_SmallScale/reference/DNA_oligoPool/oligoPool_11.7K.fa             .external/lcrc/LCRC_SmallScale/fastq/HFS_Pool_11.7K_NGS_PEmerged.fastq.gz
+
+      - name: Check out pinned BBS baseline
+        uses: actions/checkout@v4
+        with:
+          repository: GZHoffie/bbs
+          ref: 3e4ab46871929819e4f3e34a831c57cac88bb456
+          path: .external/bbs
+          fetch-depth: 1
+
+      - name: Pin Rust toolchain
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup default 1.85.1
+
+      - name: Cache BBS build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .external/bbs/target
+          key: ${{ runner.os }}-bbs-3e4ab468-rust-1.85.1
+
+      - name: Build pinned BBS
+        run: |
+          test "$(git -C .external/bbs rev-parse HEAD)" =             "3e4ab46871929819e4f3e34a831c57cac88bb456"
+          cargo build             --manifest-path .external/bbs/Cargo.toml             --release             --locked
+
+      - name: Run third independent physical benchmark
+        run: |
+          python benchmarks/run_external_lcrc_ngs_benchmark.py             --references .external/lcrc/LCRC_SmallScale/reference/DNA_oligoPool/oligoPool_11.7K.fa             --reads .external/lcrc/LCRC_SmallScale/fastq/HFS_Pool_11.7K_NGS_PEmerged.fastq.gz             --bbs-bin .external/bbs/target/release/bbs             --development-size 48             --held-out-size 96             --development-seed 20261015             --held-out-seed 20261016             --bbs-repeats 5             --output-dir external-lcrc-ngs-results
+
+      - name: Show concise result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("external-lcrc-ngs-results/summary.json").read_text())
+          print("dataset", data["metadata"]["dataset"])
+          print("association", data["metadata"]["association"])
+          print("development", data["development_diagnostic_only"])
+          for row in data["held_out_summaries"]:
+              print(
+                  row["method"],
+                  "coverage=", row["coverage"],
+                  "exact=", f'{row["successes"]}/{row["trials"]}',
+                  "rate=", row["exact_recovery_rate"],
+                  "mean_ed=", row["mean_edit_distance"],
+                  "seconds=", row["elapsed_seconds"],
+                  "rss_mb=", row["peak_rss_mb"],
+              )
+          print("paired", data["paired_exact_recovery_vs_first_bbs_repeat"])
+          print("read_error_profile", data["held_out_raw_read_error_profile"])
+          PY
+
+      - name: Validate outputs
+        run: |
+          test -s external-lcrc-ngs-results/summary.json
+          test -s external-lcrc-ngs-results/raw-results.json
+          test -s external-lcrc-ngs-results/raw-results.csv
+          test -s external-lcrc-ngs-results/development-clusters.json
+          test -s external-lcrc-ngs-results/held-out-clusters.json
+          python -m json.tool external-lcrc-ngs-results/summary.json > /dev/null
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcrc-ngs-physical-generalization
+          path: external-lcrc-ngs-results/
+          if-no-files-found: error
+          retention-days: 90
