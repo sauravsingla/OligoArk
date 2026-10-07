@@ -19,10 +19,12 @@ OligoArk converts digital data into DNA-like sequences, simulates errors such as
 | Grass et al. (Illumina) | 10 | **96/96 (100%)** | 95/96 (99.0%) |
 | LCRC HFS-11.7K (Illumina PE150) | 5 | **96/96 (100%)** | **96/96 (100%)** |
 | LCRC HFS-11.7K (Illumina PE150) | 10 | **96/96 (100%)** | **96/96 (100%)** |
+| DNAformer Pilot (Illumina MiSeq) | 5 | **96/96 (100%)** | **96/96 (100%)** |
+| DNAformer Pilot (Illumina MiSeq) | 10 | **96/96 (100%)** | **96/96 (100%)** |
 
-The **same frozen confidence-fusion settings** were used across all three physical benchmarks; only the known strand length changed mechanically (110 nt CNR, 117 nt Grass, 200 nt LCRC). On the third independent LCRC experiment, both OligoArk and BBS reconstructed all 96 held-out strands exactly at 5 and 10 reads. BBS remains substantially faster. These are reference-level physical-read reconstruction results, not end-to-end external archive decoding or a general state-of-the-art claim.
+The **same frozen confidence-fusion settings** were used across all four physical benchmarks; only the known strand length changed mechanically (110 nt CNR, 117 nt Grass, 200 nt LCRC, 140 nt DNAformer Pilot). On the DNAformer Pilot held-out split, both OligoArk and BBS reconstructed all 96 strands exactly at 5 and 10 reads; at 1 read both reached 83/96. BBS remains substantially faster. These are reference-level physical-read reconstruction results, not end-to-end external archive decoding or a general state-of-the-art claim.
 
-See [CNR benchmark](docs/external-cnr-benchmark.md), [Grass benchmark](docs/external-grass-benchmark.md), and [LCRC benchmark](docs/external-lcrc-benchmark.md).
+See [CNR benchmark](docs/external-cnr-benchmark.md), [Grass benchmark](docs/external-grass-benchmark.md), [LCRC benchmark](docs/external-lcrc-benchmark.md), and [DNAformer Pilot benchmark](docs/external-dnaformer-pilot-benchmark.md).
 
 ## Install
 
