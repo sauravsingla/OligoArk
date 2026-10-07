@@ -121,6 +121,12 @@ from .validation import (
     RescueModeResult,
     compare_reconstruction_modes,
 )
+from .wetlab import (
+    WetLabBundleSummary,
+    WetLabRecoverySummary,
+    prepare_wetlab_bundle,
+    recover_wetlab_reads,
+)
 
 __all__ = [
     "ArchiveConfig",
@@ -183,6 +189,8 @@ __all__ = [
     "TierRecommendation",
     "TierScoreBreakdown",
     "TraceConsensusReconstructor",
+    "WetLabBundleSummary",
+    "WetLabRecoverySummary",
     "WorkloadProfile",
     "aggregate_experiments",
     "alignment_consensus",
@@ -210,10 +218,12 @@ __all__ = [
     "plan_archive",
     "physical_strand_profile",
     "policy_observations_from_records",
+    "prepare_wetlab_bundle",
     "publication_profile",
     "recover_bytes",
     "recover_file_streaming",
     "recover_from_reads",
+    "recover_wetlab_reads",
     "recommend_codec_policy",
     "read_sequences",
     "recommend_storage_tier",
