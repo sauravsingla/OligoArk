@@ -887,7 +887,7 @@ def main() -> None:
         encoding="utf-8",
     )
     _write_csv(rows, args.output / "results.csv")
-    _write_plots(rows, args.output)
+    _write_plots(rows, args.output, methods=METHODS)
     print(json.dumps({"metadata": metadata, "summary": summary}, indent=2))
 
 
