@@ -18,14 +18,24 @@ from oligoark import __version__
 from oligoark.archive import archive_bytes, archive_statistics, recover_bytes
 from oligoark.baselines import (
     DnaFountainBaselineConfig,
+    RotatingTernaryBaselineConfig,
     decode_dna_fountain_baseline,
+    decode_rotating_ternary_baseline,
     encode_dna_fountain_baseline,
+    encode_rotating_ternary_baseline,
 )
 from oligoark.experiments import wilson_interval
 from oligoark.profiles import physical_strand_profile
 
-METHODS = ("oligoark-fountain", "dna-fountain-cleanroom")
+METHODS = (
+    "oligoark-fountain",
+    "dna-fountain-cleanroom",
+    "goldman-rotating-xor",
+)
+KIB = 1024
 MIB = 1024 * 1024
+FULL_SIZES = (1 * KIB, 64 * KIB, 1 * MIB)
+SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB)
 
 CONDITIONS: dict[str, dict[str, float]] = {
     "clean": {
@@ -299,6 +309,64 @@ def _dna_fountain(
     return row
 
 
+
+def _rotating(
+    payload: bytes,
+    redundancy: float,
+    condition_name: str,
+    trials: int,
+) -> dict[str, object]:
+    config = RotatingTernaryBaselineConfig(redundancy=redundancy)
+    started = time.perf_counter()
+    archive = encode_rotating_ternary_baseline(payload, config)
+    encode_seconds = time.perf_counter() - started
+
+    successes = 0
+    decode_seconds = 0.0
+    for trial in range(trials):
+        reads = _channel_sequences(archive.sequences, condition_name, 20_260_000 + trial)
+        trial_started = time.perf_counter()
+        try:
+            recovered = decode_rotating_ternary_baseline(archive, reads)
+            successes += int(recovered == payload)
+        except ValueError:
+            pass
+        decode_seconds += time.perf_counter() - trial_started
+
+    low, high = wilson_interval(successes, trials)
+    strand_count = len(archive.sequences)
+    row: dict[str, object] = {
+        "method": "goldman-rotating-xor",
+        "size_bytes": len(payload),
+        "target_max_strand_nt": config.max_strand_nt,
+        "max_strand_nt": max(map(len, archive.sequences)),
+        "redundancy_budget": redundancy,
+        "condition": condition_name,
+        **CONDITIONS[condition_name],
+        "trials": trials,
+        "successes": successes,
+        "recovery_rate": round(successes / trials, 6),
+        "recovery_ci95_low": round(low, 6),
+        "recovery_ci95_high": round(high, 6),
+        "sha256_verified_success_definition": True,
+        "strand_count": strand_count,
+        "data_units": archive.data_count,
+        "measured_strand_redundancy_ratio": round(
+            (strand_count - archive.data_count) / max(1, archive.data_count),
+            6,
+        ),
+        "encoded_nucleotides": archive.encoded_nucleotides,
+        "logical_bits_per_nucleotide": round(archive.logical_bits_per_nucleotide, 6),
+        **_common_metrics(
+            payload_size=len(payload),
+            encoded_nucleotides=archive.encoded_nucleotides,
+            encode_seconds=encode_seconds,
+            decode_seconds=decode_seconds,
+            trials=trials,
+        ),
+    }
+    return row
+
 def _worker(
     method: str,
     size: int,
@@ -311,6 +379,8 @@ def _worker(
         row = _oligoark(payload, redundancy, condition_name, trials)
     elif method == "dna-fountain-cleanroom":
         row = _dna_fountain(payload, redundancy, condition_name, trials)
+    elif method == "goldman-rotating-xor":
+        row = _rotating(payload, redundancy, condition_name, trials)
     else:
         raise ValueError(f"unknown method: {method}")
     row["payload_sha256"] = hashlib.sha256(payload).hexdigest()
@@ -323,6 +393,7 @@ def _isolated(
     redundancy: float,
     condition_name: str,
     trials: int,
+    timeout_seconds: int,
 ) -> dict[str, object]:
     command = [
         sys.executable,
@@ -339,7 +410,27 @@ def _isolated(
         "--trials",
         str(trials),
     ]
-    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "method": method,
+            "size_bytes": size,
+            "redundancy_budget": redundancy,
+            "condition": condition_name,
+            "trials": trials,
+            "successes": 0,
+            "recovery_rate": 0.0,
+            "timed_out": True,
+            "timeout_seconds": timeout_seconds,
+            "error": f"worker exceeded {timeout_seconds}s timeout",
+        }
     if completed.returncode:
         return {
             "method": method,
@@ -368,10 +459,78 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     except ImportError:
         return
 
-    conditions = list(dict.fromkeys(str(row["condition"]) for row in rows))
+    clean_rows = [
+        row for row in rows
+        if row.get("condition") == "clean"
+        and "logical_bits_per_nucleotide" in row
+    ]
+    if clean_rows:
+        plt.figure(figsize=(8, 4))
+        for method in METHODS:
+            selected = sorted(
+                (row for row in clean_rows if row.get("method") == method),
+                key=lambda row: int(row["size_bytes"]),
+            )
+            if not selected:
+                continue
+            plt.plot(
+                [float(row["size_bytes"]) / MIB for row in selected],
+                [float(row["logical_bits_per_nucleotide"]) for row in selected],
+                marker="o",
+                label=method,
+            )
+        plt.xscale("log")
+        plt.xlabel("Payload size (MiB)")
+        plt.ylabel("Logical bits per nucleotide")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(output / "codec_density_vs_size.png", dpi=160)
+        plt.close()
+
+        plt.figure(figsize=(8, 4))
+        for method in METHODS:
+            selected = sorted(
+                (row for row in clean_rows if row.get("method") == method),
+                key=lambda row: int(row["size_bytes"]),
+            )
+            if not selected:
+                continue
+            plt.plot(
+                [float(row["size_bytes"]) / MIB for row in selected],
+                [float(row["peak_rss_mib"]) for row in selected],
+                marker="o",
+                label=method,
+            )
+        plt.xscale("log")
+        plt.xlabel("Payload size (MiB)")
+        plt.ylabel("Peak RSS (MiB)")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(output / "codec_memory_vs_size.png", dpi=160)
+        plt.close()
+
+    successful_sizes = sorted(
+        {
+            int(row["size_bytes"])
+            for row in rows
+            if "recovery_rate" in row and "error" not in row
+        }
+    )
+    if not successful_sizes:
+        return
+    largest = successful_sizes[-1]
+    at_largest = [row for row in rows if int(row["size_bytes"]) == largest]
+    conditions = list(dict.fromkeys(str(row["condition"]) for row in at_largest))
     x_values = list(range(len(conditions)))
+    plt.figure(figsize=(9, 4))
     for method in METHODS:
-        selected = {str(row["condition"]): row for row in rows if row["method"] == method}
+        selected = {
+            str(row["condition"]): row
+            for row in at_largest
+            if row.get("method") == method and "recovery_rate" in row
+        }
+        if not all(name in selected for name in conditions):
+            continue
         plt.plot(
             x_values,
             [float(selected[name]["recovery_rate"]) for name in conditions],
@@ -383,29 +542,18 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     plt.ylim(-0.02, 1.02)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(output / "dna_fountain_recovery_comparison.png", dpi=160)
-    plt.close()
-
-    clean = [row for row in rows if row["condition"] == "clean"]
-    plt.figure(figsize=(7, 4))
-    plt.bar(
-        [str(row["method"]) for row in clean],
-        [float(row["logical_bits_per_nucleotide"]) for row in clean],
-    )
-    plt.ylabel("Logical bits per nucleotide")
-    plt.xticks(rotation=20, ha="right")
-    plt.tight_layout()
-    plt.savefig(output / "dna_fountain_density_comparison.png", dpi=160)
+    plt.savefig(output / "codec_recovery_largest_common_size.png", dpi=160)
     plt.close()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", choices=("ci", "full"), default="ci")
+    parser.add_argument("--profile", choices=("ci", "full", "scale"), default="ci")
     parser.add_argument("--output", type=Path, default=Path("dna-fountain-results"))
     parser.add_argument("--size", type=int)
     parser.add_argument("--redundancy", type=float, default=0.25)
     parser.add_argument("--trials", type=int)
+    parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--method", choices=METHODS)
     parser.add_argument("--condition", choices=tuple(CONDITIONS))
@@ -432,8 +580,16 @@ def main() -> None:
         )
         return
 
-    size = args.size if args.size is not None else (1024 if args.profile == "ci" else 8192)
-    trials = args.trials if args.trials is not None else (3 if args.profile == "ci" else 20)
+    if args.size is not None:
+        sizes = (args.size,)
+    elif args.profile == "ci":
+        sizes = (1 * KIB,)
+    elif args.profile == "full":
+        sizes = FULL_SIZES
+    else:
+        sizes = SCALE_SIZES
+
+    trials = args.trials if args.trials is not None else (3 if args.profile == "ci" else 5)
     conditions = (
         ("clean", "dropout-5")
         if args.profile == "ci"
@@ -441,7 +597,15 @@ def main() -> None:
     )
     args.output.mkdir(parents=True, exist_ok=True)
     rows = [
-        _isolated(method, size, args.redundancy, condition_name, trials)
+        _isolated(
+            method,
+            size,
+            args.redundancy,
+            condition_name,
+            trials,
+            args.timeout_seconds,
+        )
+        for size in sizes
         for method in METHODS
         for condition_name in conditions
     ]
@@ -449,14 +613,17 @@ def main() -> None:
         "oligoark_version": __version__,
         "python_version": platform.python_version(),
         "platform": platform.platform(),
-        "payload_size_bytes": size,
+        "payload_sizes_bytes": list(sizes),
         "redundancy_budget": args.redundancy,
         "target_max_strand_nt": 152,
         "trials_per_condition": trials,
         "conditions": list(conditions),
+        "methods": list(METHODS),
+        "worker_timeout_seconds": args.timeout_seconds,
         "claim_scope": (
-            "software codec comparison only; the DNA Fountain baseline is an independent "
-            "research implementation and is not claimed bit-compatible with TeamErlich"
+            "software codec comparison only; DNA Fountain and the Goldman-style rotating "
+            "ternary codec are independent clean-room references and are not claimed "
+            "bit-compatible with historical implementations"
         ),
         "fairness": (
             "same payload, 152-nt ceiling, nominal redundancy budget, channel rates, "
