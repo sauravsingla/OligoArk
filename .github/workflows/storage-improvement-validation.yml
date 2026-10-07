@@ -33,10 +33,10 @@ jobs:
             physical-improvement-results/*.png
           if-no-files-found: error
 
-  matched-codec-research:
+  matched-codec-10mib:
     if: ${{ github.event.pull_request.number == 39 }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,18 +44,45 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -U pip
       - run: pip install -e ".[bench]"
-      - name: Run 10-100 MiB matched comparison
+      - name: Run 10 MiB matched comparison
         run: |
           python benchmarks/run_matched_codec_scale.py \
-            --profile research \
+            --profile research-10 \
             --trials 10 \
             --timeout-seconds 1200 \
-            --output matched-codec-research-results
+            --output matched-codec-10mib-results
       - uses: actions/upload-artifact@v4
         with:
-          name: matched-codec-research-${{ github.run_id }}
+          name: matched-codec-10mib-${{ github.run_id }}
           path: |
-            matched-codec-research-results/*.json
-            matched-codec-research-results/*.csv
-            matched-codec-research-results/*.png
+            matched-codec-10mib-results/*.json
+            matched-codec-10mib-results/*.csv
+            matched-codec-10mib-results/*.png
+          if-no-files-found: error
+
+  matched-codec-100mib:
+    if: ${{ github.event.pull_request.number == 39 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run 100 MiB matched comparison
+        run: |
+          python benchmarks/run_matched_codec_scale.py \
+            --profile research-100 \
+            --trials 10 \
+            --timeout-seconds 1200 \
+            --output matched-codec-100mib-results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-codec-100mib-${{ github.run_id }}
+          path: |
+            matched-codec-100mib-results/*.json
+            matched-codec-100mib-results/*.csv
+            matched-codec-100mib-results/*.png
           if-no-files-found: error
