@@ -464,12 +464,16 @@ def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
         writer.writerows(flattened)
 
 
-def _summary(rows: list[dict[str, object]], conditions: tuple[str, ...]) -> dict[str, object]:
+def _summary(
+    rows: list[dict[str, object]],
+    conditions: tuple[str, ...],
+    methods: tuple[str, ...],
+) -> dict[str, object]:
     sizes = sorted({int(row["size_bytes"]) for row in rows})
     common_sizes: list[int] = []
     for size in sizes:
         complete = True
-        for method in METHODS:
+        for method in methods:
             selected = [
                 row
                 for row in rows
@@ -624,11 +628,14 @@ def main() -> None:
         )
         return
 
+    if args.size is not None:
+        sizes = (args.size,)
+    selected_methods = (args.method,) if args.method is not None else METHODS
     conditions = default_conditions
     args.output.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
     for size in sizes:
-        for method in METHODS:
+        for method in selected_methods:
             rows.extend(
                 _isolated(
                     method,
@@ -651,7 +658,7 @@ def main() -> None:
         "target_max_strand_nt": 152,
         "trials_per_condition": trials,
         "conditions": list(conditions),
-        "methods": list(METHODS),
+        "methods": list(selected_methods),
         "encode_orchestration_timeout_seconds": args.timeout_seconds,
         "condition_timeout_seconds": args.condition_timeout_seconds,
         "derived_worker_timeout_seconds": (
@@ -670,7 +677,7 @@ def main() -> None:
             "resource failure remains a reportable negative result."
         ),
     }
-    summary = _summary(rows, conditions)
+    summary = _summary(rows, conditions, selected_methods)
     (args.output / "results.json").write_text(
         json.dumps(rows, indent=2, sort_keys=True),
         encoding="utf-8",
