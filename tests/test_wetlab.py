@@ -42,7 +42,7 @@ def test_wetlab_bundle_is_self_describing_and_clean_roundtrip(tmp_path) -> None:
         recovered,
     )
     assert result.verified_sha256 is True
-    assert result.claim_status == "physical-read-archive-recovery-verified"
+    assert result.claim_status == "archive-recovery-sha256-verified"
     assert recovered.read_bytes() == payload
 
 
