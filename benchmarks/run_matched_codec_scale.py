@@ -48,6 +48,7 @@ from oligoark.profiles import physical_strand_profile
 
 METHODS = (
     "oligoark-compact-hybrid",
+    "oligoark-efficient-hybrid-v1",
     "dna-fountain-cleanroom",
     "goldman-rotating-xor",
 )
@@ -93,8 +94,13 @@ def _encode_artifact(
 
     encode_started = time.perf_counter()
     extra: dict[str, object] = {}
-    if method == "oligoark-compact-hybrid":
-        profile = physical_strand_profile("oligoark-152-compact").with_scheme("hybrid")
+    if method in {"oligoark-compact-hybrid", "oligoark-efficient-hybrid-v1"}:
+        profile_name = (
+            "oligoark-152-efficient-v1"
+            if method == "oligoark-efficient-hybrid-v1"
+            else "oligoark-152-compact"
+        )
+        profile = physical_strand_profile(profile_name).with_scheme("hybrid")
         xor_share = 1.0 / profile.parity_group_size
         fountain_share = max(0.0, redundancy - xor_share)
         config = profile.to_archive_config(fountain_redundancy=fountain_share)
@@ -109,8 +115,10 @@ def _encode_artifact(
                 "xor": round(xor_share, 6),
                 "fountain": round(fountain_share, 6),
             },
+            "profile": profile_name,
             "compact_framing": config.compact_framing,
             "compact_index_bytes": config.compact_index_bytes,
+            "compact_typed_index": config.compact_typed_index,
             "rs_nsym": config.rs_nsym,
             "chunk_size": config.chunk_size,
             "fountain_max_degree": config.fountain_max_degree,
@@ -194,7 +202,7 @@ def _decode_adapter(
     record: dict[str, object],
 ) -> tuple[tuple[str, ...] | list[str], Any]:
     archive = record["archive"]
-    if method == "oligoark-compact-hybrid":
+    if method in {"oligoark-compact-hybrid", "oligoark-efficient-hybrid-v1"}:
         return archive.strands, lambda reads: recover_bytes(archive, reads)
     if method == "dna-fountain-cleanroom":
         if not isinstance(archive, DnaFountainBaselineArchive):
@@ -770,8 +778,8 @@ def main() -> None:
         ),
         "fairness": (
             "same deterministic payload bytes, 152-nt ceiling, nominal 25% redundancy budget, "
-            "channel rates, trial seeds and SHA-256 exact-recovery definition; OligoArk splits "
-            "the budget between XOR parity and fountain symbols"
+            "channel rates, trial seeds and SHA-256 exact-recovery definition; both OligoArk "
+            "profiles split the budget between XOR parity and fountain symbols"
         ),
         "claim_scope": (
             "software codec comparison only; no wet-lab performance or historical "
