@@ -54,6 +54,7 @@ class PhysicalStrandProfile:
             self.rs_nsym,
             compact_framing=self.compact_framing,
             compact_index_bytes=self.compact_index_bytes,
+            compact_typed_index=self.compact_typed_index,
         )
         return 4 * (overhead + self.chunk_size)
 
