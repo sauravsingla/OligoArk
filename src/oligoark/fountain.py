@@ -8,6 +8,7 @@ XOR symbols inside OligoArk's real archive/recovery pipeline.
 from __future__ import annotations
 
 import random
+from collections import deque
 from dataclasses import dataclass
 
 from .ecc import xor_bytes
@@ -68,25 +69,47 @@ def peel_decode(
     if total <= 0 or width <= 0:
         raise ValueError("total and width must be positive")
     recovered = dict(known)
-    pending = [(set(symbol.indexes), symbol.payload) for symbol in symbols]
-    changed = True
-    while changed:
-        changed = False
-        next_pending: list[tuple[set[int], bytes]] = []
-        for indexes, payload in pending:
-            unknown = set(indexes)
-            residual_parts = [payload]
-            for index in list(unknown):
-                if index in recovered:
-                    residual_parts.append(recovered[index])
-                    unknown.remove(index)
-            residual = xor_bytes(residual_parts, width)
-            if len(unknown) == 1:
-                index = next(iter(unknown))
-                if index not in recovered:
-                    recovered[index] = residual
-                    changed = True
-            elif unknown:
-                next_pending.append((unknown, residual))
-        pending = next_pending
+    unknown_sets: list[set[int]] = []
+    residuals: list[bytearray] = []
+    incident: list[list[int]] = [[] for _ in range(total)]
+    ready: deque[int] = deque()
+
+    for symbol in symbols:
+        unknown = {index for index in symbol.indexes if index not in recovered}
+        residual = bytearray(symbol.payload)
+        for index in symbol.indexes:
+            if index in recovered:
+                payload = recovered[index]
+                for offset in range(width):
+                    residual[offset] ^= payload[offset]
+        equation_id = len(unknown_sets)
+        unknown_sets.append(unknown)
+        residuals.append(residual)
+        for index in unknown:
+            incident[index].append(equation_id)
+        if len(unknown) == 1:
+            ready.append(equation_id)
+
+    while ready:
+        equation_id = ready.popleft()
+        unknown = unknown_sets[equation_id]
+        if len(unknown) != 1:
+            continue
+        index = next(iter(unknown))
+        if index in recovered:
+            continue
+        payload = bytes(residuals[equation_id])
+        recovered[index] = payload
+
+        for dependent_id in incident[index]:
+            dependent = unknown_sets[dependent_id]
+            if index not in dependent:
+                continue
+            dependent.remove(index)
+            residual = residuals[dependent_id]
+            for offset in range(width):
+                residual[offset] ^= payload[offset]
+            if len(dependent) == 1:
+                ready.append(dependent_id)
+
     return {index: recovered[index] for index in range(total) if index in recovered}
