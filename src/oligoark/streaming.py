@@ -385,6 +385,7 @@ def recover_file_streaming(
         size = int(cast(int, metadata["original_size"]))
         expected = str(metadata["sha256"])
         known = bytearray(total)
+        known_count = 0
         fountain_frames: list[DecodedFrame] = []
 
         with destination.open("wb+") as output:
@@ -426,20 +427,22 @@ def recover_file_streaming(
                             payload,
                             config.chunk_size,
                         ):
+                            known_count += 1
                             xor_recovered += 1
                 elif frame.is_fountain:
                     # Clean/XOR-resolved hybrid archives need no fountain state at all. Retain
                     # fountain equations only when an unresolved data erasure remains.
-                    if sum(known) != total:
+                    if known_count != total:
                         fountain_frames.append(frame)
                 else:
-                    _write_chunk(
+                    if _write_chunk(
                         output,
                         known,
                         frame.index,
                         frame.payload,
                         config.chunk_size,
-                    )
+                    ):
+                        known_count += 1
 
             changed = True
             while changed and fountain_frames:
@@ -465,11 +468,12 @@ def recover_file_streaming(
                             payload,
                             config.chunk_size,
                         ):
+                            known_count += 1
                             fountain_recovered += 1
                             changed = True
             output.flush()
 
-    recovered = sum(known)
+    recovered = known_count
     missing = total - recovered
     actual: str | None = None
     if missing == 0:
