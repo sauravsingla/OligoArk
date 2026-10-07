@@ -80,8 +80,8 @@ def peel_decode(
         for index in symbol.indexes:
             if index in recovered:
                 payload = recovered[index]
-                for offset in range(width):
-                    residual[offset] ^= payload[offset]
+                for offset, value in enumerate(payload):
+                    residual[offset] ^= value
         equation_id = len(unknown_sets)
         unknown_sets.append(unknown)
         residuals.append(residual)
