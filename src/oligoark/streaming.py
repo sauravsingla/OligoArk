@@ -418,6 +418,7 @@ def recover_file_streaming(
         known_count = 0
         fountain_start: int | None = None
         fountain_records = int(cast(int, metadata.get("fountain_strands", 0)))
+        fountain_ordinal_start = records - fountain_records
 
         with destination.open("wb+") as output:
             output.truncate(size)
@@ -497,20 +498,19 @@ def recover_file_streaming(
             ):
                 changed = False
                 archive_handle.seek(fountain_start)
-                for _ in range(fountain_records):
+                for offset in range(fountain_records):
                     packed = _read_record(archive_handle)
                     if packed is None:
                         raise ValueError("archive ended inside fountain records")
-                    try:
-                        frame = decode_frame_packed(
-                            packed,
-                            rs_nsym=config.rs_nsym,
-                            mask_search_limit=config.mask_search_limit,
-                        )
-                    except ValueError:
-                        continue
+                    frame, _, _ = _decode(
+                        packed,
+                        config,
+                        resolved_fault,
+                        fountain_ordinal_start + offset,
+                    )
                     if (
-                        frame.is_fountain
+                        frame is not None
+                        and frame.is_fountain
                         and frame.total_data == total
                         and _recover_fountain_frame(
                             frame,
