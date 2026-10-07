@@ -163,3 +163,34 @@ def test_controlled_dropout_can_recover_short_final_chunk(tmp_path) -> None:
     assert report.verified_sha256 is True
     assert output.stat().st_size == len(payload)
     assert output.read_bytes() == payload
+
+
+def test_fountain_dropout_recovery_uses_on_disk_rescan(tmp_path) -> None:
+    payload = bytes(range(256)) * 64
+    source = tmp_path / "source.bin"
+    archive = tmp_path / "fountain.oab"
+    output = tmp_path / "output.bin"
+    source.write_bytes(payload)
+
+    config = ArchiveConfig(
+        chunk_size=237,
+        rs_nsym=0,
+        parity_group_size=8,
+        adaptive_masks=False,
+        redundancy_scheme="fountain",
+        fountain_redundancy=0.75,
+        min_gc_fraction=0.0,
+        max_gc_fraction=1.0,
+        max_homopolymer=1024,
+        mask_search_limit=1,
+    )
+    archive_file_streaming(source, archive, config)
+    report = recover_file_streaming(
+        archive,
+        output,
+        fault=StreamingFaultProfile(dropout_rate=0.05, seed=2026),
+    )
+
+    assert report.verified_sha256 is True
+    assert report.fountain_recovered_strands > 0
+    assert output.read_bytes() == payload
