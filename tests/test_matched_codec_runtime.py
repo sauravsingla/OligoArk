@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from benchmarks.run_dna_fountain_baseline import CONDITIONS, _channel_sequences
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+
+from run_dna_fountain_baseline import CONDITIONS, _channel_sequences
 
 
 def test_clean_channel_reuses_immutable_encoded_artifact() -> None:
