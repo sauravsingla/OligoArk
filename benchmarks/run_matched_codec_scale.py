@@ -164,7 +164,7 @@ def _worker(
     started = time.perf_counter()
 
     if method == "oligoark-compact-hybrid":
-        profile = physical_strand_profile("oligoark-152").with_scheme("hybrid")
+        profile = physical_strand_profile("oligoark-152-compact").with_scheme("hybrid")
         xor_share = 1.0 / profile.parity_group_size
         fountain_share = max(0.0, redundancy - xor_share)
         config = profile.to_archive_config(fountain_redundancy=fountain_share)
