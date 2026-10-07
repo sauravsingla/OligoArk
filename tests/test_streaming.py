@@ -194,3 +194,14 @@ def test_fountain_dropout_recovery_uses_on_disk_rescan(tmp_path) -> None:
     assert report.verified_sha256 is True
     assert report.fountain_recovered_strands > 0
     assert output.read_bytes() == payload
+
+    # A rescan must see the same noisy channel realization, never pristine fountain
+    # records. With no inner RS protection this substitution regime remains unrecoverable.
+    noisy = recover_file_streaming(
+        archive,
+        output,
+        fault=StreamingFaultProfile(substitution_rate=0.001, seed=2026),
+        strict=False,
+    )
+    assert noisy.verified_sha256 is False
+    assert noisy.missing_data_strands > 0
