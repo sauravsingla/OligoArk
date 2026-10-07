@@ -278,6 +278,9 @@ def _cases(profile: str) -> list[tuple[int, str, str, str]]:
         ] + [
             (64 * KIB, "xor", "clean", SCALE_PROFILE),
             (64 * KIB, "xor", "dropout-5", SCALE_PROFILE),
+            (4 * KIB, "hybrid", "clean", PHYSICAL_PROFILE),
+            (4 * KIB, "hybrid", "indel-low", PHYSICAL_PROFILE),
+            (4 * KIB, "hybrid", "mixed", PHYSICAL_PROFILE),
         ]
 
     acceptance = [
