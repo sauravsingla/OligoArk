@@ -12,7 +12,6 @@ import csv
 import io
 import json
 import math
-import os
 import platform
 import random
 import resource
@@ -249,7 +248,9 @@ def _log_slope(rows: list[dict[str, object]], metric: str) -> float | None:
     pairs = [
         (float(row["size_bytes"]), float(row[metric]))
         for row in rows
-        if bool(row["sha256_verified"]) and float(row[metric]) > 0
+        if bool(row["sha256_verified"])
+        and metric in row
+        and float(row[metric]) > 0
     ]
     unique = {}
     for size, value in pairs:
@@ -343,8 +344,9 @@ def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
                 for key, value in row.items()
             }
         )
+    fieldnames = sorted({key for row in flattened for key in row})
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(flattened[0]))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(flattened)
 
