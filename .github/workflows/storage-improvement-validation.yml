@@ -1,0 +1,61 @@
+name: Storage improvement validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  physical-fault-matrix:
+    if: ${{ github.event.pull_request.number == 39 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run 248-nt compact fault matrix
+        run: |
+          python benchmarks/run_storage_scale.py \
+            --profile physical \
+            --output physical-improvement-results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: physical-improvement-${{ github.run_id }}
+          path: |
+            physical-improvement-results/*.json
+            physical-improvement-results/*.csv
+            physical-improvement-results/*.png
+          if-no-files-found: error
+
+  matched-codec-research:
+    if: ${{ github.event.pull_request.number == 39 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run 10-100 MiB matched comparison
+        run: |
+          python benchmarks/run_matched_codec_scale.py \
+            --profile research \
+            --trials 10 \
+            --timeout-seconds 1200 \
+            --output matched-codec-research-results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-codec-research-${{ github.run_id }}
+          path: |
+            matched-codec-research-results/*.json
+            matched-codec-research-results/*.csv
+            matched-codec-research-results/*.png
+          if-no-files-found: error
