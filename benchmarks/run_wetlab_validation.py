@@ -23,8 +23,12 @@ def main() -> None:
     prepare.add_argument("--output", type=Path, default=Path("wetlab-bundle"))
     prepare.add_argument(
         "--profile",
-        choices=("oligoark-152", "oligoark-200", "oligoark-248"),
-        default="oligoark-200",
+        choices=(
+            "oligoark-152-compact",
+            "oligoark-200-compact",
+            "oligoark-248-compact",
+        ),
+        default="oligoark-200-compact",
     )
     prepare.add_argument(
         "--scheme",
