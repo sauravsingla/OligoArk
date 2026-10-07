@@ -1,49 +1,66 @@
-# DNA Fountain comparison and external-baseline policy
+# Matched DNA-storage codec baselines
 
-OligoArk includes an independent **DNA Fountain-style research baseline** for controlled
-codec comparisons. It follows the published design at a high level: LT droplets, a robust
-soliton degree distribution, a 32-bit seed, XOR payloads, Reed-Solomon protection, 2-bit DNA
-mapping, and GC/homopolymer screening. Decoding uses ordinary LT peeling first and an exact
-GF(2) elimination fallback when the ripple stalls but the accepted equation set has sufficient
-rank. It is a clean-room implementation and is **not** claimed to be bit-compatible with the
-historical TeamErlich implementation.
+OligoArk keeps storage-codec comparisons separate from external physical-read reconstruction.
 
-The comparison runner is:
+## Baselines
+
+### DNA Fountain clean-room reference
+
+The DNA Fountain-style baseline follows the published Erlich & Zielinski design at a high
+level: robust-soliton LT droplets, 32-bit seeds, XOR payloads, Reed-Solomon protection,
+2-bit DNA mapping, and GC/homopolymer screening. It is independently implemented and is
+not claimed bit-compatible with the historical GPL implementation.
+
+### Goldman-style rotating ternary reference
+
+The second baseline is an independently implemented Goldman-style rotating ternary codec.
+Binary data are converted to trits and each trit selects one of the three DNA bases different
+from the previous base, preventing homopolymers by construction. For matched dropout
+experiments, a simple XOR erasure layer is added at the same nominal redundancy budget.
+This is a reference implementation, not a reproduction of the original 2013 archive format.
+
+## Fair comparison
+
+The runner is:
 
 ```bash
-python benchmarks/run_dna_fountain_baseline.py --profile full
+python benchmarks/run_dna_fountain_baseline.py --profile full --trials 5
 ```
 
-The controlled comparison uses the same input payload, a 152-nt maximum strand target, the
-same nominal redundancy budget, the same dropout rates and trial seeds, and the same
-SHA-256 exact-payload recovery gate. It reports recovery rate with Wilson 95% intervals,
-bits/nt, strand count, encoded nt, encode/decode runtime, and peak RSS. This is a software
-codec comparison; it is not a reproduction of the 2017 wet-lab experiment.
+Profiles:
 
-## Why external physical benchmarks use BBS rather than forcing DNA Fountain
+- `ci`: 1 KiB, clean + 5% dropout, three trials.
+- `full`: 1 KiB, 64 KiB, and 1 MiB across clean, 1%/5% dropout, substitution,
+  insertion/deletion, and mixed noise.
+- `scale`: attempts 1 KiB, 64 KiB, 1 MiB, and 10 MiB. Each worker has an explicit
+  timeout; a timeout or failure is retained in the raw results rather than removed.
 
-Published physical datasets such as Microsoft CNR, Grass et al., LCRC HFS, and DNAformer
-Pilot contain strands encoded by their respective studies. Applying the DNA Fountain decoder
-to strands that were not DNA-Fountain encoded would not be a fair baseline.
+Every method receives the same payload bytes, 152-nt strand ceiling, nominal redundancy
+budget, channel rates, trial seeds, and SHA-256 exact-recovery definition. Results include:
 
-OligoArk therefore keeps the comparisons separated:
+- exact recovery rate and Wilson 95% confidence interval;
+- logical bits/nt and encoded nucleotide count;
+- measured redundancy and strand count;
+- encode/decode runtime and throughput;
+- peak RSS;
+- timeouts and negative results.
 
-- **codec comparison:** OligoArk versus the clean-room DNA Fountain-style baseline on payloads
-  encoded under controlled, matched software conditions;
-- **physical-read reconstruction:** OligoArk confidence fusion versus pinned Bidirectional
-  Beam Search (BBS) on CNR and the other supported published read datasets;
-- **end-to-end archive recovery:** success only when OligoArk-generated archive bytes are
-  reconstructed and the original payload SHA-256 matches.
+The largest size at which all methods complete is therefore measured rather than assumed.
 
-See `external-cnr-benchmark.md`, `external-grass-benchmark.md`,
-`external-lcrc-benchmark.md`, and `external-dnaformer-pilot-benchmark.md` for the
-physical-read evidence and claim boundaries.
+## External physical reads
 
-## Original DNA Fountain physical-data provenance
+Microsoft CNR, Grass et al., LCRC HFS, and DNAformer Pilot contain strands encoded by their
+respective studies. Applying DNA Fountain or the rotating-ternary decoder to those strands
+would not be a valid codec comparison.
 
-The 2017 DNA Fountain work is identified by DOI `10.1126/science.aaj2038`. The historical
-implementation points to European Nucleotide Archive projects `PRJEB19305` and
-`PRJEB19307`. OligoArk records this provenance but does not vendor third-party sequencing
-data or GPL-licensed source code. A true external reproduction should pin downloaded
-accessions/checksums, preserve the original codec parameters, and report it separately from
-the clean-room baseline.
+Those datasets remain a separate **reference-strand reconstruction** benchmark against
+pinned Bidirectional Beam Search (BBS). They are not evidence of end-to-end physical
+OligoArk archive storage.
+
+## Provenance
+
+- DNA Fountain: Erlich & Zielinski, *Science* (2017), DOI `10.1126/science.aaj2038`.
+- Rotating ternary concept: Goldman et al., *Nature* (2013), DOI
+  `10.1038/nature11875`.
+
+The repository records provenance but does not vendor historical third-party source code.
