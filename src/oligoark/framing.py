@@ -56,6 +56,8 @@ def _mask(data: bytes, mask_id: int) -> bytes:
         raise ValueError("mask_id must fit in one byte")
     if mask_id < len(_LEGACY_MASKS):
         value = _LEGACY_MASKS[mask_id]
+        if value == 0:
+            return data
         return bytes(byte ^ value for byte in data)
 
     state = (0x9E3779B9 ^ (mask_id * 0x45D9F3B)) & 0xFFFFFFFF
