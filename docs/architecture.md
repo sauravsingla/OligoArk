@@ -90,7 +90,9 @@ The JSON archive remains `oligoark-archive-v1`. Large-file experiments can inste
 2-bit-packed records so bases do not occupy one ASCII byte each. The streaming container is
 an additional format rather than a migration: existing JSON archives remain readable.
 
-The JSON archive remains `oligoark-archive-v1`. v0.1-v0.4-style configuration mappings remain readable because later fields retain backward-compatible defaults. The v0.5 validation pass does not introduce an archive-format migration.
+v0.1-v0.4-style configuration mappings remain readable because later fields retain
+backward-compatible defaults. The v0.5 validation pass does not introduce an archive-format
+migration.
 
 Each strand contains a reversible mask identifier plus a Reed-Solomon-protected frame with magic/version, flags, logical index, total data-strand count, payload length and CRC32. Flags distinguish data, XOR parity, and fountain symbols. Fountain symbol seeds use the existing 32-bit frame index and deterministically regenerate source-chunk sets.
 
