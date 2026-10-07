@@ -142,3 +142,24 @@ def test_unprotected_streaming_archive_reports_controlled_loss(tmp_path) -> None
 
     assert report.verified_sha256 is False
     assert report.missing_data_strands > 0
+
+
+def test_controlled_dropout_can_recover_short_final_chunk(tmp_path) -> None:
+    # Nine chunks makes index 8 the first member of the final XOR group. The controlled
+    # dropout profile therefore erases that short final chunk as well as index 0.
+    payload = os.urandom(8 * 237 + 17)
+    source = tmp_path / "source.bin"
+    archive = tmp_path / "archive.oab"
+    output = tmp_path / "output.bin"
+    source.write_bytes(payload)
+
+    archive_file_streaming(source, archive, _scale_config("xor"))
+    report = recover_file_streaming(
+        archive,
+        output,
+        fault=StreamingFaultProfile(dropout_rate=0.125, seed=2026),
+    )
+
+    assert report.verified_sha256 is True
+    assert output.stat().st_size == len(payload)
+    assert output.read_bytes() == payload
