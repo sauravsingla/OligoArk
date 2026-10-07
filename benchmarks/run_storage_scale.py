@@ -26,6 +26,7 @@ from typing import Any
 
 from oligoark import __version__
 from oligoark.archive import ArchiveConfig
+from oligoark.profiles import physical_strand_profile
 from oligoark.streaming import (
     StreamingFaultProfile,
     archive_file_streaming,
@@ -34,13 +35,17 @@ from oligoark.streaming import (
 
 KIB = 1024
 MIB = 1024 * 1024
-FULL_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB, 100 * MIB)
+GIB = 1024 * MIB
+SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB, 100 * MIB, 1 * GIB)
 SCHEMES = ("none", "xor", "fountain", "hybrid")
-MILESTONE_SIZE = 100 * MIB
+SCALE_PROFILE = "scale-1024"
+PHYSICAL_PROFILE = "oligoark-248"
+PHYSICAL_MATRIX_SIZE = 64 * KIB
+MILESTONE_SIZE = 1 * GIB
 MILESTONE_STATEMENT = (
-    "OligoArk successfully archives and SHA-256 recovers a 100 MB heterogeneous "
-    "dataset under clean and controlled-loss conditions, with measured density, "
-    "throughput, peak memory and redundancy overhead."
+    "OligoArk successfully archives and SHA-256 recovers a 1 GiB heterogeneous "
+    "dataset under clean, 1% and 5% controlled strand loss, while preserving "
+    "bounded-memory streaming measurements and exact-recovery evidence."
 )
 
 FAULTS: dict[str, StreamingFaultProfile] = {
@@ -63,19 +68,23 @@ FAULTS: dict[str, StreamingFaultProfile] = {
 }
 
 
-def _scale_config(scheme: str) -> ArchiveConfig:
-    """Fast software-scale profile; physical profiles are benchmarked separately."""
-    return ArchiveConfig(
-        chunk_size=237,
-        rs_nsym=0,
-        parity_group_size=8,
-        adaptive_masks=False,
-        redundancy_scheme=scheme,
+def _benchmark_config(strand_profile: str, scheme: str) -> ArchiveConfig:
+    """Resolve either the fast scale profile or an RS-enabled physical profile."""
+    if strand_profile == SCALE_PROFILE:
+        return ArchiveConfig(
+            chunk_size=237,
+            rs_nsym=0,
+            parity_group_size=8,
+            adaptive_masks=False,
+            redundancy_scheme=scheme,
+            fountain_redundancy=0.25,
+            min_gc_fraction=0.0,
+            max_gc_fraction=1.0,
+            max_homopolymer=1024,
+            mask_search_limit=1,
+        )
+    return physical_strand_profile(strand_profile).with_scheme(scheme).to_archive_config(
         fountain_redundancy=0.25,
-        min_gc_fraction=0.0,
-        max_gc_fraction=1.0,
-        max_homopolymer=1024,
-        mask_search_limit=1,
     )
 
 
@@ -167,14 +176,21 @@ def _fault_to_dict(fault: StreamingFaultProfile) -> dict[str, object]:
     }
 
 
-def _worker(size: int, scheme: str, fault_name: str, workdir: Path) -> dict[str, object]:
+def _worker(
+    size: int,
+    scheme: str,
+    fault_name: str,
+    strand_profile: str,
+    workdir: Path,
+) -> dict[str, object]:
+    baseline_rss = _peak_rss_mib()
     workdir.mkdir(parents=True, exist_ok=True)
     source = workdir / "heterogeneous.bin"
     archive = workdir / "archive.oab"
     recovered = workdir / "recovered.bin"
     create_heterogeneous_payload(source, size)
 
-    config = _scale_config(scheme)
+    config = _benchmark_config(strand_profile, scheme)
     fault = FAULTS[fault_name]
     encode_started = time.perf_counter()
     stats = archive_file_streaming(source, archive, config)
@@ -198,6 +214,9 @@ def _worker(size: int, scheme: str, fault_name: str, workdir: Path) -> dict[str,
         "payload_kind": "deterministic-heterogeneous-mixed",
         "scheme": scheme,
         "fault": fault_name,
+        "strand_profile": strand_profile,
+        "chunk_size": config.chunk_size,
+        "rs_nsym": config.rs_nsym,
         "fault_config": _fault_to_dict(fault),
         "sha256_verified": recovered_ok,
         "exact_recovery_rate": 1.0 if recovered_ok else 0.0,
@@ -213,6 +232,8 @@ def _worker(size: int, scheme: str, fault_name: str, workdir: Path) -> dict[str,
             6,
         ),
         "peak_rss_mib": round(_peak_rss_mib(), 3),
+        "baseline_rss_mib": round(baseline_rss, 3),
+        "rss_growth_mib": round(max(0.0, _peak_rss_mib() - baseline_rss), 3),
         "encoded_nucleotides": stats.encoded_nucleotides,
         "logical_bits_per_nucleotide": stats.logical_bits_per_nucleotide,
         "nucleotide_overhead_vs_2bit_ideal": round(
@@ -244,27 +265,46 @@ def _worker(size: int, scheme: str, fault_name: str, workdir: Path) -> dict[str,
     return row
 
 
-def _cases(profile: str) -> list[tuple[int, str, str]]:
+def _cases(profile: str) -> list[tuple[int, str, str, str]]:
     if profile == "ci":
         return [
-            (1 * KIB, scheme, fault)
+            (1 * KIB, scheme, fault, SCALE_PROFILE)
             for scheme in SCHEMES
             for fault in ("clean", "dropout-5")
         ] + [
-            (64 * KIB, "xor", "clean"),
-            (64 * KIB, "xor", "dropout-5"),
+            (64 * KIB, "xor", "clean", SCALE_PROFILE),
+            (64 * KIB, "xor", "dropout-5", SCALE_PROFILE),
         ]
-    if profile == "acceptance":
-        return [
-            (MILESTONE_SIZE, "xor", "clean"),
-            (MILESTONE_SIZE, "xor", "dropout-5"),
-        ]
-    return [
-        (size, scheme, fault)
-        for size in FULL_SIZES
+
+    acceptance = [
+        (size, "xor", "clean", SCALE_PROFILE)
+        for size in SCALE_SIZES
+    ] + [
+        (MILESTONE_SIZE, "xor", "dropout-1", SCALE_PROFILE),
+        (MILESTONE_SIZE, "xor", "dropout-5", SCALE_PROFILE),
+    ]
+    physical_matrix = [
+        (PHYSICAL_MATRIX_SIZE, scheme, fault, PHYSICAL_PROFILE)
         for scheme in SCHEMES
         for fault in FAULTS
     ]
+
+    if profile == "acceptance":
+        return acceptance
+    if profile == "physical":
+        return physical_matrix
+    if profile == "storage":
+        return acceptance + physical_matrix
+
+    # Full is intentionally exhaustive and may be expensive. The 1 GiB point is kept
+    # to the mandatory XOR acceptance cases; all-scheme/all-fault sweeps stop at 100 MiB.
+    exhaustive = [
+        (size, scheme, fault, SCALE_PROFILE)
+        for size in SCALE_SIZES[:-1]
+        for scheme in SCHEMES
+        for fault in FAULTS
+    ]
+    return acceptance + physical_matrix + exhaustive
 
 
 def _log_slope(rows: list[dict[str, object]], metric: str) -> float | None:
@@ -310,7 +350,11 @@ def _classify_runtime(slope: float | None) -> str:
 
 def _summary(rows: list[dict[str, object]]) -> dict[str, object]:
     clean_xor = [
-        row for row in rows if row["scheme"] == "xor" and row["fault"] == "clean"
+        row
+        for row in rows
+        if row["scheme"] == "xor"
+        and row["fault"] == "clean"
+        and row.get("strand_profile") == SCALE_PROFILE
     ]
     memory_slope = _log_slope(clean_xor, "peak_rss_mib")
     runtime_slope = _log_slope(clean_xor, "total_seconds")
@@ -319,10 +363,11 @@ def _summary(rows: list[dict[str, object]]) -> dict[str, object]:
         for row in rows
         if int(row["size_bytes"]) == MILESTONE_SIZE
         and row["scheme"] == "xor"
-        and row["fault"] in {"clean", "dropout-5"}
+        and row["fault"] in {"clean", "dropout-1", "dropout-5"}
+        and row.get("strand_profile") == SCALE_PROFILE
     ]
     milestone = (
-        len(milestone_rows) == 2
+        len(milestone_rows) == 3
         and all(bool(row["sha256_verified"]) for row in milestone_rows)
     )
     failures = [
@@ -342,8 +387,8 @@ def _summary(rows: list[dict[str, object]]) -> dict[str, object]:
         "milestone_failure": None
         if milestone
         else (
-            "100 MiB clean and controlled 5% erasure recovery have not both "
-            "passed the SHA-256 gate in this result set."
+            "1 GiB clean, controlled 1% dropout and controlled 5% dropout have not "
+            "all passed the SHA-256 gate in this result set."
         ),
         "memory_log_log_slope_xor_clean": memory_slope,
         "memory_scaling_xor_clean": _classify_memory(memory_slope),
@@ -351,6 +396,14 @@ def _summary(rows: list[dict[str, object]]) -> dict[str, object]:
         "runtime_scaling_xor_clean": _classify_runtime(runtime_slope),
         "failure_count": len(failures),
         "failures": failures,
+        "physical_matrix_rows": sum(
+            row.get("strand_profile") == PHYSICAL_PROFILE for row in rows
+        ),
+        "physical_matrix_failures": sum(
+            row.get("strand_profile") == PHYSICAL_PROFILE
+            and not bool(row.get("sha256_verified"))
+            for row in rows
+        ),
     }
 
 
@@ -380,7 +433,11 @@ def _write_plots(rows: list[dict[str, object]], output: Path) -> None:
     except ImportError:
         return
     clean_xor = [
-        row for row in rows if row["scheme"] == "xor" and row["fault"] == "clean"
+        row
+        for row in rows
+        if row["scheme"] == "xor"
+        and row["fault"] == "clean"
+        and row.get("strand_profile") == SCALE_PROFILE
     ]
     if len(clean_xor) < 2:
         return
@@ -420,10 +477,13 @@ def _run_isolated(
     size: int,
     scheme: str,
     fault: str,
+    strand_profile: str,
     output: Path,
     ordinal: int,
 ) -> dict[str, object]:
-    case_dir = output / "work" / f"{ordinal:03d}-{size}-{scheme}-{fault}"
+    case_dir = output / "work" / (
+        f"{ordinal:03d}-{size}-{scheme}-{fault}-{strand_profile}"
+    )
     command = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -434,6 +494,8 @@ def _run_isolated(
         scheme,
         "--fault",
         fault,
+        "--strand-profile",
+        strand_profile,
         "--workdir",
         str(case_dir),
     ]
@@ -445,6 +507,7 @@ def _run_isolated(
                 "size_mib": round(size / MIB, 6),
                 "scheme": scheme,
                 "fault": fault,
+                "strand_profile": strand_profile,
                 "sha256_verified": False,
                 "error": completed.stderr.strip() or completed.stdout.strip(),
             }
@@ -455,25 +518,51 @@ def _run_isolated(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", choices=("ci", "acceptance", "full"), default="ci")
+    parser.add_argument(
+        "--profile",
+        choices=("ci", "acceptance", "physical", "storage", "full"),
+        default="ci",
+    )
     parser.add_argument("--output", type=Path, default=Path("storage-scale-results"))
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--size", type=int)
     parser.add_argument("--scheme", choices=SCHEMES)
     parser.add_argument("--fault", choices=tuple(FAULTS))
+    parser.add_argument(
+        "--strand-profile",
+        choices=(SCALE_PROFILE, "oligoark-152", "oligoark-200", PHYSICAL_PROFILE),
+    )
     parser.add_argument("--workdir", type=Path)
     args = parser.parse_args()
 
     if args.worker:
-        if args.size is None or args.scheme is None or args.fault is None or args.workdir is None:
-            raise SystemExit("worker requires --size, --scheme, --fault and --workdir")
-        print(json.dumps(_worker(args.size, args.scheme, args.fault, args.workdir)))
+        if (
+            args.size is None
+            or args.scheme is None
+            or args.fault is None
+            or args.strand_profile is None
+            or args.workdir is None
+        ):
+            raise SystemExit(
+                "worker requires --size, --scheme, --fault, --strand-profile and --workdir"
+            )
+        print(
+            json.dumps(
+                _worker(
+                    args.size,
+                    args.scheme,
+                    args.fault,
+                    args.strand_profile,
+                    args.workdir,
+                )
+            )
+        )
         return
 
     args.output.mkdir(parents=True, exist_ok=True)
     rows = [
-        _run_isolated(size, scheme, fault, args.output, ordinal)
-        for ordinal, (size, scheme, fault) in enumerate(_cases(args.profile))
+        _run_isolated(size, scheme, fault, strand_profile, args.output, ordinal)
+        for ordinal, (size, scheme, fault, strand_profile) in enumerate(_cases(args.profile))
     ]
     summary = _summary(rows)
     metadata: dict[str, Any] = {
@@ -482,9 +571,14 @@ def main() -> None:
         "platform": platform.platform(),
         "profile": args.profile,
         "sizes_bytes": sorted({int(row["size_bytes"]) for row in rows}),
+        "strand_profiles": sorted(
+            {str(row.get("strand_profile", "")) for row in rows if row.get("strand_profile")}
+        ),
         "claim_scope": (
-            "software archive scaling and controlled software faults only; "
-            "physical-read reconstruction is a separate evidence class"
+            "software archive scaling plus controlled software-channel faults; "
+            "the scale-1024 profile is a streaming systems test, while oligoark-248 "
+            "is an RS-enabled realistic-strand software test; physical-read reconstruction "
+            "and wet-lab archive storage remain separate evidence classes"
         ),
         "payload_description": (
             "deterministic mixture of UTF-8 text, JSONL, Python source, PPM image bytes, "
