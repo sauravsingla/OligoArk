@@ -1,0 +1,126 @@
+name: Temporary research milestone evidence
+
+on:
+  push:
+    branches:
+      - research/codec-scale-efficiency-wetlab-milestone
+
+permissions:
+  contents: read
+
+jobs:
+  matched-10-mib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Run 10 MiB matched comparison
+        run: |
+          python benchmarks/run_matched_codec_scale.py \
+            --profile research-10 \
+            --trials 10 \
+            --encode-timeout-seconds 1200 \
+            --condition-timeout-seconds 600 \
+            --output matched-10
+      - name: Require complete 10 MiB common comparison
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("matched-10/summary.json").read_text())
+          status = summary["research_target_status"]["10485760"]
+          if not status["common_completed"]:
+              raise SystemExit(
+                  "10 MiB matched comparison is incomplete: "
+                  + json.dumps(status, sort_keys=True)
+              )
+          PY
+      - name: Upload 10 MiB evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-milestone-10mib-${{ github.run_id }}
+          path: matched-10
+          if-no-files-found: warn
+
+  matched-100-mib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[bench]"
+      - name: Attempt 100 MiB matched comparison with bounded workers
+        run: |
+          python benchmarks/run_matched_codec_scale.py \
+            --profile research-100 \
+            --trials 10 \
+            --encode-timeout-seconds 1200 \
+            --condition-timeout-seconds 600 \
+            --output matched-100
+      - name: Require explicit 100 MiB status
+        run: test -s matched-100/summary.json
+      - name: Upload 100 MiB evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-milestone-100mib-${{ github.run_id }}
+          path: matched-100
+          if-no-files-found: warn
+
+  prepared-wetlab-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e .
+      - name: Create deterministic 4 KiB pilot payload
+        run: |
+          python - <<'PY'
+          import random
+          from pathlib import Path
+
+          Path("pilot.bin").write_bytes(random.Random(20261007).randbytes(4096))
+          PY
+      - name: Prepare 152-nt synthesis and sequencing handoff
+        run: |
+          python benchmarks/run_wetlab_validation.py prepare pilot.bin \
+            --output wetlab-prepared \
+            --profile oligoark-152-efficient-v1 \
+            --scheme hybrid \
+            --fountain-redundancy 0.125 \
+            --experiment-id oligoark-152-pilot-2026-10-07
+      - name: Verify software-only bundle round trip
+        run: |
+          python benchmarks/run_wetlab_validation.py recover \
+            wetlab-prepared wetlab-prepared/oligos.fasta recovered.bin
+          cmp pilot.bin recovered.bin
+          sha256sum pilot.bin recovered.bin > software-roundtrip.sha256
+          printf '%s\n' \
+            'Software-only round trip. This is not synthesis or sequencing evidence.' \
+            'Physical execution status: prepared, not physically executed.' \
+            > software-roundtrip-note.txt
+      - name: Upload prepared wet-lab package
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-wetlab-152nt-${{ github.run_id }}
+          path: |
+            pilot.bin
+            recovered.bin
+            software-roundtrip.sha256
+            software-roundtrip-note.txt
+            wetlab-prepared
+          if-no-files-found: error
