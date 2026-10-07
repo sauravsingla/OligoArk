@@ -131,15 +131,19 @@ def encode_dna_fountain_baseline(
         max_homopolymer=resolved.max_homopolymer,
     )
     accepted: list[str] = []
-    seed = resolved.first_seed
+    seed = resolved.first_seed & 0xFFFFFFFF
     attempts = 0
     max_attempts = target * resolved.max_attempt_factor
     while len(accepted) < target and attempts < max_attempts:
         indexes = _droplet_indexes(len(chunks), seed, resolved.c, resolved.delta)
         payload = xor_bytes([chunks[index] for index in indexes], resolved.chunk_size)
-        sequence = bytes_to_dna(rs_encode(seed.to_bytes(4, "big") + payload, resolved.rs_nsym))
+        sequence = bytes_to_dna(
+            rs_encode(seed.to_bytes(4, "big") + payload, resolved.rs_nsym)
+        )
         attempts += 1
-        seed += 1
+        # A full-width Weyl step avoids the long zero-byte prefixes produced by small
+        # sequential seeds while keeping seed generation deterministic and reversible.
+        seed = (seed + 0x9E3779B9) & 0xFFFFFFFF
         if constraints.accepts(sequence):
             accepted.append(sequence)
     if len(accepted) < target:
