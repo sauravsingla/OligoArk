@@ -24,6 +24,9 @@ _HEADER = struct.Struct(">2sBBIIHI")
 _COMPACT_TAG = 0xA0
 _COMPACT_TAG_MASK = 0xF0
 _COMPACT_FLAG_MASK = 0x0F
+_COMPACT_INLINE_TAG = 0xB0
+_COMPACT_INLINE_TAG_MASK = 0xF0
+_COMPACT_INLINE_MASK_MASK = 0x0F
 _LEGACY_MASKS = (0x00, 0x55, 0xAA, 0xFF)
 
 
@@ -49,13 +52,19 @@ def frame_overhead_bytes(
     *,
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
+    inline_mask_framing: bool = False,
 ) -> int:
     """Return fixed per-strand byte overhead before payload bytes."""
     if compact_framing:
         if not 2 <= compact_index_bytes <= 4:
             raise ValueError("compact_index_bytes must be between 2 and 4")
+        if inline_mask_framing:
+            # selector/mask byte + protected flags/index + CRC16 + RS parity
+            return 1 + compact_index_bytes + 2 + rs_nsym
         # mask byte + control byte + index + CRC16 + Reed-Solomon parity
         return 1 + 1 + compact_index_bytes + 2 + rs_nsym
+    if inline_mask_framing:
+        raise ValueError("inline_mask_framing requires compact_framing")
     return 1 + _HEADER.size + rs_nsym
 
 
@@ -103,6 +112,26 @@ def _compact_header(payload: bytes, *, index: int, flags: int, index_bytes: int)
     )
 
 
+def _compact_inline_header(
+    payload: bytes,
+    *,
+    index: int,
+    flags: int,
+    index_bytes: int,
+) -> bytes:
+    """Pack protected frame flags into the high two bits of the compact index."""
+    if not 2 <= index_bytes <= 4:
+        raise ValueError("compact_index_bytes must be between 2 and 4")
+    index_bits = 8 * index_bytes - 2
+    if not 0 <= index < (1 << index_bits):
+        raise ValueError(
+            f"inline compact frame index must fit in {index_bits} bits; got index={index}"
+        )
+    packed_index = ((flags & 0x03) << index_bits) | index
+    checksum = binascii.crc_hqx(payload, 0xFFFF)
+    return packed_index.to_bytes(index_bytes, "big") + struct.pack(">H", checksum)
+
+
 def encode_frame_packed(
     payload: bytes,
     *,
@@ -116,6 +145,7 @@ def encode_frame_packed(
     mask_search_limit: int = 64,
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
+    inline_mask_framing: bool = False,
 ) -> bytes:
     """Encode one frame directly into compact 2-bit-packed bytes."""
     if not 1 <= mask_search_limit <= 256:
@@ -125,12 +155,23 @@ def encode_frame_packed(
 
     flags = _flags(is_parity=is_parity, is_fountain=is_fountain)
     if compact_framing:
-        header = _compact_header(
-            payload,
-            index=index,
-            flags=flags,
-            index_bytes=compact_index_bytes,
+        header = (
+            _compact_inline_header(
+                payload,
+                index=index,
+                flags=flags,
+                index_bytes=compact_index_bytes,
+            )
+            if inline_mask_framing
+            else _compact_header(
+                payload,
+                index=index,
+                flags=flags,
+                index_bytes=compact_index_bytes,
+            )
         )
+    elif inline_mask_framing:
+        raise ValueError("inline_mask_framing requires compact_framing")
     else:
         header = _HEADER.pack(
             MAGIC,
@@ -143,7 +184,8 @@ def encode_frame_packed(
         )
 
     protected = rs_encode(header + payload, rs_nsym)
-    candidate_ids = range(mask_search_limit) if adaptive_masks else range(1)
+    candidate_limit = min(mask_search_limit, 16) if inline_mask_framing else mask_search_limit
+    candidate_ids = range(candidate_limit) if adaptive_masks else range(1)
 
     if (
         not adaptive_masks
@@ -151,14 +193,20 @@ def encode_frame_packed(
         and constraints.max_gc_fraction == 1.0
         and constraints.max_homopolymer >= 4 * (1 + len(protected))
     ):
-        return bytes([0]) + _mask(protected, 0)
+        prefix = _COMPACT_INLINE_TAG if inline_mask_framing else 0
+        return bytes([prefix]) + _mask(protected, 0)
 
     # Stop at the first deterministic valid mask. Earlier releases scored every valid
     # candidate and then selected the soft optimum, which multiplied physical-profile
     # encoding cost by the full search budget. Hard GC/homopolymer constraints remain
     # unchanged; this only removes unnecessary work once a valid strand is found.
     for mask_id in candidate_ids:
-        packed = bytes([mask_id]) + _mask(protected, mask_id)
+        prefix = (
+            _COMPACT_INLINE_TAG | mask_id
+            if inline_mask_framing
+            else mask_id
+        )
+        packed = bytes([prefix]) + _mask(protected, mask_id)
         if constraints.accepts(bytes_to_dna(packed)):
             return packed
 
@@ -180,6 +228,7 @@ def encode_frame(
     mask_search_limit: int = 64,
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
+    inline_mask_framing: bool = False,
 ) -> str:
     """Encode one protected strand while enforcing optional hard sequence constraints."""
     packed = encode_frame_packed(
@@ -194,6 +243,7 @@ def encode_frame(
         mask_search_limit=mask_search_limit,
         compact_framing=compact_framing,
         compact_index_bytes=compact_index_bytes,
+        inline_mask_framing=inline_mask_framing,
     )
     return bytes_to_dna(packed)
 
@@ -264,6 +314,47 @@ def _decode_compact_with_mask(
     )
 
 
+def _decode_compact_inline_with_mask(
+    raw: bytes,
+    mask_id: int,
+    rs_nsym: int,
+    *,
+    expected_total_data: int,
+    compact_index_bytes: int,
+) -> DecodedFrame:
+    if raw[0] & _COMPACT_INLINE_TAG_MASK != _COMPACT_INLINE_TAG:
+        raise ValueError("Not a supported inline-mask compact OligoArk strand")
+    protected = _mask(raw[1:], mask_id)
+    try:
+        inner = rs_decode(protected, rs_nsym)
+    except ECCDecodeError as exc:
+        raise ValueError("Reed-Solomon recovery failed") from exc
+
+    header_size = compact_index_bytes + 2
+    if len(inner) < header_size:
+        raise ValueError("Decoded inline compact frame is shorter than its header")
+    index_bits = 8 * compact_index_bytes - 2
+    packed_index = int.from_bytes(inner[:compact_index_bytes], "big")
+    flags = packed_index >> index_bits
+    index = packed_index & ((1 << index_bits) - 1)
+    if flags & ~(FLAG_PARITY | FLAG_FOUNTAIN):
+        raise ValueError("Inline compact OligoArk frame contains unsupported flags")
+    (checksum,) = struct.unpack(
+        ">H",
+        inner[compact_index_bytes : compact_index_bytes + 2],
+    )
+    payload = inner[header_size:]
+    if binascii.crc_hqx(payload, 0xFFFF) != checksum:
+        raise ValueError("Inline compact payload CRC16 check failed")
+    return DecodedFrame(
+        index=index,
+        total_data=expected_total_data,
+        payload=payload,
+        is_parity=bool(flags & FLAG_PARITY),
+        is_fountain=bool(flags & FLAG_FOUNTAIN),
+    )
+
+
 def _decode_indicated_mask(
     raw: bytes,
     *,
@@ -271,14 +362,23 @@ def _decode_indicated_mask(
     compact_framing: bool,
     compact_index_bytes: int,
     expected_total_data: int | None,
+    inline_mask_framing: bool = False,
 ) -> DecodedFrame:
     """Decode using only the mask identifier carried by this candidate frame."""
     if not raw:
         raise ValueError("empty packed frame")
-    mask_id = raw[0]
+    mask_id = raw[0] & _COMPACT_INLINE_MASK_MASK if inline_mask_framing else raw[0]
     if compact_framing:
         if expected_total_data is None:
             raise ValueError("compact framing requires expected_total_data")
+        if inline_mask_framing:
+            return _decode_compact_inline_with_mask(
+                raw,
+                mask_id,
+                rs_nsym,
+                expected_total_data=expected_total_data,
+                compact_index_bytes=compact_index_bytes,
+            )
         return _decode_compact_with_mask(
             raw,
             mask_id,
@@ -297,6 +397,7 @@ def decode_frame_packed(
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
     expected_total_data: int | None = None,
+    inline_mask_framing: bool = False,
 ) -> DecodedFrame:
     """Decode a compact 2-bit-packed frame."""
     if not 1 <= mask_search_limit <= 256:
@@ -308,6 +409,7 @@ def decode_frame_packed(
             rs_nsym,
             compact_framing=True,
             compact_index_bytes=compact_index_bytes,
+            inline_mask_framing=inline_mask_framing,
         )
     else:
         minimum = 1 + _HEADER.size + rs_nsym
@@ -315,15 +417,24 @@ def decode_frame_packed(
     if len(raw) < minimum:
         raise ValueError("Strand is shorter than the OligoArk frame")
 
-    indicated = raw[0]
+    indicated = raw[0] & _COMPACT_INLINE_MASK_MASK if inline_mask_framing else raw[0]
+    candidate_limit = min(mask_search_limit, 16) if inline_mask_framing else mask_search_limit
     candidates = [indicated]
-    candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
+    candidates.extend(mask_id for mask_id in range(candidate_limit) if mask_id != indicated)
     errors: list[Exception] = []
     for mask_id in candidates:
         try:
             if compact_framing:
                 if expected_total_data is None:
                     raise ValueError("compact framing requires expected_total_data")
+                if inline_mask_framing:
+                    return _decode_compact_inline_with_mask(
+                        raw,
+                        mask_id,
+                        rs_nsym,
+                        expected_total_data=expected_total_data,
+                        compact_index_bytes=compact_index_bytes,
+                    )
                 return _decode_compact_with_mask(
                     raw,
                     mask_id,
@@ -345,6 +456,7 @@ def decode_frame(
     compact_framing: bool = False,
     compact_index_bytes: int = 3,
     expected_total_data: int | None = None,
+    inline_mask_framing: bool = False,
 ) -> DecodedFrame:
     """Decode a strand, with a bounded fallback search for a damaged mask byte."""
     return decode_frame_packed(
@@ -354,6 +466,7 @@ def decode_frame(
         compact_framing=compact_framing,
         compact_index_bytes=compact_index_bytes,
         expected_total_data=expected_total_data,
+        inline_mask_framing=inline_mask_framing,
     )
 
 
@@ -392,6 +505,7 @@ def decode_frame_resilient(
     compact_index_bytes: int = 3,
     expected_total_data: int | None = None,
     max_indel_edits: int = 1,
+    inline_mask_framing: bool = False,
 ) -> DecodedFrame:
     """Decode with a CRC-gated, bounded single-indel realignment fallback.
 
@@ -408,6 +522,7 @@ def decode_frame_resilient(
             compact_framing=compact_framing,
             compact_index_bytes=compact_index_bytes,
             expected_total_data=expected_total_data,
+            inline_mask_framing=inline_mask_framing,
         )
     except ValueError as direct_error:
         if max_indel_edits < 1:
@@ -423,6 +538,7 @@ def decode_frame_resilient(
                     compact_framing=compact_framing,
                     compact_index_bytes=compact_index_bytes,
                     expected_total_data=expected_total_data,
+                    inline_mask_framing=inline_mask_framing,
                 )
             except ValueError:
                 continue
