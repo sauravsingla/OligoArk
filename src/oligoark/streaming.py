@@ -179,6 +179,14 @@ def archive_file_streaming(
     source_path, destination_path = Path(source), Path(destination)
     size, sha256 = _digest(source_path)
     data_count, parity_count, fountain_count = _counts(size, resolved)
+    if resolved.compact_framing:
+        max_index = (1 << (8 * resolved.compact_index_bytes)) - 1
+        if data_count - 1 > max_index:
+            raise ValueError(
+                "compact framing index capacity exceeded; increase compact_index_bytes"
+            )
+        if fountain_count and resolved.fountain_seed + fountain_count - 1 > max_index:
+            raise ValueError("fountain seed range exceeds configured frame index capacity")
     nt_count = _encoded_nt(size, resolved)
     metadata: dict[str, object] = {
         "format": "oligoark-stream-v2",
@@ -327,15 +335,16 @@ def _decode(
     ordinal: int,
     total_data: int,
 ) -> tuple[DecodedFrame | None, bool, bool, bool]:
-    decode_kwargs = {
-        "rs_nsym": config.rs_nsym,
-        "mask_search_limit": config.mask_search_limit,
-        "compact_framing": config.compact_framing,
-        "compact_index_bytes": config.compact_index_bytes,
-        "expected_total_data": total_data if config.compact_framing else None,
-    }
+    expected_total = total_data if config.compact_framing else None
     try:
-        clean = decode_frame_packed(packed, **decode_kwargs)
+        clean = decode_frame_packed(
+            packed,
+            rs_nsym=config.rs_nsym,
+            mask_search_limit=config.mask_search_limit,
+            compact_framing=config.compact_framing,
+            compact_index_bytes=config.compact_index_bytes,
+            expected_total_data=expected_total,
+        )
     except ValueError:
         return None, False, True, False
     if _drop(clean, config, fault, ordinal):
@@ -345,15 +354,31 @@ def _decode(
 
     mutated = _mutate(bytes_to_dna(packed), fault, ordinal)
     try:
-        return decode_frame(mutated, **decode_kwargs), False, False, False
+        frame = decode_frame(
+            mutated,
+            rs_nsym=config.rs_nsym,
+            mask_search_limit=config.mask_search_limit,
+            compact_framing=config.compact_framing,
+            compact_index_bytes=config.compact_index_bytes,
+            expected_total_data=expected_total,
+        )
+        return frame, False, False, False
     except ValueError:
         if not config.indel_rescue:
             return None, False, True, False
+
     try:
-        return decode_frame_resilient(mutated, **decode_kwargs), False, False, True
+        frame = decode_frame_resilient(
+            mutated,
+            rs_nsym=config.rs_nsym,
+            mask_search_limit=config.mask_search_limit,
+            compact_framing=config.compact_framing,
+            compact_index_bytes=config.compact_index_bytes,
+            expected_total_data=expected_total,
+        )
+        return frame, False, False, True
     except ValueError:
         return None, False, True, False
-
 
 def _read_chunk(output: BinaryIO, index: int, width: int) -> bytes:
     output.seek(index * width)
