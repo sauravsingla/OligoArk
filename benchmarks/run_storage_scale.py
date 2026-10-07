@@ -82,9 +82,9 @@ def _scale_config(scheme: str) -> ArchiveConfig:
 def _heterogeneous_block() -> bytes:
     rng = random.Random(2026)
     text = (
-        "OligoArk heterogeneous storage benchmark\n"
-        "UTF-8 text, structured records, source code, image bytes, compressed bytes.\n"
-    ).encode() * 128
+        b"OligoArk heterogeneous storage benchmark\n"
+        b"UTF-8 text, structured records, source code, image bytes, compressed bytes.\n"
+    ) * 128
     jsonl = b"".join(
         json.dumps(
             {
