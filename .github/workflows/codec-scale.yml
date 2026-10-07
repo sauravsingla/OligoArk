@@ -13,6 +13,8 @@ on:
           - full
           - scale
           - research
+          - research-10
+          - research-100
       trials:
         description: "Trials per method/condition"
         required: true
