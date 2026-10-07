@@ -12,7 +12,6 @@ from .dna import (
     SequenceConstraints,
     bytes_to_dna,
     dna_to_bytes,
-    quality_penalty,
 )
 from .ecc import ECCDecodeError, rs_decode, rs_encode
 
@@ -154,24 +153,18 @@ def encode_frame_packed(
     ):
         return bytes([0]) + _mask(protected, 0)
 
-    valid: list[tuple[float, bytes]] = []
+    # Stop at the first deterministic valid mask. Earlier releases scored every valid
+    # candidate and then selected the soft optimum, which multiplied physical-profile
+    # encoding cost by the full search budget. Hard GC/homopolymer constraints remain
+    # unchanged; this only removes unnecessary work once a valid strand is found.
     for mask_id in candidate_ids:
         packed = bytes([mask_id]) + _mask(protected, mask_id)
-        dna = bytes_to_dna(packed)
-        if constraints.accepts(dna):
-            target = (constraints.min_gc_fraction + constraints.max_gc_fraction) / 2.0
-            score = quality_penalty(
-                dna,
-                gc_target=target,
-                max_homopolymer=constraints.max_homopolymer,
-            )
-            valid.append((score, packed))
+        if constraints.accepts(bytes_to_dna(packed)):
+            return packed
 
-    if not valid:
-        raise SequenceConstraintError(
-            "No deterministic mask candidate satisfied configured GC/homopolymer constraints"
-        )
-    return min(valid, key=lambda item: item[0])[1]
+    raise SequenceConstraintError(
+        "No deterministic mask candidate satisfied configured GC/homopolymer constraints"
+    )
 
 
 def encode_frame(
