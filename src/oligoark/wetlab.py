@@ -252,7 +252,7 @@ def recover_wetlab_reads(
         verified_sha256=True,
         reconstruction_strategy=report.reconstruction_strategy,
         consensus_reads=report.consensus_reads,
-        claim_status="physical-read-archive-recovery-verified",
+        claim_status="archive-recovery-sha256-verified",
     )
     (bundle / "recovery-report.json").write_text(
         json.dumps(summary.to_dict(), indent=2, sort_keys=True),
