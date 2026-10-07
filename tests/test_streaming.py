@@ -217,7 +217,7 @@ def test_fountain_dropout_recovery_uses_on_disk_rescan(tmp_path) -> None:
 
 
 def test_compact_frame_roundtrip_and_density_profile() -> None:
-    profile = physical_strand_profile("oligoark-152")
+    profile = physical_strand_profile("oligoark-152-compact")
     config = profile.to_archive_config()
     payload = bytes(range(config.chunk_size))
     packed = encode_frame_packed(
@@ -248,7 +248,7 @@ def test_compact_frame_roundtrip_and_density_profile() -> None:
 
 @pytest.mark.parametrize("kind", ["insertion", "deletion"])
 def test_single_indel_rescue_recovers_compact_frame(kind: str) -> None:
-    profile = physical_strand_profile("oligoark-248")
+    profile = physical_strand_profile("oligoark-248-compact")
     config = profile.to_archive_config()
     payload = bytes(range(config.chunk_size))
     packed = encode_frame_packed(
