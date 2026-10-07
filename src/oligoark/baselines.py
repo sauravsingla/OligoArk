@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import bisect
 import hashlib
+from functools import lru_cache
 import math
 import random
 from dataclasses import asdict, dataclass
@@ -81,6 +82,7 @@ class DnaFountainBaselineArchive:
         }
 
 
+@lru_cache(maxsize=32)
 def _robust_soliton_cdf(k: int, c: float, delta: float) -> tuple[float, ...]:
     if k <= 0:
         raise ValueError("k must be positive")
@@ -201,8 +203,13 @@ def decode_dna_fountain_baseline(
 
     missing = [index for index in range(archive.chunk_count) if index not in known]
     if missing:
-        raise ValueError(f"DNA Fountain baseline is not recoverable; missing chunks: {missing[:20]}")
-    recovered = b"".join(known[index] for index in range(archive.chunk_count))[: archive.original_size]
+        raise ValueError(
+            "DNA Fountain baseline is not recoverable; "
+            f"missing chunks: {missing[:20]}"
+        )
+    recovered = b"".join(
+        known[index] for index in range(archive.chunk_count)
+    )[: archive.original_size]
     if hashlib.sha256(recovered).hexdigest() != archive.sha256:
         raise ValueError("DNA Fountain baseline failed SHA-256 verification")
     return recovered
