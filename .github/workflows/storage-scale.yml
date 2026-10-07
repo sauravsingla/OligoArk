@@ -1,6 +1,8 @@
 name: Storage scale acceptance
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       profile:
@@ -33,7 +35,7 @@ jobs:
           PROFILE: ${{ github.event.inputs.profile || 'acceptance' }}
         run: python benchmarks/run_storage_scale.py --profile "$PROFILE"
       - name: Enforce 100 MiB milestone for acceptance runs
-        if: ${{ github.event_name == 'schedule' || github.event.inputs.profile == 'acceptance' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event.inputs.profile == 'acceptance' }}
         run: |
           python - <<'PY'
           import json
