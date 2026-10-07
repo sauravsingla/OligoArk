@@ -225,13 +225,13 @@ def decode_dna_fountain_baseline(
         if len(packet) != 4 + archive.config.chunk_size:
             continue
         seed = int.from_bytes(packet[:4], "big")
-        indexes = _droplet_indexes(
+        droplet_indexes = _droplet_indexes(
             archive.chunk_count,
             seed,
             archive.config.c,
             archive.config.delta,
         )
-        equations.append((set(indexes), packet[4:]))
+        equations.append((set(droplet_indexes), packet[4:]))
 
     known: dict[int, bytes] = {}
     pending = equations
@@ -239,8 +239,8 @@ def decode_dna_fountain_baseline(
     while changed:
         changed = False
         next_pending: list[tuple[set[int], bytes]] = []
-        for indexes, payload in pending:
-            unknown = set(indexes)
+        for unknown_indexes, payload in pending:
+            unknown = set(unknown_indexes)
             parts = [payload]
             for index in tuple(unknown):
                 if index in known:
