@@ -19,7 +19,7 @@ def test_wetlab_bundle_is_self_describing_and_clean_roundtrip(tmp_path) -> None:
     summary = prepare_wetlab_bundle(
         source,
         bundle,
-        profile_name="oligoark-200",
+        profile_name="oligoark-200-compact",
         redundancy_scheme="hybrid",
         fountain_redundancy=0.125,
     )
