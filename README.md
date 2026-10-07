@@ -2,107 +2,145 @@
 
 **DNA archival storage for large files with exact recovery.**
 
-## Problem statement
+OligoArk is a research project for storing digital data as DNA-like sequences and recovering
+the original file exactly.
 
-DNA can store data for a very long time, but a practical DNA-storage system must do more than
-encode small files. It should store large and mixed types of data with low memory use, recover
-the original file exactly when strands are lost or damaged, work with realistic short DNA
-strands, and report density, speed, memory and redundancy clearly.
+The goal is simple: **store large files, use little RAM, survive damaged or missing DNA
+strands, and recover the exact original data.**
 
-OligoArk uses **SHA-256 exact recovery** as the final success criterion.
+OligoArk checks success using **SHA-256**. If the recovered file does not match exactly, the
+test is counted as a failure.
 
 ## Why DNA storage?
 
-DNA storage is not mainly about making a digital file smaller. Its advantage is the possibility
-of storing very large amounts of information in a tiny amount of physical material for long
-periods with little or no power while the archive is at rest. OligoArk focuses on making that
-storage process scalable, memory-efficient and recoverable.
+DNA storage is **not mainly about compression**. A 1 GB file does not automatically become a
+few MB.
 
-## Benchmark results
+The advantage of DNA is physical storage: very large amounts of data could be stored in a very
+small amount of DNA, kept for a long time, and need little or no power while sitting in
+storage.
 
-### 1 GiB scalable storage
+OligoArk focuses on making this process scalable and reliable.
 
-OligoArk stored and exactly recovered a **1 GiB heterogeneous dataset** while using about
-**44 MiB peak RAM**.
+## What works today?
 
-| Test | Result | Lost strands recovered | Density | Encode | Decode | Peak RAM |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Clean | ✅ PASS | 0 | **1.646 bits/nt** | 9.78 MiB/s | 23.08 MiB/s | 43.85 MiB |
-| 1% strand loss | ✅ PASS | **45,338 / 45,338** | **1.646 bits/nt** | 9.77 MiB/s | 17.91 MiB/s | 44.08 MiB |
-| 5% strand loss | ✅ PASS | **226,705 / 226,705** | **1.646 bits/nt** | 9.95 MiB/s | 12.12 MiB/s | 43.63 MiB |
+OligoArk has four strong results:
 
-**Redundancy:** 12.5% · **Archive overhead:** 1.234× · **Total strands:** 5,096,877
+- exact recovery of a **1 GiB mixed dataset** with about **44 MiB peak RAM**;
+- exact recovery with **1% and 5% strand loss**;
+- much better recovery from **insert/delete and mixed DNA errors** on 248-nt strands;
+- about **51% better storage density** on the improved 248-nt profile.
 
-Exact SHA-256 recovery also passed at:
+## 1 GiB storage result
+
+OligoArk successfully recovered a **1 GiB dataset** containing different types of data.
+
+| Test | Result | Peak RAM |
+| --- | ---: | ---: |
+| Clean | ✅ PASS | 43.85 MiB |
+| 1% strand loss | ✅ PASS | 44.08 MiB |
+| 5% strand loss | ✅ PASS | 43.63 MiB |
+
+At 1% loss, OligoArk recovered **45,338 / 45,338** lost strands.
+
+At 5% loss, it recovered **226,705 / 226,705** lost strands.
+
+The 1 GiB test used **1.646 bits per nucleotide** and 12.5% redundancy.
+
+Exact recovery also passed at:
 
 **1 KiB → 64 KiB → 1 MiB → 10 MiB → 100 MiB → 1 GiB**
 
-### Improved 248-nt short-strand recovery
+## Better recovery on 248-nt strands
 
-The new compact 248-nt profile adds bounded single-indel realignment and lower framing
-overhead. The table below uses a 64 KiB heterogeneous payload.
+The improved compact 248-nt profile now handles insertion/deletion errors much better.
 
-| Protection | Clean | 1% loss | 5% loss | Substitution | Indel | Mixed | Density |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| None | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | **1.710 bits/nt** |
-| XOR | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **1.519 bits/nt** |
-| Fountain | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | **1.367 bits/nt** |
-| Hybrid | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **1.242 bits/nt** |
+| Protection | Clean | 1% loss | 5% loss | Substitution | Insert/Delete | Mixed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| None | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| XOR | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Fountain | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Hybrid | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-The strongest result is **XOR and Hybrid passing all six tested conditions**, including indel
-and mixed noise. In the indel test, XOR repaired **71** damaged records and Hybrid repaired
-**84** while still reaching the exact source SHA-256.
+The strongest result is that **XOR and Hybrid pass every tested condition**, including
+insert/delete errors and mixed noise.
 
-Compared with the previous 248-nt profile, density improved by about **51%** for both XOR
-(**1.003 → 1.519 bits/nt**) and Hybrid (**0.820 → 1.242 bits/nt**).
+In the indel test, XOR repaired **71 damaged records** and Hybrid repaired **84 damaged
+records**, while still recovering the exact original file.
 
-The compact profile trades some inner Reed-Solomon protection for density, so unprotected
-None/Fountain modes no longer pass the tested substitution condition. Negative results are
-kept rather than hidden.
+## Better storage density
 
-### Matched codec comparison
+The improved 248-nt profile stores more useful data in the same strand length.
 
-The established common matched comparison remains **1 MiB**, using the same 152-nt limit,
-25% nominal redundancy, fault rates, seeds and exact SHA-256 gate.
+| Method | Before | Now | Improvement |
+| --- | ---: | ---: | ---: |
+| XOR | 1.003 bits/nt | **1.519 bits/nt** | about **51%** |
+| Hybrid | 0.820 bits/nt | **1.242 bits/nt** | about **51%** |
+
+Higher bits/nt means more useful data can be stored in the same number of DNA bases.
+
+## Comparison with other DNA-storage codecs
+
+The largest fully completed fair comparison is currently **1 MiB**.
 
 | Method | Density | Clean | 1% loss | 5% loss | Substitution |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| OligoArk Fountain (previous matched run) | 0.463 bits/nt | 5/5 | 0/5 | 0/5 | **5/5** |
+| OligoArk Fountain | 0.463 bits/nt | 5/5 | 0/5 | 0/5 | **5/5** |
 | DNA Fountain | **1.347 bits/nt** | 5/5 | **5/5** | **5/5** | 0/5 |
 | Goldman-style + XOR | 0.515 bits/nt | 5/5 | 0/5 | 0/5 | 0/5 |
 
-PR #39 also attempted **10 MiB and 100 MiB** matched runs with **10 trials per condition**.
-All three methods exceeded the current **1,200-second worker limit**, so those larger sizes
-are reported as **timeouts, not successful comparisons**. The largest statistically matched
-common completed size therefore remains 1 MiB.
+In simple terms, **DNA Fountain is still better in this test for density and strand-loss
+recovery**, while OligoArk performed better in the tested substitution condition.
 
-### Other dataset benchmarks
+OligoArk also attempted **10 MiB and 100 MiB** matched comparisons with 10 trials per
+condition, but the workers exceeded the 1,200-second limit. These are reported as
+**timeouts, not successful results**.
 
-These tests use published physical-read datasets and measure **reference-strand reconstruction**.
+## Other physical-read datasets
+
+These tests use published DNA sequencing datasets created by other projects. They test
+OligoArk's ability to reconstruct reference strands.
 
 | Dataset | Reads/strand | OligoArk | Pinned BBS |
 | --- | ---: | ---: | ---: |
-| Microsoft CNR (Nanopore) | 5 | **73/96 (76.0%)** | 72–74/96 |
-| Microsoft CNR (Nanopore) | 10 | **93/96 (96.9%)** | **93/96 (96.9%)** |
-| Grass et al. (Illumina) | 5 | **94/96 (97.9%)** | 90/96 (93.8%) |
-| Grass et al. (Illumina) | 10 | **96/96 (100%)** | 95/96 (99.0%) |
-| LCRC HFS-11.7K | 5 | **96/96 (100%)** | **96/96 (100%)** |
-| LCRC HFS-11.7K | 10 | **96/96 (100%)** | **96/96 (100%)** |
-| DNAformer Pilot | 1 | **83/96 (86.5%)** | **83/96 (86.5%)** |
-| DNAformer Pilot | 5 | **96/96 (100%)** | **96/96 (100%)** |
-| DNAformer Pilot | 10 | **96/96 (100%)** | **96/96 (100%)** |
+| Microsoft CNR | 5 | **73/96** | 72–74/96 |
+| Microsoft CNR | 10 | **93/96** | 93/96 |
+| Grass et al. | 5 | **94/96** | 90/96 |
+| Grass et al. | 10 | **96/96** | 95/96 |
+| LCRC HFS-11.7K | 5 | **96/96** | 96/96 |
+| LCRC HFS-11.7K | 10 | **96/96** | 96/96 |
+| DNAformer Pilot | 1 | **83/96** | 83/96 |
+| DNAformer Pilot | 5 | **96/96** | 96/96 |
+| DNAformer Pilot | 10 | **96/96** | 96/96 |
 
-### Wet-lab readiness
+These results are useful reconstruction evidence, but they are **not a physical OligoArk
+storage experiment** because those DNA strands were created by other systems.
 
-OligoArk now includes a lab handoff workflow that generates synthesis-ready FASTA/CSV files,
-experiment metadata, a manifest schema, sequencing input requirements, reconstruction scripts,
-read-depth plans and an exact SHA-256 verification gate.
+## Wet-lab status
 
-**Status: prepared, not physically executed.**
+OligoArk can now prepare a real lab experiment. The repo includes:
 
-> **Claim boundary:** The 1 GiB result and 248-nt fault matrix are software benchmarks.
-> CNR/Grass/LCRC/DNAformer are reference-strand reconstruction benchmarks. OligoArk has not
-> yet demonstrated an end-to-end synthesized → sequenced → SHA-256-verified physical archive.
+- synthesis-ready FASTA and CSV files;
+- experiment metadata and manifest format;
+- sequencing input requirements;
+- reconstruction scripts;
+- read-depth plans;
+- exact SHA-256 verification.
+
+**Current status: ready for a wet-lab experiment, but not yet physically tested end to end.**
+
+A full physical proof still needs:
+
+**OligoArk encode → DNA synthesis → storage → DNA sequencing → reconstruction → exact SHA-256
+match**
+
+## Current limitations
+
+The main things still to improve are the large 10–100 MiB matched codec comparison and a true
+wet-lab OligoArk storage experiment.
+
+The software results are strong, but OligoArk should not yet be described as better than every
+DNA-storage codec or as a fully proven physical DNA-storage system.
 
 More details: [scalable storage](docs/scalable-storage.md) ·
 [codec comparison](docs/dna-fountain-baseline.md) ·
