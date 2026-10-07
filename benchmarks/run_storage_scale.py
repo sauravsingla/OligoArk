@@ -537,7 +537,15 @@ def main() -> None:
     parser.add_argument("--fault", choices=tuple(FAULTS))
     parser.add_argument(
         "--strand-profile",
-        choices=(\n            SCALE_PROFILE,\n            "oligoark-152",\n            "oligoark-200",\n            "oligoark-248",\n            "oligoark-152-compact",\n            "oligoark-200-compact",\n            PHYSICAL_PROFILE,\n        ),
+        choices=(
+            SCALE_PROFILE,
+            "oligoark-152",
+            "oligoark-200",
+            "oligoark-248",
+            "oligoark-152-compact",
+            "oligoark-200-compact",
+            PHYSICAL_PROFILE,
+        ),
     )
     parser.add_argument("--workdir", type=Path)
     args = parser.parse_args()
