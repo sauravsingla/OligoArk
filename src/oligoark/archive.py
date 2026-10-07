@@ -37,7 +37,7 @@ class ArchiveConfig:
     mask_search_limit: int = 64
     compact_framing: bool = False
     compact_index_bytes: int = 3
-    indel_rescue: bool = True
+    indel_rescue: bool = False
 
     @property
     def sequence_constraints(self) -> SequenceConstraints:
@@ -119,7 +119,7 @@ class ArchiveConfig:
         compact_framing = values.get("compact_framing", False)
         if not isinstance(compact_framing, bool):
             raise ValueError("compact_framing must be a boolean")
-        indel_rescue = values.get("indel_rescue", True)
+        indel_rescue = values.get("indel_rescue", False)
         if not isinstance(indel_rescue, bool):
             raise ValueError("indel_rescue must be a boolean")
         redundancy_scheme = values.get("redundancy_scheme", "xor")
