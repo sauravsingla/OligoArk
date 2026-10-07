@@ -20,6 +20,8 @@ class PhysicalStrandProfile:
     mask_search_limit: int = 64
     compact_framing: bool = False
     compact_index_bytes: int = 3
+    compact_typed_index: bool = False
+    fountain_max_degree: int = 4
     indel_rescue: bool = False
 
     @property
@@ -32,6 +34,7 @@ class PhysicalStrandProfile:
             self.rs_nsym,
             compact_framing=self.compact_framing,
             compact_index_bytes=self.compact_index_bytes,
+            compact_typed_index=self.compact_typed_index,
         )
         maximum_frame_payload = 255 - (overhead - 1)
         maximum = min(
@@ -65,6 +68,8 @@ class PhysicalStrandProfile:
             "mask_search_limit": self.mask_search_limit,
             "compact_framing": self.compact_framing,
             "compact_index_bytes": self.compact_index_bytes,
+            "compact_typed_index": self.compact_typed_index,
+            "fountain_max_degree": self.fountain_max_degree,
             "indel_rescue": self.indel_rescue,
         }
         values.update(overrides)
@@ -87,6 +92,18 @@ PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
         152,
         rs_nsym=2,
         compact_framing=True,
+        indel_rescue=True,
+    ),
+    # v1 efficiency profile: keeps CRC16 + RS(2) but stores the frame kind in the
+    # compact index, gaining one payload byte at 152 nt. A wider bounded fountain
+    # neighbourhood improves random-erasure connectivity without changing legacy archives.
+    "oligoark-152-efficient-v1": PhysicalStrandProfile(
+        "oligoark-152-efficient-v1",
+        152,
+        rs_nsym=2,
+        compact_framing=True,
+        compact_typed_index=True,
+        fountain_max_degree=16,
         indel_rescue=True,
     ),
     "oligoark-200-compact": PhysicalStrandProfile(
