@@ -161,10 +161,12 @@ def _vote_reference(
     k: int = MAPPING_K,
 ) -> tuple[int | None, int, int]:
     votes: Counter[int] = Counter()
+    seen_kmers: set[int] = set()
     for position in range(len(sequence) - k + 1):
         encoded = _encode_kmer(sequence[position : position + k])
-        if encoded is None:
+        if encoded is None or encoded in seen_kmers:
             continue
+        seen_kmers.add(encoded)
         reference_index = kmer_index.get(encoded)
         if reference_index is not None and reference_index >= 0:
             votes[reference_index] += 1
