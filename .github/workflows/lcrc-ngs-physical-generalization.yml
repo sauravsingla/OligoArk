@@ -1,6 +1,7 @@
 name: LCRC NGS physical generalization
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - benchmark/lcrc-ont-generalization
