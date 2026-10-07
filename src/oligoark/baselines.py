@@ -181,7 +181,26 @@ def _gaussian_recover(
     total: int,
     width: int,
 ) -> dict[int, bytes]:
-    """Solve residual XOR equations exactly when LT peeling stalls."""
+    """Solve residual XOR equations using a compact index space for missing chunks.
+
+    Using the original chunk index directly as a Python integer bit position makes a pivot
+    mask millions of bits wide even when only a small residual set remains. Remapping only
+    unresolved indexes preserves the same GF(2) system while bounding each mask by the
+    number of chunks still missing after peeling.
+    """
+    unresolved_indexes = sorted(
+        {
+            index
+            for indexes, _ in equations
+            for index in indexes
+            if index not in known
+        }
+    )
+    local_index = {
+        original: local
+        for local, original in enumerate(unresolved_indexes)
+    }
+
     pivots: dict[int, tuple[int, bytes]] = {}
     for indexes, payload in equations:
         mask = 0
@@ -189,8 +208,8 @@ def _gaussian_recover(
         for index in indexes:
             if index in known:
                 residual_parts.append(known[index])
-            else:
-                mask |= 1 << index
+            elif index in local_index:
+                mask |= 1 << local_index[index]
         residual = xor_bytes(residual_parts, width)
         while mask:
             pivot = (mask & -mask).bit_length() - 1
@@ -202,17 +221,20 @@ def _gaussian_recover(
             residual = xor_bytes([residual, pivot_payload], width)
 
     recovered = dict(known)
+    recovered_local: dict[int, bytes] = {}
     for pivot in sorted(pivots, reverse=True):
         mask, payload = pivots[pivot]
         residual_parts = [payload]
         unresolved = False
-        for index in _mask_indexes(mask & ~(1 << pivot)):
-            if index not in recovered:
+        for local in _mask_indexes(mask & ~(1 << pivot)):
+            if local not in recovered_local:
                 unresolved = True
                 break
-            residual_parts.append(recovered[index])
+            residual_parts.append(recovered_local[local])
         if not unresolved:
-            recovered[pivot] = xor_bytes(residual_parts, width)
+            value = xor_bytes(residual_parts, width)
+            recovered_local[pivot] = value
+            recovered[unresolved_indexes[pivot]] = value
     return {index: recovered[index] for index in range(total) if index in recovered}
 
 
