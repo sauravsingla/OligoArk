@@ -1,11 +1,7 @@
 name: DNAformer Pilot Illumina generalization
 
 on:
-  push:
-    branches:
-      - benchmark/dnaformer-pilot-illumina-generalization
-    paths:
-      - ".github/workflows/dnaformer-pilot-generalization.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
