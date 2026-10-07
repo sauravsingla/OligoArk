@@ -3,9 +3,53 @@
 [![CI](https://github.com/sauravsingla/OligoArk/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravsingla/OligoArk/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/oligoark.svg)](https://pypi.org/project/oligoark/)
 
-**A research framework for adaptive DNA-data storage, multi-read reconstruction, and reproducible physical-read benchmarking.**
+### Encode files into DNA-like strands, simulate storage errors, reconstruct them, and verify exact recovery.
 
-OligoArk explores how digital data can be encoded into DNA-like sequences, protected with adaptive redundancy, reconstructed from noisy multi-read clusters, and verified end to end with integrity checks. Its current research focus is **low-compute confidence-fusion reconstruction**: several deterministic reconstruction signals are combined with bounded confidence-guided repair to improve exact strand recovery without neural models, GPUs, or unrestricted search.
+**OligoArk** is an open-source research framework for DNA archival storage. It combines encoding, redundancy, noisy-channel simulation, multi-read reconstruction and SHA-256 verification in one reproducible pipeline.
+
+## Try it in 30 seconds
+
+```bash
+pip install oligoark
+printf 'OligoArk demo data\n' > demo.txt
+oligoark archive demo.txt --output demo.oligoark.json
+oligoark recover demo.oligoark.json --output recovered.txt
+cmp demo.txt recovered.txt
+```
+
+A successful `cmp` confirms byte-for-byte recovery.
+
+## Large files and scale validation
+
+For large files, use the compact bounded-memory streaming container:
+
+```bash
+oligoark archive-stream large.bin --output large.oligoark.bin --profile scale-1024
+oligoark recover-stream large.oligoark.bin --output large.recovered.bin
+cmp large.bin large.recovered.bin
+```
+
+The 100 MiB software acceptance milestone has been achieved for clean, 1% controlled-dropout,
+and 5% controlled-dropout recovery with exact SHA-256 verification. The validated clean path
+uses bounded-memory streaming; detailed density, throughput, peak-RSS, redundancy, negative
+noise results, and claim boundaries are recorded in
+[the acceptance evidence](docs/storage-scale-acceptance-2026-10-07.md). This is software
+archive evidence, not a wet-lab end-to-end storage claim.
+
+## Why it exists
+
+DNA storage research often evaluates encoding, channel errors, reconstruction and integrity separately. OligoArk makes those stages runnable together so researchers can ask practical questions such as:
+
+- How much redundancy is needed under a given dropout/error profile?
+- Which reconstruction strategy works best with only a few noisy reads?
+- Does a recovered archive exactly match the original bytes?
+- Do reconstruction settings generalize across independent physical-read datasets?
+
+Its current research focus is **low-compute confidence-fusion reconstruction**: deterministic reconstruction signals are combined with bounded confidence-guided repair, without requiring neural models, GPUs or unrestricted search.
+
+> **Scope:** OligoArk is software research, not a wet-lab DNA-storage platform. Physical-read benchmarks use published sequencing data and do not by themselves establish end-to-end wet-lab archival performance or a general state-of-the-art claim.
+
+**Best way to help:** try a new public DNA-storage dataset, reproduce a benchmark, contribute a channel/reconstruction method, or report a failure case.
 
 ## What is distinctive
 
@@ -50,36 +94,6 @@ See the detailed benchmark reports for [CNR](docs/external-cnr-benchmark.md), [G
 - Bounded-memory compact binary archives for large-file scale validation
 - 152/200/248-nt physical strand profiles and clean-room DNA Fountain comparison
 
-## Install
-
-```bash
-pip install oligoark
-```
-
-## Quick start
-
-```bash
-printf 'OligoArk demo data\n' > demo.txt
-oligoark archive demo.txt --output demo.oligoark.json
-oligoark recover demo.oligoark.json --output recovered.txt
-cmp demo.txt recovered.txt
-```
-
-A successful `cmp` confirms byte-for-byte recovery of the archived input.
-
-For large files, use the compact streaming container:
-
-```bash
-oligoark archive-stream large.bin --output large.oligoark.bin --profile scale-1024
-oligoark recover-stream large.oligoark.bin --output large.recovered.bin
-cmp large.bin large.recovered.bin
-```
-
-The repository includes a separate 100 MiB acceptance benchmark. It only prints the
-scalability milestone statement after clean and controlled 5% erasure recovery both pass the
-original-file SHA-256 gate; until that workflow passes, the milestone should be treated as a
-release criterion rather than an achieved result.
-
 ## Research philosophy
 
 OligoArk separates **simulation evidence**, **physical-read reconstruction evidence**, and **external published evidence**. It avoids treating software channel simulations as wet-lab validation, does not use hidden references during reconstruction candidate selection, and preserves negative experiments when a proposed method fails to improve untouched held-out results.
@@ -94,6 +108,7 @@ For the detailed novelty, validation design, ablations, prior-work positioning, 
 - [Configuration](docs/configuration.md)
 - [Scalable archival storage](docs/scalable-storage.md)
 - [DNA Fountain comparison](docs/dna-fountain-baseline.md)
+- [100 MiB acceptance evidence](docs/storage-scale-acceptance-2026-10-07.md)
 
 ## License
 
