@@ -4,47 +4,57 @@
 
 ## Problem statement
 
-DNA archival storage is promising for long-term, high-density preservation, but practical
-software systems still need to answer three engineering questions:
+DNA archival storage needs to scale to large heterogeneous files, recover the original bytes
+exactly under strand loss/noise, and do so with measurable density, redundancy, throughput and
+memory under realistic strand constraints. OligoArk uses bounded-memory streaming archives,
+configurable 150–250 nt physical-design profiles, redundancy/error simulation, reconstruction,
+and **SHA-256 exact recovery as the final success criterion**.
 
-1. **Can large heterogeneous files be encoded and recovered without memory growing with the
-   whole archive?**
-2. **Can the original bytes be recovered exactly when DNA strands are lost or reads are
-   noisy?**
-3. **Can storage density, redundancy, throughput, memory and reconstruction quality be
-   measured reproducibly under realistic strand-length constraints and fair baselines?**
+## Storage benchmark
 
-OligoArk addresses these questions with bounded-memory streaming archives, configurable
-150–250 nt strand profiles, redundancy/error simulation, reconstruction, and **SHA-256 exact
-recovery as the final success criterion**.
+### 1 GiB bounded-memory archive
 
-## Benchmark results
+Validated on a deterministic 1 GiB heterogeneous payload using the `scale-1024` systems
+profile with XOR redundancy.
 
-### 100 MiB scalable archive
+| Condition | SHA-256 | Lost / recovered | Density | Encode | Decode | Peak RSS | Redundancy | Archive overhead |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Clean | ✅ PASS | 0 / 0 | **1.645833 bits/nt** | 9.78 MiB/s | 23.08 MiB/s | 43.85 MiB | 12.5% | 1.234× |
+| 1% controlled dropout | ✅ PASS | **45,338 / 45,338** | **1.645833** | 9.77 MiB/s | 17.91 MiB/s | 44.08 MiB | 12.5% | 1.234× |
+| 5% controlled dropout | ✅ PASS | **226,705 / 226,705** | **1.645833** | 9.95 MiB/s | 12.12 MiB/s | 43.63 MiB | 12.5% | 1.234× |
 
-| Condition | SHA-256 recovery | Density | Encode | Decode | Peak RSS | Redundancy |
+**1 GiB archive:** 4,530,557 data strands + 566,320 parity strands = **5,096,877 strands**,
+**5,219,201,308 encoded nt**, source SHA-256
+`cc6286341b8650694bdb4f565a75372a981fde3935d1577eb415031d9fb12b5e`.
+
+**Scaling:** 1 KiB → 64 KiB → 1 MiB → 10 MiB → 100 MiB → **1 GiB** all passed exact
+SHA-256 recovery. Peak-memory log-log slope = **0.0434 (bounded)**; runtime slope =
+**0.7935 (linear-or-better)**.
+
+### RS-enabled 248-nt fault matrix
+
+64 KiB heterogeneous payload, `oligoark-248`, 8 RS symbols.
+
+| Scheme | Clean | 1% dropout | 5% dropout | Substitution | Indel | Mixed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Clean | ✅ PASS | **1.645832 bits/nt** | 11.78 MiB/s | 43.88 MiB/s | 108.42 MiB | 12.5001% |
-| 1% controlled dropout | ✅ PASS | **1.645832 bits/nt** | 12.00 MiB/s | 24.99 MiB/s | 108.42 MiB | 12.5001% |
-| 5% controlled dropout | ✅ PASS | **1.645832 bits/nt** | 11.66 MiB/s | 16.25 MiB/s | 108.04 MiB | 12.5001% |
+| None | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| XOR | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Fountain | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Hybrid | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 
-The same deterministic 100 MiB heterogeneous payload was recovered byte-for-byte in all three cases.
+The current remaining robustness bottleneck is **insertion/deletion synchronization**; the
+tested RS-enabled profiles recover substitutions but not the tested indel or mixed regimes.
 
-**Scaling:** 1 KiB → 64 KiB → 1 MiB → 10 MiB → 100 MiB all passed SHA-256 verification.  
-**Memory scaling:** bounded.  
-**Runtime scaling:** linear-or-better.
+### Matched 152-nt codec comparison
 
-### OligoArk vs DNA Fountain
+1 MiB payload, 25% nominal redundancy, identical fault rates/seeds, five trials per condition,
+and the same SHA-256 exact-recovery gate.
 
-| Metric | **OligoArk** | **DNA Fountain baseline** |
-| --- | ---: | ---: |
-| 100 MiB archival test | ✅ PASS | Not evaluated |
-| Clean recovery | ✅ PASS | ✅ PASS |
-| 5% strand dropout | ✅ PASS at 100 MiB with XOR | ✅ 3/3 at 152 nt |
-| Density at 100 MiB scale | **1.645832 bits/nt** | Not measured |
-| Density in matched 152-nt test | 0.457756 bits/nt | **1.347368 bits/nt** |
-| Memory scaling | **Bounded through 100 MiB** | Small comparison only |
-| Runtime scaling | **Linear-or-better through 100 MiB** | Small comparison only |
+| Method | Density | Clean | 1% dropout | 5% dropout | Substitution | Indel | Mixed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **OligoArk Fountain** | 0.463 bits/nt | 5/5 | 0/5 | 0/5 | **5/5** | 0/5 | 0/5 |
+| **DNA Fountain clean-room** | **1.347 bits/nt** | 5/5 | **5/5** | **5/5** | 0/5 | 0/5 | 0/5 |
+| **Goldman-style rotating + XOR** | 0.515 bits/nt | 5/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 |
 
 ### External physical-read reconstruction
 
@@ -55,10 +65,11 @@ The same deterministic 100 MiB heterogeneous payload was recovered byte-for-byte
 | Grass et al. (Illumina) | 5 | **94/96 (97.9%)** | 90/96 (93.8%) |
 | Grass et al. (Illumina) | 10 | **96/96 (100%)** | 95/96 (99.0%) |
 | LCRC HFS-11.7K | 5 | **96/96 (100%)** | **96/96 (100%)** |
-| LCRC HFS-11.7K | 10 | **96/96 (100%)** | **96/96 (100%)** |
 | DNAformer Pilot | 5 | **96/96 (100%)** | **96/96 (100%)** |
-| DNAformer Pilot | 10 | **96/96 (100%)** | **96/96 (100%)** |
 
-> **Claim boundary:** The 100 MiB results are software archive / controlled-channel evidence. External CNR, Grass, LCRC and DNAformer results are reference-strand reconstruction benchmarks, not end-to-end wet-lab OligoArk archive storage.
+> **Claim boundary:** The 1 GiB result is software archive / controlled-channel evidence using
+> the `scale-1024` systems profile. The 248-nt RS matrix is realistic-strand software evidence.
+> CNR/Grass/LCRC/DNAformer are reference-strand reconstruction benchmarks. None of these is an
+> end-to-end wet-lab OligoArk archive claim.
 
-Details: [100 MiB acceptance evidence](docs/storage-scale-acceptance-2026-10-07.md) · [DNA Fountain comparison](docs/dna-fountain-baseline.md)
+Details: [scalable storage](docs/scalable-storage.md) · [matched codec baselines](docs/dna-fountain-baseline.md)
