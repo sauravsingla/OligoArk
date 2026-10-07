@@ -1,0 +1,22 @@
+{
+  "dataset": "Microsoft Clustered Nanopore Reads (CNR)",
+  "doi": "10.48550/arXiv.2107.06440",
+  "bioproject": "not applicable (data hosted on GitHub)",
+  "run_accessions": [
+    "microsoft/clustered-nanopore-reads-dataset@6938f44796185902a08381943c2895782886c5c3"
+  ],
+  "data_restrictions": "MIT License, per the dataset repository.",
+  "reference_mapping_status": "Clusters.txt lists the reads of each Centers.txt strand in the same order, so CNR supplies the read-to-reference association. benchmarks/convert_cnr_to_physical.py --supplied-output scores a subset with that association. run_physical_dataset.py instead reassigns every read to its nearest reference by edit distance; that path exercises the generic adapter and is not the authoritative CNR reconstruction result.",
+  "notes": "Provenance only; the data is not bundled. CNR strands were not encoded with OligoArk, so results are reference-reconstruction accuracy, not an end-to-end decoding claim. See docs/external-cnr-benchmark.md for the authoritative held-out BBS comparison.",
+  "known_limitations": "Upstream README, note added on 8/12/2024: the 10,000 source sequences were meant to be uniformly random but contain long-range dependencies due to an error in their generation. The clustering algorithm may therefore behave unexpectedly and some recovered clusters may be malformed, which makes trace reconstruction harder.",
+  "input_files": {
+    "Centers.txt": {
+      "sha256": "b70e723ef0d83a88f7b3e483b932b0279628a0eae39cb4e41d99b9e367c5341e",
+      "git_blob": "2d72f78cd86f2172578aaae297113a4baa14975c"
+    },
+    "Clusters.txt": {
+      "sha256": "7c2e27b497762ed3bb01a2d27ed09ca2291d590a0a7534a25307876d76b6ca22",
+      "git_blob": "95a71c77cb82f6d501d6aa99c7415591565c5ae3"
+    }
+  }
+}

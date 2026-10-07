@@ -13,6 +13,8 @@
   Wilson 95% recovery intervals.
 - Pull-request smoke validation and a scheduled/manual 100 MiB acceptance workflow whose
   milestone statement is gated on clean plus controlled-loss SHA-256 recovery.
+- `datasets/cnr.json` manifest (pinned commit, input SHA-256 and Git blob hashes, upstream limitation) and `benchmarks/convert_cnr_to_physical.py` to run a Clustered Nanopore Reads subset either with CNR's own cluster association or through the nearest-reference physical-read adapter, with a small committed test fixture.
+- `evaluate_supplied_clusters()` scores consensus baselines on reads already grouped by reference, without nearest-reference reassignment. Physical summaries now report which `assignment` was used.
 - Lightweight deterministic `multistart_trace_consensus()` using multiple observed-read anchors, bidirectional refinement, candidate pruning and optional known-length scoring without GPU/deep-learning dependencies.
 - Leakage-controlled CNR calibration: 48 deterministic calibration clusters are excluded from the unchanged 96-cluster held-out physical-read benchmark before configuration selection.
 - Paired held-out comparisons against prior OligoArk graph/alignment and iterative-trace methods in addition to the pinned external BBS baseline.

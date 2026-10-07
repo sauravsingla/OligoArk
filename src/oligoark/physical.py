@@ -70,7 +70,8 @@ class PhysicalReconstructionSummary:
     medoid_exact_reference_matches: int
     alignment_exact_reference_matches: int
     trace_exact_reference_matches: int
-    assignment_threshold: float
+    assignment_threshold: float | None
+    assignment: str = "nearest_reference"
 
     @property
     def trace_exact_rate(self) -> float:
@@ -189,11 +190,73 @@ def evaluate_physical_reconstruction(
         if read == normalized_references[index]:
             exact_reads += 1
 
+    return _score_clusters(
+        manifest,
+        normalized_references,
+        clusters,
+        total_reads=len(normalized_reads),
+        unassigned_reads=unassigned,
+        exact_single_reads=exact_reads,
+        assignment_threshold=assignment_threshold,
+        assignment="nearest_reference",
+    )
+
+
+def evaluate_supplied_clusters(
+    manifest: PhysicalDatasetManifest,
+    references: list[str],
+    clusters: list[list[str]],
+) -> PhysicalReconstructionSummary:
+    """Compare consensus baselines on reads already grouped by reference.
+
+    ``clusters[i]`` holds the reads the dataset itself associates with
+    ``references[i]`` (for example CNR's cluster order), so no read is
+    reassigned by similarity.
+    """
+    if len(references) != len(clusters):
+        raise ValueError("references and clusters must have the same length")
+    if not references:
+        raise ValueError("references must not be empty")
+    normalized_references = [reference.strip().upper() for reference in references]
+    if any(not reference for reference in normalized_references):
+        raise ValueError("references must not contain an empty sequence")
+    normalized_clusters = [
+        [read.strip().upper() for read in cluster if read.strip()]
+        for cluster in clusters
+    ]
+    exact_reads = sum(
+        read == reference
+        for reference, cluster in zip(normalized_references, normalized_clusters, strict=True)
+        for read in cluster
+    )
+    return _score_clusters(
+        manifest,
+        normalized_references,
+        normalized_clusters,
+        total_reads=sum(len(cluster) for cluster in normalized_clusters),
+        unassigned_reads=0,
+        exact_single_reads=exact_reads,
+        assignment_threshold=None,
+        assignment="supplied_clusters",
+    )
+
+
+def _score_clusters(
+    manifest: PhysicalDatasetManifest,
+    references: list[str],
+    clusters: list[list[str]],
+    *,
+    total_reads: int,
+    unassigned_reads: int,
+    exact_single_reads: int,
+    assignment_threshold: float | None,
+    assignment: str,
+) -> PhysicalReconstructionSummary:
     medoid_matches = 0
     alignment_matches = 0
     trace_matches = 0
     multi = 0
-    for reference, cluster in zip(normalized_references, clusters, strict=True):
+    for reference, cluster in zip(references, clusters, strict=True):
         if not cluster:
             continue
         if len(cluster) > 1:
@@ -202,17 +265,17 @@ def evaluate_physical_reconstruction(
         alignment_matches += int(alignment_consensus(cluster) == reference)
         trace_matches += int(iterative_trace_consensus(cluster, rounds=4) == reference)
 
-    assigned = sum(len(cluster) for cluster in clusters)
     return PhysicalReconstructionSummary(
         dataset=manifest.dataset,
-        total_reads=len(normalized_reads),
-        reference_count=len(normalized_references),
-        assigned_reads=assigned,
-        unassigned_reads=unassigned,
+        total_reads=total_reads,
+        reference_count=len(references),
+        assigned_reads=sum(len(cluster) for cluster in clusters),
+        unassigned_reads=unassigned_reads,
         clusters_with_multiple_reads=multi,
-        exact_single_read_reference_matches=exact_reads,
+        exact_single_read_reference_matches=exact_single_reads,
         medoid_exact_reference_matches=medoid_matches,
         alignment_exact_reference_matches=alignment_matches,
         trace_exact_reference_matches=trace_matches,
         assignment_threshold=assignment_threshold,
+        assignment=assignment,
     )
