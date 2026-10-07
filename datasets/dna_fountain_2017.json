@@ -1,0 +1,9 @@
+{
+  "dataset": "DNA Fountain 2017 physical-data provenance",
+  "doi": "10.1126/science.aaj2038",
+  "bioproject": "ENA PRJEB19305; PRJEB19307",
+  "run_accessions": [],
+  "data_restrictions": "OligoArk does not redistribute the sequencing data; verify current ENA and source-repository terms before redistribution.",
+  "reference_mapping_status": "Provenance only. Reproducing the original wet-lab archive requires the published DNA Fountain parameters and original reference/droplet mapping; OligoArk does not infer that mapping.",
+  "notes": "Use this manifest as provenance, not as evidence that the clean-room OligoArk DNA Fountain baseline reproduces the historical implementation bit-for-bit."
+}
