@@ -1,5 +1,5 @@
-import hashlib
 import gzip
+import hashlib
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -56,15 +56,15 @@ def test_lcrc_ngs_mapping_is_orientation_invariant() -> None:
 
 
 def test_lcrc_ngs_primer_trim_uses_only_universal_anchors() -> None:
-    reference = _reference("ACGTTGCA" * 20)
+    reference = _reference(_payload("trim"))
     read = "GGG" + reference + "TTT"
     assert trim_universal_primers(read) == reference
 
 
 def test_lcrc_ngs_binning_reads_gzip_fastq(tmp_path: Path) -> None:
     references = [
-        _reference("ACGTTGCA" * 20),
-        _reference("GATTACAG" * 20),
+        _reference(_payload("bin-alpha")),
+        _reference(_payload("bin-beta")),
     ]
     fastq = tmp_path / "reads.fastq.gz"
     with gzip.open(fastq, "wt", encoding="utf-8") as handle:
