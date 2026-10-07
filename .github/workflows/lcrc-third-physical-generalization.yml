@@ -1,11 +1,7 @@
 name: LCRC third physical generalization
 
 on:
-  push:
-    branches:
-      - benchmark/lcrc-third-physical-generalization
-    paths:
-      - ".github/workflows/lcrc-third-physical-generalization.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
