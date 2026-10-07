@@ -216,6 +216,51 @@ def test_fountain_dropout_recovery_uses_on_disk_rescan(tmp_path) -> None:
 
 
 
+def test_efficient_152_profile_reclaims_one_payload_byte_with_same_crc_and_rs() -> None:
+    legacy = physical_strand_profile("oligoark-152-compact")
+    efficient = physical_strand_profile("oligoark-152-efficient-v1")
+    config = efficient.to_archive_config()
+
+    assert legacy.chunk_size == 29
+    assert efficient.chunk_size == 30
+    assert efficient.rs_nsym == legacy.rs_nsym == 2
+    assert efficient.compact_typed_index is True
+    assert efficient.fountain_max_degree == 16
+
+    for is_parity, is_fountain, expected_kind in (
+        (False, False, "data"),
+        (True, False, "parity"),
+        (False, True, "fountain"),
+    ):
+        packed = encode_frame_packed(
+            bytes(range(config.chunk_size)),
+            index=123,
+            total_data=1000,
+            is_parity=is_parity,
+            is_fountain=is_fountain,
+            rs_nsym=config.rs_nsym,
+            adaptive_masks=config.adaptive_masks,
+            sequence_constraints=config.sequence_constraints,
+            mask_search_limit=config.mask_search_limit,
+            compact_framing=config.compact_framing,
+            compact_index_bytes=config.compact_index_bytes,
+            compact_typed_index=config.compact_typed_index,
+        )
+        decoded = decode_frame_packed(
+            packed,
+            rs_nsym=config.rs_nsym,
+            mask_search_limit=config.mask_search_limit,
+            compact_framing=config.compact_framing,
+            compact_index_bytes=config.compact_index_bytes,
+            compact_typed_index=config.compact_typed_index,
+            expected_total_data=1000,
+        )
+        assert len(packed) * 4 == 152
+        assert decoded.kind == expected_kind
+        assert decoded.index == 123
+        assert decoded.payload == bytes(range(config.chunk_size))
+
+
 def test_compact_frame_roundtrip_and_density_profile() -> None:
     profile = physical_strand_profile("oligoark-152-compact")
     config = profile.to_archive_config()
