@@ -1,4 +1,5 @@
 name: LCRC NGS physical generalization
+# Frozen third-dataset generalization benchmark.
 
 on:
   workflow_dispatch:
