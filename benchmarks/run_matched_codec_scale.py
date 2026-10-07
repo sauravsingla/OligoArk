@@ -11,6 +11,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import platform
 import resource
 import signal
@@ -58,6 +59,19 @@ def _peak_rss_mib() -> float:
     if sys.platform == "darwin":
         return value / (1024 * 1024)
     return value / 1024
+
+
+def _repository_commit() -> str:
+    root = Path(__file__).resolve().parents[1]
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return os.environ.get("GITHUB_SHA", "unknown")
 
 
 def _metrics(
@@ -464,6 +478,26 @@ def _write_csv(rows: list[dict[str, object]], path: Path) -> None:
         writer.writerows(flattened)
 
 
+def _trial_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    flattened: list[dict[str, object]] = []
+    for row in rows:
+        trials = row.get("trial_results")
+        if not isinstance(trials, list):
+            continue
+        identity = {
+            "method": row.get("method"),
+            "size_bytes": row.get("size_bytes"),
+            "condition": row.get("condition"),
+            "payload_sha256": row.get("payload_sha256"),
+            "target_max_strand_nt": row.get("target_max_strand_nt"),
+            "redundancy_budget": row.get("redundancy_budget"),
+        }
+        for trial in trials:
+            if isinstance(trial, dict):
+                flattened.append({**identity, **trial})
+    return flattened
+
+
 def _summary(
     rows: list[dict[str, object]],
     conditions: tuple[str, ...],
@@ -650,6 +684,7 @@ def main() -> None:
 
     metadata: dict[str, Any] = {
         "oligoark_version": __version__,
+        "repository_commit": _repository_commit(),
         "python_version": platform.python_version(),
         "platform": platform.platform(),
         "profile": args.profile,
@@ -659,6 +694,9 @@ def main() -> None:
         "trials_per_condition": trials,
         "conditions": list(conditions),
         "methods": list(selected_methods),
+        "trial_seeds": [20_260_000 + trial for trial in range(trials)],
+        "argv": [sys.executable, *sys.argv],
+        "channel_engine": "sparse-geometric-v1",
         "encode_orchestration_timeout_seconds": args.timeout_seconds,
         "condition_timeout_seconds": args.condition_timeout_seconds,
         "derived_worker_timeout_seconds": (
@@ -678,6 +716,7 @@ def main() -> None:
         ),
     }
     summary = _summary(rows, conditions, selected_methods)
+    trial_rows = _trial_rows(rows)
     (args.output / "results.json").write_text(
         json.dumps(rows, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -690,7 +729,12 @@ def main() -> None:
         json.dumps(summary, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    (args.output / "trial-results.json").write_text(
+        json.dumps(trial_rows, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     _write_csv(rows, args.output / "results.csv")
+    _write_csv(trial_rows, args.output / "trial-results.csv")
     _write_plots(rows, args.output)
     print(json.dumps({"metadata": metadata, "summary": summary}, indent=2))
 
