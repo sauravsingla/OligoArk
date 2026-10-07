@@ -39,7 +39,7 @@ GIB = 1024 * MIB
 SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB, 100 * MIB, 1 * GIB)
 SCHEMES = ("none", "xor", "fountain", "hybrid")
 SCALE_PROFILE = "scale-1024"
-PHYSICAL_PROFILE = "oligoark-248"
+PHYSICAL_PROFILE = "oligoark-248-compact"
 PHYSICAL_MATRIX_SIZE = 64 * KIB
 MILESTONE_SIZE = 1 * GIB
 MILESTONE_STATEMENT = (
@@ -537,7 +537,7 @@ def main() -> None:
     parser.add_argument("--fault", choices=tuple(FAULTS))
     parser.add_argument(
         "--strand-profile",
-        choices=(SCALE_PROFILE, "oligoark-152", "oligoark-200", PHYSICAL_PROFILE),
+        choices=(\n            SCALE_PROFILE,\n            "oligoark-152",\n            "oligoark-200",\n            "oligoark-248",\n            "oligoark-152-compact",\n            "oligoark-200-compact",\n            PHYSICAL_PROFILE,\n        ),
     )
     parser.add_argument("--workdir", type=Path)
     args = parser.parse_args()
