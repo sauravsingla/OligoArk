@@ -11,12 +11,12 @@ Neither implementation copies or claims bit compatibility with historical source
 from __future__ import annotations
 
 import bisect
-from collections import deque
 import hashlib
 import math
 import random
 import struct
 import zlib
+from collections import deque
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
