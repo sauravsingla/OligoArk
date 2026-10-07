@@ -424,6 +424,8 @@ def recover_file_streaming(
             output.truncate(size)
             for ordinal in range(records):
                 record_start = archive_handle.tell()
+                if fountain_records and ordinal == fountain_ordinal_start:
+                    fountain_start = record_start
                 packed = _read_record(archive_handle)
                 if packed is None:
                     raise ValueError("archive ended before declared strand count")
@@ -463,10 +465,8 @@ def recover_file_streaming(
                             known_count += 1
                             xor_recovered += 1
                 elif frame.is_fountain:
-                    # Keep fountain state on disk. Remember the first fountain record and
-                    # opportunistically peel degree-one equations during the initial pass.
-                    if fountain_start is None:
-                        fountain_start = record_start
+                    # Fountain state stays on disk; opportunistically peel degree-one
+                    # equations during the initial pass.
                     if known_count != total and _recover_fountain_frame(
                         frame,
                         output,
