@@ -514,42 +514,86 @@ def decode_rotating_ternary_baseline(
     archive: RotatingTernaryBaselineArchive,
     sequences: tuple[str, ...] | list[str] | None = None,
 ) -> bytes:
-    selected = archive.sequences if sequences is None else tuple(sequences)
-    known: dict[int, bytes] = {}
-    parity: dict[int, bytes] = {}
+    """Decode with compact indexed buffers instead of per-chunk Python dictionaries.
+
+    The previous dictionary representation becomes the dominant memory cost at 10-100 MiB.
+    A fixed output buffer plus byte presence maps preserves the same decoding semantics while
+    keeping auxiliary memory proportional to payload bytes and strand counts.
+    """
+    selected = archive.sequences if sequences is None else sequences
+    width = archive.config.chunk_size
+    total = archive.data_count
+    group_size = archive.config.parity_group_size
+    parity_count = (
+        math.ceil(total / group_size)
+        if group_size is not None
+        else 0
+    )
+
+    data = bytearray(total * width)
+    data_present = bytearray(total)
+    parity = bytearray(parity_count * width)
+    parity_present = bytearray(parity_count)
+
     for sequence in selected:
         try:
-            is_parity, index, total, payload = _decode_rotating_frame(sequence)
+            is_parity, index, frame_total, payload = _decode_rotating_frame(sequence)
         except ValueError:
             continue
-        if total != archive.data_count:
+        if frame_total != total:
             continue
         if is_parity:
-            parity[index] = payload
-        elif 0 <= index < archive.data_count:
-            known[index] = payload
+            if 0 <= index < parity_count and not parity_present[index]:
+                start = index * width
+                parity[start : start + len(payload)] = payload
+                parity_present[index] = 1
+        elif 0 <= index < total and not data_present[index]:
+            start = index * width
+            data[start : start + len(payload)] = payload
+            data_present[index] = 1
 
-    group_size = archive.config.parity_group_size
     if group_size is not None:
-        for group_index, start in enumerate(range(0, archive.data_count, group_size)):
-            end = min(start + group_size, archive.data_count)
-            missing = [index for index in range(start, end) if index not in known]
-            if len(missing) != 1 or group_index not in parity:
+        for group_index in range(parity_count):
+            if not parity_present[group_index]:
                 continue
-            parts = [parity[group_index]] + [
-                known[index] for index in range(start, end) if index in known
-            ]
-            known[missing[0]] = xor_bytes(parts, archive.config.chunk_size)
+            start_index = group_index * group_size
+            end_index = min(start_index + group_size, total)
+            missing_index = -1
+            multiple_missing = False
+            for index in range(start_index, end_index):
+                if not data_present[index]:
+                    if missing_index >= 0:
+                        multiple_missing = True
+                        break
+                    missing_index = index
+            if missing_index < 0 or multiple_missing:
+                continue
 
-    missing = [index for index in range(archive.data_count) if index not in known]
+            parity_start = group_index * width
+            recovered = bytearray(parity[parity_start : parity_start + width])
+            for index in range(start_index, end_index):
+                if index == missing_index or not data_present[index]:
+                    continue
+                data_start = index * width
+                for offset in range(width):
+                    recovered[offset] ^= data[data_start + offset]
+            data_start = missing_index * width
+            data[data_start : data_start + width] = recovered
+            data_present[missing_index] = 1
+
+    missing: list[int] = []
+    for index, present in enumerate(data_present):
+        if not present:
+            missing.append(index)
+            if len(missing) == 20:
+                break
     if missing:
         raise ValueError(
             "rotating ternary baseline is not recoverable; "
-            f"missing chunks: {missing[:20]}"
+            f"missing chunks: {missing}"
         )
-    recovered = b"".join(
-        known[index] for index in range(archive.data_count)
-    )[: archive.original_size]
+
+    recovered = bytes(data[: archive.original_size])
     if hashlib.sha256(recovered).hexdigest() != archive.sha256:
         raise ValueError("rotating ternary baseline failed SHA-256 verification")
     return recovered
