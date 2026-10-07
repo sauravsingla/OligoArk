@@ -131,8 +131,12 @@ def _compact_typed_header(
             f"typed compact frame index must fit in {usable_bits} bits; got index={index}"
         )
     encoded_index = (kind << usable_bits) | index
-    checksum = binascii.crc_hqx(payload, 0xFFFF)
-    return encoded_index.to_bytes(index_bytes, "big") + struct.pack(">H", checksum)
+    encoded_index_bytes = encoded_index.to_bytes(index_bytes, "big")
+    # Unlike legacy compact v2, v1-efficient has no separate magic/control byte.
+    # Cover the typed index as well as the payload so a corrupted frame kind/index cannot
+    # silently pass the payload checksum.
+    checksum = binascii.crc_hqx(encoded_index_bytes + payload, 0xFFFF)
+    return encoded_index_bytes + struct.pack(">H", checksum)
 
 
 def encode_frame_packed(
@@ -316,8 +320,13 @@ def _decode_compact_with_mask(
 
     (checksum,) = struct.unpack(">H", inner[checksum_start : checksum_start + 2])
     payload = inner[header_size:]
-    if binascii.crc_hqx(payload, 0xFFFF) != checksum:
-        raise ValueError("Compact payload CRC16 check failed")
+    checksum_input = (
+        inner[:compact_index_bytes] + payload
+        if compact_typed_index
+        else payload
+    )
+    if binascii.crc_hqx(checksum_input, 0xFFFF) != checksum:
+        raise ValueError("Compact frame CRC16 check failed")
 
     return DecodedFrame(
         index=index,
