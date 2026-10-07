@@ -12,7 +12,14 @@ from typing import cast
 
 from .dna import SequenceConstraints, sequence_metrics
 from .ecc import build_xor_parity, recover_one_missing
-from .fountain import FountainSymbol, indexes_for_seed, make_symbols, peel_decode
+from .fountain import (
+    FOUNTAIN_LAYOUTS,
+    FountainSymbol,
+    indexes_for_seed,
+    make_symbols,
+    peel_decode,
+    symbol_count,
+)
 from .framing import decode_frame, decode_frame_resilient, encode_frame, frame_overhead_bytes
 from .reconstruct import GraphConsensusReconstructor, ReadReconstructor, TraceConsensusReconstructor
 
@@ -31,6 +38,7 @@ class ArchiveConfig:
     fountain_redundancy: float = 0.25
     fountain_seed: int = 1
     fountain_max_degree: int = 4
+    fountain_layout: str = "random"
     min_gc_fraction: float = 0.35
     max_gc_fraction: float = 0.65
     max_homopolymer: int = 4
@@ -73,6 +81,10 @@ class ArchiveConfig:
             raise ValueError("fountain_seed must fit in an unsigned 32-bit integer")
         if not 1 <= self.fountain_max_degree <= 32:
             raise ValueError("fountain_max_degree must be between 1 and 32")
+        if self.fountain_layout not in FOUNTAIN_LAYOUTS:
+            raise ValueError(
+                f"fountain_layout must be one of {sorted(FOUNTAIN_LAYOUTS)}"
+            )
         if not 1 <= self.mask_search_limit <= 256:
             raise ValueError("mask_search_limit must be between 1 and 256")
         if not 2 <= self.compact_index_bytes <= 4:
@@ -93,6 +105,7 @@ class ArchiveConfig:
             "fountain_redundancy",
             "fountain_seed",
             "fountain_max_degree",
+            "fountain_layout",
             "min_gc_fraction",
             "max_gc_fraction",
             "max_homopolymer",
@@ -133,6 +146,9 @@ class ArchiveConfig:
         redundancy_scheme = values.get("redundancy_scheme", "xor")
         if not isinstance(redundancy_scheme, str):
             raise ValueError("redundancy_scheme must be a string")
+        fountain_layout = values.get("fountain_layout", "random")
+        if not isinstance(fountain_layout, str):
+            raise ValueError("fountain_layout must be a string")
 
         config = cls(
             chunk_size=integer("chunk_size", 96),
@@ -143,6 +159,7 @@ class ArchiveConfig:
             fountain_redundancy=number("fountain_redundancy", 0.25),
             fountain_seed=integer("fountain_seed", 1),
             fountain_max_degree=integer("fountain_max_degree", 4),
+            fountain_layout=fountain_layout,
             min_gc_fraction=number("min_gc_fraction", 0.35),
             max_gc_fraction=number("max_gc_fraction", 0.65),
             max_homopolymer=integer("max_homopolymer", 4),
@@ -348,12 +365,21 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
 
     fountain_symbols: list[FountainSymbol] = []
     if config.redundancy_scheme in {"fountain", "hybrid"} and config.fountain_redundancy > 0:
-        count = max(1, math.ceil(total * config.fountain_redundancy))
-        max_seed = (
-            (1 << (8 * config.compact_index_bytes)) - 1
-            if config.compact_framing
-            else 0xFFFFFFFF
+        count = symbol_count(
+            total,
+            config.fountain_redundancy,
+            max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
         )
+        if config.compact_framing:
+            seed_bits = (
+                8 * config.compact_index_bytes - 2
+                if config.inline_mask_framing
+                else 8 * config.compact_index_bytes
+            )
+            max_seed = (1 << seed_bits) - 1
+        else:
+            max_seed = 0xFFFFFFFF
         if config.fountain_seed + count - 1 > max_seed:
             raise ValueError("fountain seed range exceeds configured frame index capacity")
         fountain_symbols = make_symbols(
@@ -362,6 +388,7 @@ def archive_bytes(data: bytes, config: ArchiveConfig | None = None) -> DNAArchiv
             width=config.chunk_size,
             seed=config.fountain_seed,
             max_degree=config.fountain_max_degree,
+            layout=config.fountain_layout,
         )
 
     strands = [
@@ -437,6 +464,8 @@ def _decode_available_frames(
                 total_data,
                 frame.index,
                 max_degree=config.fountain_max_degree,
+                layout=config.fountain_layout,
+                first_seed=config.fountain_seed,
             )
             fountain_symbols.append(FountainSymbol(frame.index, indexes, frame.payload))
         elif frame.is_parity:
