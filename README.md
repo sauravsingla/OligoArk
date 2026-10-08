@@ -4,8 +4,6 @@
 
 OligoArk is an open-source **research project** about DNA data storage. It converts digital information into DNA-like sequences, simulates common data errors, and tests whether the original file can be recovered.
 
-**Important:** These are mainly computational experiments. OligoArk has **not** completed its own physical DNA synthesis-and-sequencing experiment.
-
 ## At a glance
 
 | Question | Answer |
@@ -14,7 +12,6 @@ OligoArk is an open-source **research project** about DNA data storage. It conve
 | How is recovery checked? | A recovered file must match the original **SHA-256** checksum exactly. |
 | What has been tested? | A matched **10 MiB** codec comparison and a separate **1 GiB** scalable-storage test. |
 | What is still difficult? | Insertion/deletion errors at 10 MiB and full 100 MiB matched validation. |
-| Has OligoArk been tested in a physical wet lab? | **No — prepared, not physically executed.** |
 
 ## How it works
 
@@ -22,8 +19,6 @@ OligoArk is an open-source **research project** about DNA data storage. It conve
 2. **Simulate errors:** Test missing strands and changed, inserted, or deleted bases.
 3. **Recover:** Try to reconstruct the original bytes.
 4. **Verify:** Count success only when the reconstructed file's SHA-256 checksum matches exactly.
-
-These simulations help study DNA-storage methods, but do not replace physical laboratory testing.
 
 ## Quick start: try OligoArk in minutes
 
@@ -66,7 +61,7 @@ Results below are from separate experiments with different configurations; **do 
 | Insertions/deletions | — **0/10 (10 timeouts)** | — **0/10** | — **0/10** |
 | Mixed errors | 🟩🟩🟩🟩🟩🟩🟩🟩🟩 **9/10** | — **0/10** | — **0/10** |
 
-**Encoding time at 10 MiB** — shorter is better. These are the completed measurements currently reported on `main`, not the newer unmerged branch measurements.
+**Encoding time at 10 MiB** — shorter is better. These are the completed measurements currently reported on `main`.
 
 | Method | Relative time (visual) | Measured time |
 | --- | --- | ---: |
@@ -75,38 +70,19 @@ Results below are from separate experiments with different configurations; **do 
 
 *Bars are approximate visual guides; use the numbers for exact comparisons. These are computational tests, not a completed OligoArk wet-lab experiment. Insertion/deletion timeouts count as failures. A matched 100 MiB comparison is not yet complete.*
 
-### 10 MiB: comparison with other encoding methods
+### 10 MiB: benchmark setup and details
 
-Each number shows **successful exact recoveries out of 10 trials**. For example, 9/10 means nine files were recovered exactly and one was not.
+The matched comparison uses one deterministic **10 MiB** payload, **152-nt maximum** strands, approximately **25% redundancy**, identical error definitions and trial seeds, and **10 trials per condition**. The visual table above shows the recovery outcomes.
 
-The latest completed matched comparison uses the same deterministic **10 MiB** payload,
-maximum **152 nt** strands, approximately **25% redundancy**, the same fault definitions and
-trial seeds, and **10 trials per condition**.
+| Method | Density (bits/nt) | Encode time | Peak memory |
+| --- | ---: | ---: | ---: |
+| OligoArk compact-v3 hybrid | **1.263** | **89.34 s** | **443 MiB** |
+| DNA Fountain clean-room | **1.347** | **399.55 s** | **1.89 GiB** |
+| Goldman-style + XOR | **0.515** | Not reported here | Not reported here |
 
-| Method | Density | Clean | 1% loss | 5% loss | Substitution | Insert/Delete | Mixed |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **OligoArk compact-v3 hybrid** | **1.263 bits/nt** | **10/10** | **10/10** | **10/10** | **9/10** | timeout 10/10 | **9/10** |
-| DNA Fountain clean-room | **1.347 bits/nt** | 10/10 | **10/10** | **10/10** | 0/10 | 0/10 | 0/10 |
-| Goldman-style + XOR | 0.515 bits/nt | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
+OligoArk v3 used **25.0007% measured strand redundancy**. Insertion/deletion-only recovery was **0/10** because all ten trials exceeded the configured **75-second per-trial deadline**; timeouts are failures, not recoveries.
 
-OligoArk compact-v3 uses **1.263 bits/nt** at **25.0007% measured strand redundancy** while
-staying within the **152-nt** strand limit.
-
-For the 10 MiB encode, OligoArk v3 took **89.34 s**, compared with **399.55 s** for the
-clean-room DNA Fountain implementation. Peak RSS observed across v3 conditions was about
-**443 MiB**, versus about **1.89 GiB** for DNA Fountain.
-
-The current 152-nt result is:
-
-- **10/10 exact recovery** in clean conditions;
-- **10/10 exact recovery** at **1% strand loss**;
-- **10/10 exact recovery** at **5% strand loss**;
-- **9/10 exact recovery** under the tested substitution condition;
-- **9/10 exact recovery** under the tested mixed-fault condition;
-- indel-only recovery remains unresolved at this scale because all 10 trials exceeded the
-  configured **75-second per-trial deadline**.
-
-A matched **100 MiB** codec comparison has not yet been claimed as complete.
+The matched **100 MiB** codec comparison is still incomplete.
 
 ### 1 GiB: scalable storage test
 
@@ -126,10 +102,7 @@ The 1 GiB run used **1.646 bits per nucleotide** and **12.5% redundancy**.
 
 ## Reconstruction using published sequencing data
 
-This section tests reconstruction using real sequencing reads **published by other researchers**. It is not proof that OligoArk itself performed a physical experiment.
-
-These results use published sequencing datasets created by other projects. They evaluate
-OligoArk reconstruction, not an end-to-end physical OligoArk storage experiment.
+These results evaluate OligoArk reconstruction using published sequencing datasets from other projects, not an end-to-end physical OligoArk experiment.
 
 | Dataset | Reads/strand | OligoArk | Pinned BBS |
 | --- | ---: | ---: | ---: |
@@ -158,14 +131,9 @@ match**
 
 ## Known limitations and next steps
 
-The main open items are:
-
 - improve **152-nt indel recovery** at 10 MiB scale;
 - complete the matched **100 MiB** codec comparison;
 - execute a true end-to-end OligoArk wet-lab experiment.
-
-OligoArk should not yet be described as universally better than every DNA-storage codec or as
-a fully proven physical DNA-storage system.
 
 ## Learn more
 
