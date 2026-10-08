@@ -125,10 +125,10 @@ def compact_inline_frame_hint(
         raw = dna_to_bytes(sequence[:prefix_nt])
     except ValueError:
         return None
-    selector = raw[0]
-    if selector & _COMPACT_INLINE_TAG_MASK != _COMPACT_INLINE_TAG:
-        return None
-    mask_id = selector & _COMPACT_INLINE_MASK_MASK
+    # Every selector byte is valid in extended inline framing; old 0xB0..0xBF
+    # selectors retain their legacy meanings. The prefix is only an unverified
+    # identity hint, never a substitute for RS, CRC and archive SHA-256 checks.
+    mask_id = _inline_mask_from_selector(raw[0])
     protected_prefix = _mask(raw[1:], mask_id)
     if len(protected_prefix) != compact_index_bytes:
         return None
