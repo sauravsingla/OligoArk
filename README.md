@@ -1,46 +1,90 @@
 # OligoArk 🧬
 
-**DNA archival storage for large files with exact SHA-256 recovery.**
+**Explore how digital files can be encoded into DNA sequences and recovered accurately.**
 
-OligoArk is a research project for encoding digital data into DNA-like sequences and recovering
-the original bytes exactly. A run counts as successful only when the recovered payload matches
-the source SHA-256 digest.
+OligoArk is an open-source **research project** about DNA data storage. It converts digital information into DNA-like sequences, simulates common data errors, and tests whether the original file can be recovered.
 
-## Latest validated results
+## At a glance
 
-### 10 MiB matched codec comparison
+| Question | Answer |
+| --- | --- |
+| What does it do? | Encode digital data as DNA-like sequences and reconstruct it. |
+| How is recovery checked? | A recovered file must match the original **SHA-256** checksum exactly. |
+| What has been tested? | A matched **10 MiB** codec comparison and a separate **1 GiB** scalable-storage test. |
+| What is still difficult? | Insertion/deletion errors at 10 MiB and full 100 MiB matched validation. |
 
-The latest completed matched comparison uses the same deterministic **10 MiB** payload,
-maximum **152 nt** strands, approximately **25% redundancy**, the same fault definitions and
-trial seeds, and **10 trials per condition**.
+## How it works
 
-| Method | Density | Clean | 1% loss | 5% loss | Substitution | Insert/Delete | Mixed |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **OligoArk compact-v3 hybrid** | **1.263 bits/nt** | **10/10** | **10/10** | **10/10** | **9/10** | timeout 10/10 | **9/10** |
-| DNA Fountain clean-room | **1.347 bits/nt** | 10/10 | **10/10** | **10/10** | 0/10 | 0/10 | 0/10 |
-| OligoArk compact hybrid (older) | — | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
-| Goldman-style + XOR | 0.515 bits/nt | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
+1. **Encode:** Turn digital bytes into DNA-like sequences.
+2. **Simulate errors:** Test missing strands and changed, inserted, or deleted bases.
+3. **Recover:** Try to reconstruct the original bytes.
+4. **Verify:** Count success only when the reconstructed file's SHA-256 checksum matches exactly.
 
-OligoArk compact-v3 uses **1.263 bits/nt** at **25.0007% measured strand redundancy** while
-staying within the **152-nt** strand limit.
+## Quick start: try OligoArk in minutes
 
-For the 10 MiB encode, OligoArk v3 took **48.89 s**, compared with **271.99 s** for the
-clean-room DNA Fountain implementation. Peak RSS observed across v3 conditions was about
-**436.33 MiB**, versus about **1.89 GiB** for DNA Fountain.
+Requires **Python 3.10 or newer** and Git. No DNA laboratory equipment or external dataset is needed.
 
-The current 152-nt result is:
+```bash
+git clone https://github.com/sauravsingla/OligoArk.git
+cd OligoArk
+python -m pip install -e .
+python examples/quick_start.py
+```
 
-- **10/10 exact recovery** in clean conditions;
-- **10/10 exact recovery** at **1% strand loss**;
-- **10/10 exact recovery** at **5% strand loss**;
-- **9/10 exact recovery** under the tested substitution condition;
-- **9/10 exact recovery** under the tested mixed-fault condition;
-- indel-only recovery remains unresolved at this scale because all 10 trials exceeded the
-  configured per-condition deadline in the latest validation. These timeouts are retained as failures, not successful recoveries.
+**Expected output** (the checksum is printed by the program):
 
-These are the latest completed **10 MiB** matched-codec results from PR #42's four-method validation. The encoding-time differences versus earlier README runs are not established as algorithmic speedups because benchmark conditions may differ. A matched **100 MiB** codec comparison has not yet been claimed as complete.
+```text
+PASS: original data recovered exactly
+Bytes: 61
+SHA-256: <64-character SHA-256 digest>
+Note: simulated DNA channel; no physical synthesis or sequencing.
+```
 
-### 1 GiB scalable storage
+This example uses a fixed input and **seed 42** to make the simulation repeatable. It encodes the message, simulates a DNA read channel, recovers the original bytes, and verifies an exact SHA-256 match. If any check fails, the script exits with an error.
+
+[Read the example source](examples/quick_start.py) · [Explore the longer end-to-end example](examples/end_to_end.py)
+
+## Research results
+
+Results below are from separate experiments with different configurations; **do not compare the 1 GiB storage test directly with the 10 MiB codec benchmark**.
+
+### Visual benchmark comparison
+
+**Exact recovery at 10 MiB** — each block represents **1 successful trial out of 10**. A full bar means all 10 trials recovered the original file with a matching SHA-256 checksum.
+
+| Error condition | OligoArk v3 | DNA Fountain | Goldman + XOR |
+| --- | --- | --- | --- |
+| No errors | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 **10/10** | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 **10/10** | 🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪 **10/10** |
+| 1% strand loss | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 **10/10** | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 **10/10** | — **0/10** |
+| 5% strand loss | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 **10/10** | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 **10/10** | — **0/10** |
+| Substitutions | 🟩🟩🟩🟩🟩🟩🟩🟩🟩 **9/10** | — **0/10** | — **0/10** |
+| Insertions/deletions | — **0/10 (10 timeouts)** | — **0/10** | — **0/10** |
+| Mixed errors | 🟩🟩🟩🟩🟩🟩🟩🟩🟩 **9/10** | — **0/10** | — **0/10** |
+
+**Encoding time at 10 MiB** — shorter is better. These are the latest completed 10 MiB measurements from PR #42. Differences from earlier runs are not established as algorithmic speedups because benchmark conditions may differ.
+
+| Method | Relative time (visual) | Measured time |
+| --- | --- | ---: |
+| OligoArk v3 | 🟩🟩🟩🟩 | **48.89 seconds** |
+| DNA Fountain | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 | **271.99 seconds** |
+
+*Bars are approximate visual guides; use the numbers for exact comparisons. These are computational tests, not a completed OligoArk wet-lab experiment. Insertion/deletion timeouts count as failures. A matched 100 MiB comparison is not yet complete.*
+
+### 10 MiB: benchmark setup and details
+
+The matched comparison uses one deterministic **10 MiB** payload, **152-nt maximum** strands, approximately **25% redundancy**, identical error definitions and trial seeds, and **10 trials per condition**. The visual table above shows the recovery outcomes.
+
+| Method | Density (bits/nt) | Encode time | Peak memory |
+| --- | ---: | ---: | ---: |
+| OligoArk compact-v3 hybrid | **1.263** | **48.89 s** | **436.33 MiB** |
+| DNA Fountain clean-room | **1.347** | **271.99 s** | **1.89 GiB** |
+| Goldman-style + XOR | **0.515** | Not reported here | Not reported here |
+
+OligoArk v3 used **25.0007% measured strand redundancy**. The latest completed 10 MiB matched validation included four methods; the older OligoArk compact-hybrid baseline recorded 10/10 clean recovery and 0/10 in the other tested fault regimes. Insertion/deletion-only recovery was **0/10** because all ten trials exceeded the configured **75-second per-trial deadline**; timeouts are failures, not recoveries.
+
+The matched **100 MiB** codec comparison is still incomplete. The new research workflow does not establish a completed 100 MiB result.
+
+### 1 GiB: scalable storage test
 
 OligoArk also has a completed **1 GiB** bounded-memory storage result.
 
@@ -56,10 +100,9 @@ At 5% loss, it recovered **226,705 / 226,705** lost strands.
 
 The 1 GiB run used **1.646 bits per nucleotide** and **12.5% redundancy**.
 
-## Latest physical-read reconstruction evidence
+## Reconstruction using published sequencing data
 
-These results use published sequencing datasets created by other projects. They evaluate
-OligoArk reconstruction, not an end-to-end physical OligoArk storage experiment.
+These results evaluate OligoArk reconstruction using published sequencing datasets from other projects, not an end-to-end physical OligoArk experiment.
 
 | Dataset | Reads/strand | OligoArk | Pinned BBS |
 | --- | ---: | ---: | ---: |
@@ -73,7 +116,7 @@ OligoArk reconstruction, not an end-to-end physical OligoArk storage experiment.
 | DNAformer Pilot | 5 | **96/96** | 96/96 |
 | DNAformer Pilot | 10 | **96/96** | 96/96 |
 
-## Wet-lab status
+## Physical experiment status
 
 The repository includes synthesis-ready FASTA/CSV output, experiment metadata, sequencing
 input requirements, reconstruction tooling, read-depth planning, and exact SHA-256
@@ -86,17 +129,14 @@ An end-to-end physical result still requires:
 **OligoArk encode → DNA synthesis → storage → DNA sequencing → reconstruction → exact SHA-256
 match**
 
-## Current limitations
-
-The main open items are:
+## Known limitations and next steps
 
 - improve **152-nt indel recovery** at 10 MiB scale;
 - complete the matched **100 MiB** codec comparison;
 - execute a true end-to-end OligoArk wet-lab experiment.
 
-OligoArk should not yet be described as universally better than every DNA-storage codec or as
-a fully proven physical DNA-storage system.
+## Learn more
 
-More details: [scalable storage](docs/scalable-storage.md) ·
+Technical documentation: [scalable storage](docs/scalable-storage.md) ·
 [codec comparison](docs/dna-fountain-baseline.md) ·
 [wet-lab protocol](docs/wet-lab-validation.md)

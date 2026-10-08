@@ -28,6 +28,141 @@ jobs:
       - run: pip install -e ".[dev,api]"
       - run: pytest --cov=oligoark --cov-report=term-missing
       - run: python examples/end_to_end.py
+      - name: Verify reproducible quick start (SHA-256 recovery)
+        run: |
+          python examples/quick_start.py | tee quick-start-output.txt
+          grep -Fx 'PASS: original data recovered exactly' quick-start-output.txt
+          grep -Fx 'Bytes: 61' quick-start-output.txt
+          python -c "import re, pathlib; t=pathlib.Path('quick-start-output.txt').read_text(); assert re.search(r'(?m)^SHA-256: [0-9a-f]{64}', t)"
+      - run: python -m pip check
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev,api,bench]"
+      - run: ruff check .
+      - run: mypy src/oligoark
+      - run: python -m build
+      - run: python -m compileall -q src tests examples benchmarks
+      - name: Run all examples
+        run: |
+          for example in examples/*.py; do
+            python "$example"
+          done
+      - name: Run reproducible benchmark
+        run: |
+          python benchmarks/run_benchmark.py
+          test -s benchmark-results/results.json
+          test -s benchmark-results/results.csv
+          test -s benchmark-results/metadata.json
+          test -s benchmark-results/recovery_by_regime.png
+          test -s benchmark-results/overhead_by_regime.png
+      - name: Run ablation smoke experiment
+        run: |
+          python benchmarks/run_experiments.py --profile smoke
+          test -s experiment-results/raw.json
+          test -s experiment-results/raw.csv
+          test -s experiment-results/summary.json
+          test -s experiment-results/summary.csv
+          test -s experiment-results/paired-effects.json
+          test -s experiment-results/paired-effects.csv
+          test -s experiment-results/calibration.json
+          test -s experiment-results/calibration-candidates.csv
+          test -s experiment-results/metadata.json
+          test -s experiment-results/experiment_recovery.png
+          test -s experiment-results/experiment_overhead.png
+          test -s experiment-results/recovery_vs_error_rate.png
+          test -s experiment-results/overhead_vs_recovery.png
+          test -s experiment-results/runtime_vs_recovery.png
+          test -s experiment-results/strategy_ablation.png
+          test -s experiment-results/graph_rescue_rate.png
+          test -s experiment-results/optimizer_generalization.png
+      - name: Run held-out learning evaluation
+        run: |
+          python benchmarks/run_learning_evaluation.py
+          test -s learning-results/evaluation.json
+          test -s learning-results/summary.csv
+          test -s learning-results/linear-model.json
+          test -s learning-results/kernel-model.json
+      - name: Run controlled graph rescue validation
+        run: |
+          python benchmarks/run_graph_rescue.py
+          test -s graph-rescue-results.json
+      - name: Run verified adaptive corruption demo
+        run: |
+          python benchmarks/run_verified_demo.py
+          test -s verified-demo-results.json
+      - name: Upload research artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-research-results
+          path: |
+            benchmark-results/
+            experiment-results/
+            learning-results/
+            graph-rescue-results.json
+            verified-demo-results.json
+          if-no-files-found: error
+      - name: Build Docker image
+        run: docker build -t oligoark:ci .
+
+  scalable-storage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev,bench]"
+      - name: Test scalable archive, baselines and wet-lab handoff
+        run: pytest tests/test_streaming.py tests/test_dna_fountain_baseline.py tests/test_wetlab.py
+      - name: Run scalable storage CI profile
+        run: |
+          python benchmarks/run_storage_scale.py --profile ci
+          test -s storage-scale-results/results.json
+          test -s storage-scale-results/results.csv
+          test -s storage-scale-results/summary.json
+          test -s storage-scale-results/metadata.json
+      - name: Run matched codec comparison CI profile
+        run: |
+          python benchmarks/run_matched_codec_scale.py --profile ci --trials 3
+          test -s matched-codec-results/results.json
+          test -s matched-codec-results/results.csv
+          test -s matched-codec-results/metadata.json
+          test -s matched-codec-results/summary.json
+      - name: Upload scalable-storage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-scalable-storage-results
+          path: |
+            storage-scale-results/*.json
+            storage-scale-results/*.csv
+            storage-scale-results/*.png
+            matched-codec-results/*.json
+            matched-codec-results/*.csv
+            matched-codec-results/*.png
+          if-no-files-found: error
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[api,security]"
+      - name: Bandit source scan
+        run: bandit -c pyproject.toml -r src/oligoark -q
+      - name: Dependency audit
+        run: pip-audit --local --skip-editable
+ quick-start-output.txt
       - run: python -m pip check
 
   quality:
