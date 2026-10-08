@@ -454,6 +454,9 @@ def _isolated(
             for condition in conditions
         ]
     if completed.returncode:
+        # An encoding failure prevents every downstream recovery attempt. Preserve all
+        # requested trials as explicit negative outcomes instead of dropping them from
+        # the evidence artifact. This is NOT a successful codec validation.
         error = completed.stderr.strip() or completed.stdout.strip()
         return [
             {
@@ -462,9 +465,25 @@ def _isolated(
                 "redundancy_budget": redundancy,
                 "condition": condition,
                 "trials": trials,
+                "completed_trials": 0,
+                "failed_trials": trials,
                 "successes": 0,
                 "recovery_rate": 0.0,
+                "sha256_verified_success_definition": True,
+                "encoding_failed": True,
                 "error": error,
+                "trial_results": [
+                    {
+                        "trial": trial,
+                        "seed": 20_260_000 + trial,
+                        "success": False,
+                        "sha256_verified": False,
+                        "not_executed": True,
+                        "failure_stage": "encode-or-worker",
+                        "error": "encoding failed; recovery trial could not run",
+                    }
+                    for trial in range(trials)
+                ],
             }
             for condition in conditions
         ]
