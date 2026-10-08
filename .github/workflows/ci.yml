@@ -33,7 +33,8 @@ jobs:
           python examples/quick_start.py | tee quick-start-output.txt
           grep -Fx 'PASS: original data recovered exactly' quick-start-output.txt
           grep -Fx 'Bytes: 61' quick-start-output.txt
-          grep -E '^SHA-256: [0-9a-f]{64}
+          python -c "import re, pathlib; t=pathlib.Path('quick-start-output.txt').read_text(); assert re.search(r'(?m)^SHA-256: [0-9a-f]{64}', t)"
+      - run: python -m pip check
 
   quality:
     runs-on: ubuntu-latest
