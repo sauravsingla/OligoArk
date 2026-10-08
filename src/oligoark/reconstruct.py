@@ -203,11 +203,13 @@ def build_similarity_graph(
     nodes = tuple(reads)
     edges: list[GraphEdge] = []
 
-    all_pairs = [
+    # Stream all pairs into the q-gram filter instead of allocating an O(n^2)
+    # list before most unrelated reads are rejected. Candidate ordering is unchanged.
+    all_pairs = (
         (left, right)
         for left in range(len(nodes))
         for right in range(left + 1, len(nodes))
-    ]
+    )
     if use_qgram_prefilter:
         signatures = [_qgram_counts(read, qgram_width) for read in nodes]
         postings: dict[str, list[tuple[int, int]]] = {}
@@ -252,7 +254,8 @@ def build_similarity_graph(
             if required_shared <= 0 or shared_counts.get((left, right), 0) >= required_shared:
                 candidate_pair_indexes.append((left, right))
     else:
-        candidate_pair_indexes = all_pairs
+        # Keep the explicit exhaustive mode's historical counting behavior.
+        candidate_pair_indexes = list(all_pairs)
 
     for left, right in candidate_pair_indexes:
         max_length = max(1, len(nodes[left]), len(nodes[right]))
