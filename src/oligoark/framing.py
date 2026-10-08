@@ -54,6 +54,33 @@ def _inline_mask_from_selector(selector: int) -> int:
     return selector
 
 
+def _inline_decode_mask_candidates(selector: int, limit: int) -> list[int]:
+    """Try indicated, legacy, and one-base selector repairs; avoid 256 RS attempts.
+
+    At scale almost all corrupted strands carry an intact mask selector. The
+    previously bounded 16-mask fallback stays available, while a single DNA
+    substitution in the selector can be repaired even for new masks 16..255.
+    """
+    candidates: list[int] = []
+    seen: set[int] = set()
+
+    def add(mask_id: int) -> None:
+        if mask_id < limit and mask_id not in seen:
+            candidates.append(mask_id)
+            seen.add(mask_id)
+
+    add(_inline_mask_from_selector(selector))
+    for mask_id in range(min(limit, 16)):
+        add(mask_id)
+    for shift in (6, 4, 2, 0):
+        old_base = (selector >> shift) & 0x03
+        for new_base in range(4):
+            if new_base != old_base:
+                changed = (selector & ~(0x03 << shift)) | (new_base << shift)
+                add(_inline_mask_from_selector(changed))
+    return candidates
+
+
 @dataclass(frozen=True)
 class DecodedFrame:
     index: int
@@ -486,10 +513,12 @@ def decode_frame_packed(
     if len(raw) < minimum:
         raise ValueError("Strand is shorter than the OligoArk frame")
 
-    indicated = _inline_mask_from_selector(raw[0]) if inline_mask_framing else raw[0]
-    candidate_limit = mask_search_limit
-    candidates = [indicated]
-    candidates.extend(mask_id for mask_id in range(candidate_limit) if mask_id != indicated)
+    if inline_mask_framing:
+        candidates = _inline_decode_mask_candidates(raw[0], mask_search_limit)
+    else:
+        indicated = raw[0]
+        candidates = [indicated]
+        candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
     errors: list[Exception] = []
     for mask_id in candidates:
         try:
