@@ -9,9 +9,12 @@ on:
       - ".github/workflows/codec-100mib-research.yml"
       - "benchmarks/100mib-research-trigger.txt"
 
+# Large runs are expensive: a subsequent commit must not cancel an active
+# benchmark or destroy its incomplete but scientifically important results.
+# Group by commit so a validated new run can start while an older run finishes.
 concurrency:
-  group: codec-100mib-${{ github.ref }}
-  cancel-in-progress: true
+  group: codec-100mib-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -90,7 +93,24 @@ jobs:
               observed = sorted(int(item["trial"]) for item in trial_results)
               if observed != list(range(trials)):
                   raise SystemExit(f"{condition}: missing or duplicated trial indexes")
-          print("all requested 100 MiB trials retained, including negative results/timeouts")
+              # Genuine unsuccessful recoveries and per-trial timeouts are
+              # valid negative benchmark evidence. Missing worker outcomes are
+              # not completed experiments, even if placeholder rows exist.
+              unavailable = [
+                  item for item in trial_results
+                  if item.get("outcome_unavailable") or item.get("not_executed")
+              ]
+              if unavailable:
+                  raise SystemExit(
+                      f"{condition}: {len(unavailable)}/{trials} unverified worker "
+                      "outcomes; retain artifacts but do not mark validation complete"
+                  )
+              if any(
+                  not isinstance(item.get("sha256_verified"), bool)
+                  for item in trial_results
+              ):
+                  raise SystemExit(f"{condition}: missing SHA-256 trial verdict")
+          print("all requested 100 MiB trials have verified outcomes, including failures/timeouts")
           PY
       - uses: actions/upload-artifact@v4
         if: always()
