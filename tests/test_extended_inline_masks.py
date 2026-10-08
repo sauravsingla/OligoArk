@@ -4,6 +4,7 @@ import pytest
 
 from oligoark.dna import SequenceConstraintError, SequenceConstraints
 from oligoark.framing import (
+    _inline_decode_mask_candidates,
     _inline_mask_from_selector,
     _inline_selector_for_mask,
     decode_frame_packed,
@@ -53,6 +54,23 @@ def test_compact_inline_can_recover_when_all_legacy_masks_are_rejected(monkeypat
     )
     assert frame.payload == payload
     assert frame.index == 43
+
+    # Damage one of the selector's four DNA bases. The bounded fallback must
+    # recover the extended mask without scanning all 256 Reed-Solomon variants.
+    changed_selector = bytes([packed[0] ^ 0x40]) + packed[1:]
+    candidates = _inline_decode_mask_candidates(changed_selector[0], 256)
+    assert 16 in candidates
+    assert len(candidates) <= 29
+    repaired = decode_frame_packed(
+        changed_selector,
+        rs_nsym=2,
+        compact_framing=True,
+        inline_mask_framing=True,
+        expected_total_data=1,
+        mask_search_limit=256,
+    )
+    assert repaired.payload == payload
+    assert repaired.index == 43
 
 
 def test_v3_profile_can_search_all_inline_selectors():
