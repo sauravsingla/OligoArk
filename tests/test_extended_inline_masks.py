@@ -2,11 +2,12 @@
 
 import pytest
 
-from oligoark.dna import SequenceConstraintError, SequenceConstraints
+from oligoark.dna import SequenceConstraintError, SequenceConstraints, bytes_to_dna
 from oligoark.framing import (
     _inline_decode_mask_candidates,
     _inline_mask_from_selector,
     _inline_selector_for_mask,
+    compact_inline_frame_hint,
     decode_frame_packed,
     encode_frame_packed,
 )
@@ -54,6 +55,15 @@ def test_compact_inline_can_recover_when_all_legacy_masks_are_rejected(monkeypat
     )
     assert frame.payload == payload
     assert frame.index == 43
+
+    # A prefix-only identity hint must support the extended mask selector too.
+    # It is not accepted as recovered data without CRC/RS verification.
+    hint = compact_inline_frame_hint(bytes_to_dna(packed))
+    assert hint is not None
+    assert hint.index == 43
+    assert hint.is_parity is False
+    assert hint.is_fountain is False
+    assert compact_inline_frame_hint(bytes_to_dna(packed)[:-1]) == hint
 
     # Damage one of the selector's four DNA bases. The bounded fallback must
     # recover the extended mask without scanning all 256 Reed-Solomon variants.
