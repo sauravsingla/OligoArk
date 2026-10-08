@@ -1,14 +1,37 @@
 # OligoArk 🧬
 
-**DNA archival storage for large files with exact SHA-256 recovery.**
+**Explore how digital files can be encoded into DNA sequences and recovered accurately.**
 
-OligoArk is a research project for encoding digital data into DNA-like sequences and recovering
-the original bytes exactly. A run counts as successful only when the recovered payload matches
-the source SHA-256 digest.
+OligoArk is an open-source **research project** about DNA data storage. It converts digital information into DNA-like sequences, simulates common data errors, and tests whether the original file can be recovered.
 
-## Latest validated results
+**Important:** These are mainly computational experiments. OligoArk has **not** completed its own physical DNA synthesis-and-sequencing experiment.
 
-### 10 MiB matched codec comparison
+## At a glance
+
+| Question | Answer |
+| --- | --- |
+| What does it do? | Encode digital data as DNA-like sequences and reconstruct it. |
+| How is recovery checked? | A recovered file must match the original **SHA-256** checksum exactly. |
+| What has been tested? | A matched **10 MiB** codec comparison and a separate **1 GiB** scalable-storage test. |
+| What is still difficult? | Insertion/deletion errors at 10 MiB and full 100 MiB matched validation. |
+| Has OligoArk been tested in a physical wet lab? | **No — prepared, not physically executed.** |
+
+## How it works
+
+1. **Encode:** Turn digital bytes into DNA-like sequences.
+2. **Simulate errors:** Test missing strands and changed, inserted, or deleted bases.
+3. **Recover:** Try to reconstruct the original bytes.
+4. **Verify:** Count success only when the reconstructed file's SHA-256 checksum matches exactly.
+
+These simulations help study DNA-storage methods, but do not replace physical laboratory testing.
+
+## Research results
+
+Results below are from separate experiments with different configurations; **do not compare the 1 GiB storage test directly with the 10 MiB codec benchmark**.
+
+### 10 MiB: comparison with other encoding methods
+
+Each number shows **successful exact recoveries out of 10 trials**. For example, 9/10 means nine files were recovered exactly and one was not.
 
 The latest completed matched comparison uses the same deterministic **10 MiB** payload,
 maximum **152 nt** strands, approximately **25% redundancy**, the same fault definitions and
@@ -39,7 +62,7 @@ The current 152-nt result is:
 
 A matched **100 MiB** codec comparison has not yet been claimed as complete.
 
-### 1 GiB scalable storage
+### 1 GiB: scalable storage test
 
 OligoArk also has a completed **1 GiB** bounded-memory storage result.
 
@@ -55,7 +78,9 @@ At 5% loss, it recovered **226,705 / 226,705** lost strands.
 
 The 1 GiB run used **1.646 bits per nucleotide** and **12.5% redundancy**.
 
-## Latest physical-read reconstruction evidence
+## Reconstruction using published sequencing data
+
+This section tests reconstruction using real sequencing reads **published by other researchers**. It is not proof that OligoArk itself performed a physical experiment.
 
 These results use published sequencing datasets created by other projects. They evaluate
 OligoArk reconstruction, not an end-to-end physical OligoArk storage experiment.
@@ -72,7 +97,7 @@ OligoArk reconstruction, not an end-to-end physical OligoArk storage experiment.
 | DNAformer Pilot | 5 | **96/96** | 96/96 |
 | DNAformer Pilot | 10 | **96/96** | 96/96 |
 
-## Wet-lab status
+## Physical experiment status
 
 The repository includes synthesis-ready FASTA/CSV output, experiment metadata, sequencing
 input requirements, reconstruction tooling, read-depth planning, and exact SHA-256
@@ -85,7 +110,7 @@ An end-to-end physical result still requires:
 **OligoArk encode → DNA synthesis → storage → DNA sequencing → reconstruction → exact SHA-256
 match**
 
-## Current limitations
+## Known limitations and next steps
 
 The main open items are:
 
@@ -96,6 +121,8 @@ The main open items are:
 OligoArk should not yet be described as universally better than every DNA-storage codec or as
 a fully proven physical DNA-storage system.
 
-More details: [scalable storage](docs/scalable-storage.md) ·
+## Learn more
+
+Technical documentation: [scalable storage](docs/scalable-storage.md) ·
 [codec comparison](docs/dna-fountain-baseline.md) ·
 [wet-lab protocol](docs/wet-lab-validation.md)
