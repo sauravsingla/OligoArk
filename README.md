@@ -25,6 +25,30 @@ OligoArk is an open-source **research project** about DNA data storage. It conve
 
 These simulations help study DNA-storage methods, but do not replace physical laboratory testing.
 
+## Quick start: try OligoArk in minutes
+
+Requires **Python 3.10 or newer** and Git. No DNA laboratory equipment or external dataset is needed.
+
+```bash
+git clone https://github.com/sauravsingla/OligoArk.git
+cd OligoArk
+python -m pip install -e .
+python examples/quick_start.py
+```
+
+**Expected output** (the checksum is printed by the program):
+
+```text
+PASS: original data recovered exactly
+Bytes: 60
+SHA-256: <64-character SHA-256 digest>
+Note: simulated DNA channel; no physical synthesis or sequencing.
+```
+
+This example uses a fixed input and **seed 42** to make the simulation repeatable. It encodes the message, simulates a DNA read channel, recovers the original bytes, and verifies an exact SHA-256 match. If any check fails, the script exits with an error.
+
+[Read the example source](examples/quick_start.py) · [Explore the longer end-to-end example](examples/end_to_end.py)
+
 ## Research results
 
 Results below are from separate experiments with different configurations; **do not compare the 1 GiB storage test directly with the 10 MiB codec benchmark**.
