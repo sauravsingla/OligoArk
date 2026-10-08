@@ -40,7 +40,7 @@ python examples/quick_start.py
 
 ```text
 PASS: original data recovered exactly
-Bytes: 60
+Bytes: 61
 SHA-256: <64-character SHA-256 digest>
 Note: simulated DNA channel; no physical synthesis or sequencing.
 ```
