@@ -105,7 +105,9 @@ PHYSICAL_STRAND_PROFILES: dict[str, PhysicalStrandProfile] = {
         fountain_redundancy=5.0 / 24.0,
         fountain_max_degree=24,
         fountain_layout="interleaved",
-        mask_search_limit=16,
+        # Large archives encounter rare frames with no valid legacy 4-bit mask.
+        # The extended selector preserves 152 nt and can search all 256 masks.
+        mask_search_limit=256,
         compact_framing=True,
         inline_mask_framing=True,
         indel_rescue=True,

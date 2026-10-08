@@ -440,10 +440,23 @@ def _isolated(
                 "condition": condition,
                 "trials": trials,
                 "successes": 0,
+                "completed_trials": 0,
+                "failed_trials": trials,
                 "recovery_rate": 0.0,
                 "timed_out": True,
                 "timeout_seconds": worker_timeout_seconds,
                 "timeout_stage": "encode-or-worker-orchestration",
+                "trial_results": [
+                    {
+                        "trial": trial,
+                        "seed": 20_260_000 + trial,
+                        "success": False,
+                        "sha256_verified": False,
+                        "outcome_unavailable": True,
+                        "failure_stage": "worker-timeout",
+                    }
+                    for trial in range(trials)
+                ],
                 "error": (
                     f"method/size worker exceeded derived {worker_timeout_seconds}s budget "
                     f"({timeout_seconds}s encode/orchestration + "
@@ -470,7 +483,8 @@ def _isolated(
                 "successes": 0,
                 "recovery_rate": 0.0,
                 "sha256_verified_success_definition": True,
-                "encoding_failed": True,
+                "worker_failed": True,
+                "encoding_failed": "SequenceConstraintError" in error,
                 "error": error,
                 "trial_results": [
                     {
@@ -478,9 +492,9 @@ def _isolated(
                         "seed": 20_260_000 + trial,
                         "success": False,
                         "sha256_verified": False,
-                        "not_executed": True,
+                        "outcome_unavailable": True,
                         "failure_stage": "encode-or-worker",
-                        "error": "encoding failed; recovery trial could not run",
+                        "error": "worker exited without verified recovery evidence",
                     }
                     for trial in range(trials)
                 ],

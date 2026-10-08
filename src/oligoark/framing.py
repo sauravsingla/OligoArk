@@ -30,6 +30,57 @@ _COMPACT_INLINE_MASK_MASK = 0x0F
 _LEGACY_MASKS = (0x00, 0x55, 0xAA, 0xFF)
 
 
+def _inline_selector_for_mask(mask_id: int) -> int:
+    """Encode up to 256 masks in one selector byte without changing legacy selectors.
+
+    The original sixteen identifiers use 0xB0..0xBF. The other 240 byte values
+    encode masks 16..255. Existing strands remain byte-for-byte decodable.
+    """
+    if not 0 <= mask_id <= 255:
+        raise ValueError("inline mask identifier must fit in one byte")
+    if mask_id < 16:
+        return _COMPACT_INLINE_TAG | mask_id
+    if mask_id < 192:
+        return mask_id - 16
+    return mask_id
+
+
+def _inline_mask_from_selector(selector: int) -> int:
+    """Inverse of _inline_selector_for_mask, including all legacy 0xB selectors."""
+    if selector & _COMPACT_INLINE_TAG_MASK == _COMPACT_INLINE_TAG:
+        return selector & _COMPACT_INLINE_MASK_MASK
+    if selector < 0xB0:
+        return selector + 16
+    return selector
+
+
+def _inline_decode_mask_candidates(selector: int, limit: int) -> list[int]:
+    """Try indicated, legacy, and one-base selector repairs; avoid 256 RS attempts.
+
+    At scale almost all corrupted strands carry an intact mask selector. The
+    previously bounded 16-mask fallback stays available, while a single DNA
+    substitution in the selector can be repaired even for new masks 16..255.
+    """
+    candidates: list[int] = []
+    seen: set[int] = set()
+
+    def add(mask_id: int) -> None:
+        if mask_id < limit and mask_id not in seen:
+            candidates.append(mask_id)
+            seen.add(mask_id)
+
+    add(_inline_mask_from_selector(selector))
+    for mask_id in range(min(limit, 16)):
+        add(mask_id)
+    for shift in (6, 4, 2, 0):
+        old_base = (selector >> shift) & 0x03
+        for new_base in range(4):
+            if new_base != old_base:
+                changed = (selector & ~(0x03 << shift)) | (new_base << shift)
+                add(_inline_mask_from_selector(changed))
+    return candidates
+
+
 @dataclass(frozen=True)
 class DecodedFrame:
     index: int
@@ -230,8 +281,10 @@ def encode_frame_packed(
         )
 
     protected = rs_encode(header + payload, rs_nsym)
-    candidate_limit = min(mask_search_limit, 16) if inline_mask_framing else mask_search_limit
-    candidate_ids = range(candidate_limit) if adaptive_masks else range(1)
+    # Compact inline framing has a full byte for the selector. Legacy selectors
+    # (0xB0..0xBF) remain intact; beyond the first 16, search the remaining 240
+    # reversible selectors to avoid rare hard-constraint failures at large scale.
+    candidate_ids = range(mask_search_limit) if adaptive_masks else range(1)
 
     if (
         not adaptive_masks
@@ -247,11 +300,7 @@ def encode_frame_packed(
     # encoding cost by the full search budget. Hard GC/homopolymer constraints remain
     # unchanged; this only removes unnecessary work once a valid strand is found.
     for mask_id in candidate_ids:
-        prefix = (
-            _COMPACT_INLINE_TAG | mask_id
-            if inline_mask_framing
-            else mask_id
-        )
+        prefix = _inline_selector_for_mask(mask_id) if inline_mask_framing else mask_id
         packed = bytes([prefix]) + _mask(protected, mask_id)
         if constraints.accepts(bytes_to_dna(packed)):
             return packed
@@ -368,9 +417,9 @@ def _decode_compact_inline_with_mask(
     expected_total_data: int,
     compact_index_bytes: int,
 ) -> DecodedFrame:
-    # The selector byte is intentionally outside RS protection. Treat its low nibble only
-    # as a mask hint and ignore the high tag bits during decode; the bounded mask search plus
-    # protected flags/index, RS and CRC16 remain the acceptance checks.
+    # The selector byte is outside RS protection. The complete byte specifies
+    # one of 256 masks while retaining the original 0xB0..0xBF mapping. RS and
+    # CRC16 still gate any recovered payload; a selector alone proves nothing.
     protected = _mask(raw[1:], mask_id)
     try:
         inner = rs_decode(protected, rs_nsym)
@@ -414,7 +463,7 @@ def _decode_indicated_mask(
     """Decode using only the mask identifier carried by this candidate frame."""
     if not raw:
         raise ValueError("empty packed frame")
-    mask_id = raw[0] & _COMPACT_INLINE_MASK_MASK if inline_mask_framing else raw[0]
+    mask_id = _inline_mask_from_selector(raw[0]) if inline_mask_framing else raw[0]
     if compact_framing:
         if expected_total_data is None:
             raise ValueError("compact framing requires expected_total_data")
@@ -464,10 +513,12 @@ def decode_frame_packed(
     if len(raw) < minimum:
         raise ValueError("Strand is shorter than the OligoArk frame")
 
-    indicated = raw[0] & _COMPACT_INLINE_MASK_MASK if inline_mask_framing else raw[0]
-    candidate_limit = min(mask_search_limit, 16) if inline_mask_framing else mask_search_limit
-    candidates = [indicated]
-    candidates.extend(mask_id for mask_id in range(candidate_limit) if mask_id != indicated)
+    if inline_mask_framing:
+        candidates = _inline_decode_mask_candidates(raw[0], mask_search_limit)
+    else:
+        indicated = raw[0]
+        candidates = [indicated]
+        candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
     errors: list[Exception] = []
     for mask_id in candidates:
         try:
