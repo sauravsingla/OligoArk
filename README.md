@@ -18,14 +18,15 @@ trial seeds, and **10 trials per condition**.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | **OligoArk compact-v3 hybrid** | **1.263 bits/nt** | **10/10** | **10/10** | **10/10** | **9/10** | timeout 10/10 | **9/10** |
 | DNA Fountain clean-room | **1.347 bits/nt** | 10/10 | **10/10** | **10/10** | 0/10 | 0/10 | 0/10 |
+| OligoArk compact hybrid (older) | — | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
 | Goldman-style + XOR | 0.515 bits/nt | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
 
 OligoArk compact-v3 uses **1.263 bits/nt** at **25.0007% measured strand redundancy** while
 staying within the **152-nt** strand limit.
 
-For the 10 MiB encode, OligoArk v3 took **89.34 s**, compared with **399.55 s** for the
+For the 10 MiB encode, OligoArk v3 took **48.89 s**, compared with **271.99 s** for the
 clean-room DNA Fountain implementation. Peak RSS observed across v3 conditions was about
-**443 MiB**, versus about **1.89 GiB** for DNA Fountain.
+**436.33 MiB**, versus about **1.89 GiB** for DNA Fountain.
 
 The current 152-nt result is:
 
@@ -35,9 +36,9 @@ The current 152-nt result is:
 - **9/10 exact recovery** under the tested substitution condition;
 - **9/10 exact recovery** under the tested mixed-fault condition;
 - indel-only recovery remains unresolved at this scale because all 10 trials exceeded the
-  configured **75-second per-trial deadline**.
+  configured per-condition deadline in the latest validation. These timeouts are retained as failures, not successful recoveries.
 
-A matched **100 MiB** codec comparison has not yet been claimed as complete.
+These are the latest completed **10 MiB** matched-codec results from PR #42's four-method validation. The encoding-time differences versus earlier README runs are not established as algorithmic speedups because benchmark conditions may differ. A matched **100 MiB** codec comparison has not yet been claimed as complete.
 
 ### 1 GiB scalable storage
 
