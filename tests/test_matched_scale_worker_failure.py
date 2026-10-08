@@ -7,8 +7,6 @@ from types import SimpleNamespace
 
 
 def test_matched_scale_worker_failure_retains_negative_trials(monkeypatch):
-    import sys
-
     benchmark_dir = Path(__file__).resolve().parents[1] / "benchmarks"
     monkeypatch.syspath_prepend(str(benchmark_dir))
     spec = importlib.util.spec_from_file_location(
