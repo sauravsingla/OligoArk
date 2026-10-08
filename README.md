@@ -29,6 +29,28 @@ These simulations help study DNA-storage methods, but do not replace physical la
 
 Results below are from separate experiments with different configurations; **do not compare the 1 GiB storage test directly with the 10 MiB codec benchmark**.
 
+### Visual benchmark comparison
+
+**Exact recovery at 10 MiB** — each block represents **1 successful trial out of 10**. A full bar means all 10 trials recovered the original file with a matching SHA-256 checksum.
+
+| Error condition | OligoArk v3 | DNA Fountain | Goldman + XOR |
+| --- | --- | --- | --- |
+| No errors | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 **10/10** | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 **10/10** | 🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪 **10/10** |
+| 1% strand loss | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 **10/10** | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 **10/10** | — **0/10** |
+| 5% strand loss | 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩 **10/10** | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 **10/10** | — **0/10** |
+| Substitutions | 🟩🟩🟩🟩🟩🟩🟩🟩🟩 **9/10** | — **0/10** | — **0/10** |
+| Insertions/deletions | — **0/10 (10 timeouts)** | — **0/10** | — **0/10** |
+| Mixed errors | 🟩🟩🟩🟩🟩🟩🟩🟩🟩 **9/10** | — **0/10** | — **0/10** |
+
+**Encoding time at 10 MiB** — shorter is better. These are the completed measurements currently reported on `main`, not the newer unmerged branch measurements.
+
+| Method | Relative time (visual) | Measured time |
+| --- | --- | ---: |
+| OligoArk v3 | 🟩🟩🟩🟩 | **89.34 seconds** |
+| DNA Fountain | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 | **399.55 seconds** |
+
+*Bars are approximate visual guides; use the numbers for exact comparisons. These are computational tests, not a completed OligoArk wet-lab experiment. Insertion/deletion timeouts count as failures. A matched 100 MiB comparison is not yet complete.*
+
 ### 10 MiB: comparison with other encoding methods
 
 Each number shows **successful exact recoveries out of 10 trials**. For example, 9/10 means nine files were recovered exactly and one was not.
