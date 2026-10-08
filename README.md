@@ -61,12 +61,12 @@ Results below are from separate experiments with different configurations; **do 
 | Insertions/deletions | — **0/10 (10 timeouts)** | — **0/10** | — **0/10** |
 | Mixed errors | 🟩🟩🟩🟩🟩🟩🟩🟩🟩 **9/10** | — **0/10** | — **0/10** |
 
-**Encoding time at 10 MiB** — shorter is better. These are the completed measurements currently reported on `main`.
+**Encoding time at 10 MiB** — shorter is better. These are the latest completed 10 MiB measurements from PR #42. Differences from earlier runs are not established as algorithmic speedups because benchmark conditions may differ.
 
 | Method | Relative time (visual) | Measured time |
 | --- | --- | ---: |
-| OligoArk v3 | 🟩🟩🟩🟩 | **89.34 seconds** |
-| DNA Fountain | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 | **399.55 seconds** |
+| OligoArk v3 | 🟩🟩🟩🟩 | **48.89 seconds** |
+| DNA Fountain | 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 | **271.99 seconds** |
 
 *Bars are approximate visual guides; use the numbers for exact comparisons. These are computational tests, not a completed OligoArk wet-lab experiment. Insertion/deletion timeouts count as failures. A matched 100 MiB comparison is not yet complete.*
 
@@ -76,13 +76,13 @@ The matched comparison uses one deterministic **10 MiB** payload, **152-nt maxim
 
 | Method | Density (bits/nt) | Encode time | Peak memory |
 | --- | ---: | ---: | ---: |
-| OligoArk compact-v3 hybrid | **1.263** | **89.34 s** | **443 MiB** |
-| DNA Fountain clean-room | **1.347** | **399.55 s** | **1.89 GiB** |
+| OligoArk compact-v3 hybrid | **1.263** | **48.89 s** | **436.33 MiB** |
+| DNA Fountain clean-room | **1.347** | **271.99 s** | **1.89 GiB** |
 | Goldman-style + XOR | **0.515** | Not reported here | Not reported here |
 
-OligoArk v3 used **25.0007% measured strand redundancy**. Insertion/deletion-only recovery was **0/10** because all ten trials exceeded the configured **75-second per-trial deadline**; timeouts are failures, not recoveries.
+OligoArk v3 used **25.0007% measured strand redundancy**. The latest completed 10 MiB matched validation included four methods; the older OligoArk compact-hybrid baseline recorded 10/10 clean recovery and 0/10 in the other tested fault regimes. Insertion/deletion-only recovery was **0/10** because all ten trials exceeded the configured **75-second per-trial deadline**; timeouts are failures, not recoveries.
 
-The matched **100 MiB** codec comparison is still incomplete.
+The matched **100 MiB** codec comparison is still incomplete. The new research workflow does not establish a completed 100 MiB result.
 
 ### 1 GiB: scalable storage test
 

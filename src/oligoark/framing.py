@@ -46,6 +46,52 @@ class DecodedFrame:
             return "parity"
         return "data"
 
+@dataclass(frozen=True)
+class CompactFrameHint:
+    """Unverified identity hint recovered from an intact inline compact prefix."""
+
+    index: int
+    is_parity: bool
+    is_fountain: bool
+
+
+def compact_inline_frame_hint(
+    sequence: str,
+    *,
+    compact_index_bytes: int = 3,
+) -> CompactFrameHint | None:
+    """Read only the selector + protected index prefix from a length-shifted strand.
+
+    A single indel occurring after this prefix leaves the prefix byte-aligned and therefore
+    gives a cheap identity hint. The hint is never accepted as decoded data: CRC/RS validation
+    is still required by decode_frame_resilient before any payload enters recovery.
+    """
+    sequence = sequence.strip().upper()
+    prefix_nt = 4 * (1 + compact_index_bytes)
+    if len(sequence) < prefix_nt or set(sequence[:prefix_nt]) - {"A", "C", "G", "T"}:
+        return None
+    try:
+        raw = dna_to_bytes(sequence[:prefix_nt])
+    except ValueError:
+        return None
+    selector = raw[0]
+    if selector & _COMPACT_INLINE_TAG_MASK != _COMPACT_INLINE_TAG:
+        return None
+    mask_id = selector & _COMPACT_INLINE_MASK_MASK
+    protected_prefix = _mask(raw[1:], mask_id)
+    if len(protected_prefix) != compact_index_bytes:
+        return None
+    index_bits = 8 * compact_index_bytes - 2
+    packed_index = int.from_bytes(protected_prefix, "big")
+    flags = packed_index >> index_bits
+    if flags & ~(FLAG_PARITY | FLAG_FOUNTAIN):
+        return None
+    return CompactFrameHint(
+        index=packed_index & ((1 << index_bits) - 1),
+        is_parity=bool(flags & FLAG_PARITY),
+        is_fountain=bool(flags & FLAG_FOUNTAIN),
+    )
+
 
 def frame_overhead_bytes(
     rs_nsym: int,

@@ -20,7 +20,14 @@ from .fountain import (
     peel_decode,
     symbol_count,
 )
-from .framing import decode_frame, decode_frame_resilient, encode_frame, frame_overhead_bytes
+from .framing import (
+    CompactFrameHint,
+    compact_inline_frame_hint,
+    decode_frame,
+    decode_frame_resilient,
+    encode_frame,
+    frame_overhead_bytes,
+)
 from .reconstruct import GraphConsensusReconstructor, ReadReconstructor, TraceConsensusReconstructor
 
 _REDUNDANCY_SCHEMES = {"none", "xor", "fountain", "hybrid"}
@@ -471,7 +478,7 @@ def _decode_available_frames(
     dict[int, bytes],
     dict[int, bytes],
     list[FountainSymbol],
-    list[str],
+    list[tuple[str, CompactFrameHint | None]],
 ]:
     """Decode the cheap fast path first and defer expensive indel search.
 
@@ -485,7 +492,7 @@ def _decode_available_frames(
     data_chunks: dict[int, bytes] = {}
     parity_chunks: dict[int, bytes] = {}
     fountain_symbols: list[FountainSymbol] = []
-    indel_candidates: list[str] = []
+    indel_candidates: list[tuple[str, CompactFrameHint | None]] = []
 
     for strand in strands:
         try:
@@ -500,7 +507,15 @@ def _decode_available_frames(
             )
         except ValueError:
             if config.indel_rescue and len(strand) % 4 in {1, 3}:
-                indel_candidates.append(strand)
+                hint = (
+                    compact_inline_frame_hint(
+                        strand,
+                        compact_index_bytes=config.compact_index_bytes,
+                    )
+                    if config.inline_mask_framing
+                    else None
+                )
+                indel_candidates.append((strand, hint))
             continue
         _store_decoded_frame(
             frame,
@@ -563,37 +578,86 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
     )
 
     if len(data_chunks) < total_data and config.indel_rescue and indel_candidates:
-        for candidate_number, strand in enumerate(indel_candidates, start=1):
+        missing = {index for index in range(total_data) if index not in data_chunks}
+
+        def hint_relevant(hint: CompactFrameHint | None) -> bool:
+            if hint is None:
+                return False
+            if not hint.is_parity and not hint.is_fountain:
+                return hint.index in missing
+            if hint.is_parity:
+                start = hint.index * config.parity_group_size
+                if start >= total_data:
+                    return False
+                return any(
+                    index in missing
+                    for index in range(
+                        start,
+                        min(start + config.parity_group_size, total_data),
+                    )
+                )
             try:
-                frame = decode_frame_resilient(
-                    strand,
-                    rs_nsym=config.rs_nsym,
-                    mask_search_limit=config.mask_search_limit,
-                    compact_framing=config.compact_framing,
-                    compact_index_bytes=config.compact_index_bytes,
-                    expected_total_data=total_data if config.compact_framing else None,
-                    inline_mask_framing=config.inline_mask_framing,
+                indexes = indexes_for_seed(
+                    total_data,
+                    hint.index,
+                    max_degree=config.fountain_max_degree,
+                    layout=config.fountain_layout,
+                    first_seed=config.fountain_seed,
                 )
             except ValueError:
-                continue
-            changed = _store_decoded_frame(
-                frame,
-                total_data=total_data,
-                config=config,
-                data_chunks=data_chunks,
-                parity_chunks=parity_chunks,
-                fountain_symbols=fountain_symbols,
-            )
-            if changed and candidate_number % 32 == 0:
-                data_chunks = _apply_redundancy(
-                    data_chunks,
-                    parity_chunks,
-                    fountain_symbols,
-                    total_data,
-                    config,
-                )
+                return False
+            return any(index in missing for index in indexes)
+
+        hinted = [item for item in indel_candidates if hint_relevant(item[1])]
+        unhinted = [item for item in indel_candidates if item[1] is None]
+        changed_since_peel = 0
+
+        def rescue(items: Iterable[tuple[str, CompactFrameHint | None]]) -> None:
+            nonlocal data_chunks, missing, changed_since_peel
+            for strand, hint in items:
                 if len(data_chunks) == total_data:
-                    break
+                    return
+                if hint is not None and not hint_relevant(hint):
+                    continue
+                try:
+                    frame = decode_frame_resilient(
+                        strand,
+                        rs_nsym=config.rs_nsym,
+                        mask_search_limit=config.mask_search_limit,
+                        compact_framing=config.compact_framing,
+                        compact_index_bytes=config.compact_index_bytes,
+                        expected_total_data=total_data if config.compact_framing else None,
+                        inline_mask_framing=config.inline_mask_framing,
+                    )
+                except ValueError:
+                    continue
+                changed = _store_decoded_frame(
+                    frame,
+                    total_data=total_data,
+                    config=config,
+                    data_chunks=data_chunks,
+                    parity_chunks=parity_chunks,
+                    fountain_symbols=fountain_symbols,
+                )
+                if not changed:
+                    continue
+                changed_since_peel += 1
+                if changed_since_peel >= 8:
+                    data_chunks = _apply_redundancy(
+                        data_chunks,
+                        parity_chunks,
+                        fountain_symbols,
+                        total_data,
+                        config,
+                    )
+                    missing = {
+                        index for index in range(total_data) if index not in data_chunks
+                    }
+                    changed_since_peel = 0
+
+        # Most single indels occur after the 16-nt selector/index prefix. Rescue only
+        # candidates whose cheap prefix hint can contribute to the current stopping set.
+        rescue(hinted)
         if len(data_chunks) < total_data:
             data_chunks = _apply_redundancy(
                 data_chunks,
@@ -602,12 +666,28 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
                 total_data,
                 config,
             )
+            missing = {index for index in range(total_data) if index not in data_chunks}
 
-    missing = [index for index in range(total_data) if index not in data_chunks]
-    if missing:
+        # Prefix-damaged strands are rare. Bound this expensive fallback by the size of the
+        # unresolved stopping set so one pathological trace cannot dominate a scale run.
+        if missing and unhinted:
+            fallback_budget = min(len(unhinted), max(64, 8 * len(missing)))
+            rescue(unhinted[:fallback_budget])
+            data_chunks = _apply_redundancy(
+                data_chunks,
+                parity_chunks,
+                fountain_symbols,
+                total_data,
+                config,
+            )
+
+    final_missing = [
+        index for index in range(total_data) if index not in data_chunks
+    ]
+    if final_missing:
         raise ValueError(
-            f"Archive is not recoverable; missing {len(missing)} data strand(s): "
-            f"{missing[:20]}"
+            f"Archive is not recoverable; missing {len(final_missing)} data strand(s): "
+            f"{final_missing[:20]}"
         )
     raw = b"".join(data_chunks[index] for index in range(total_data))
     original_size = int(cast(int, archive.metadata["original_size"]))

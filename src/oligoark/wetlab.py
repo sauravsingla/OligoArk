@@ -35,7 +35,7 @@ class WetLabBundleSummary:
     encoded_nucleotides: int
     logical_bits_per_nucleotide: float
     target_strand_nt: int
-    claim_status: str = "prepared-not-executed"
+    claim_status: str = "prepared, not physically executed"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

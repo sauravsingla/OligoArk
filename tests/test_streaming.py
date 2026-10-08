@@ -4,8 +4,9 @@ import os
 
 import pytest
 
-from oligoark.archive import ArchiveConfig
+from oligoark.archive import ArchiveConfig, archive_bytes, recover_bytes
 from oligoark.framing import (
+    compact_inline_frame_hint,
     decode_frame,
     decode_frame_packed,
     decode_frame_resilient,
@@ -360,3 +361,62 @@ def test_inline_mask_152_profile_keeps_single_indel_rescue(kind: str) -> None:
     )
     assert decoded.index == 77
     assert decoded.payload == payload
+
+
+def test_inline_mask_hint_survives_late_single_indel() -> None:
+    profile = physical_strand_profile("oligoark-152-compact-v3")
+    config = profile.to_archive_config()
+    payload = bytes(range(config.chunk_size))
+    packed = encode_frame_packed(
+        payload,
+        index=123_456,
+        total_data=300_000,
+        is_parity=False,
+        rs_nsym=config.rs_nsym,
+        adaptive_masks=config.adaptive_masks,
+        sequence_constraints=config.sequence_constraints,
+        mask_search_limit=config.mask_search_limit,
+        compact_framing=config.compact_framing,
+        compact_index_bytes=config.compact_index_bytes,
+        inline_mask_framing=config.inline_mask_framing,
+    )
+    sequence = "".join(
+        "ACGT"[(byte >> shift) & 3]
+        for byte in packed
+        for shift in (6, 4, 2, 0)
+    )
+    position = 80
+    inserted = sequence[:position] + "A" + sequence[position:]
+    deleted = sequence[:position] + sequence[position + 1 :]
+    for mutated in (inserted, deleted):
+        hint = compact_inline_frame_hint(
+            mutated,
+            compact_index_bytes=config.compact_index_bytes,
+        )
+        assert hint is not None
+        assert hint.index == 123_456
+        assert hint.is_parity is False
+        assert hint.is_fountain is False
+
+
+def test_v3_archive_recovers_sparse_single_indels_without_bruteforce_scan() -> None:
+    profile = physical_strand_profile("oligoark-152-compact-v3").with_scheme("hybrid")
+    config = profile.to_archive_config()
+    payload = bytes(range(256)) * 64
+    archive = archive_bytes(payload, config)
+    reads = list(archive.strands)
+    damaged = max(1, round(len(reads) * 0.05))
+    step = max(1, len(reads) // damaged)
+    changed = 0
+    for ordinal in range(0, len(reads), step):
+        if changed >= damaged:
+            break
+        sequence = reads[ordinal]
+        position = 40 + (ordinal % 80)
+        if changed % 2:
+            reads[ordinal] = sequence[:position] + "A" + sequence[position:]
+        else:
+            reads[ordinal] = sequence[:position] + sequence[position + 1 :]
+        changed += 1
+    assert changed == damaged
+    assert recover_bytes(archive, reads) == payload
