@@ -99,7 +99,10 @@ def preflight(output_dir: Path) -> dict[str, object]:
             "physical sequencing with authentic FASTQ/FASTA and provider run records",
             "independent recovery from genuine sequencing reads and SHA-256 gate",
         ],
-        "claim_scope": "No wet-lab success claim: reads here were generated from designed core strands.",
+        "claim_scope": (
+            "No wet-lab success claim: reads here were generated from "
+            "designed core strands."
+        ),
     }
     (output_dir / "preflight-report.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
