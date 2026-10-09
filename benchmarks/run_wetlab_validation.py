@@ -25,6 +25,7 @@ def main() -> None:
         "--profile",
         choices=(
             "oligoark-152-compact",
+            "oligoark-152-compact-v3",
             "oligoark-200-compact",
             "oligoark-248-compact",
         ),
