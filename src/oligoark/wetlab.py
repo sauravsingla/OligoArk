@@ -221,6 +221,17 @@ def recover_wetlab_reads(
     """Recover supplied sequencing reads and enforce the archive SHA-256 acceptance gate."""
     bundle = Path(bundle_dir)
     archive = DNAArchive.load(bundle / "archive.json")
+    # The pre-order experiment manifest must agree with the decoder's own hash.
+    # Never accept recovery against archive metadata from a different payload.
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("source"), dict):
+        raise ValueError("wet-lab bundle manifest is missing source metadata")
+    frozen_sha256 = manifest["source"].get("sha256")
+    if not isinstance(frozen_sha256, str) or len(frozen_sha256) != 64:
+        raise ValueError("wet-lab bundle manifest has an invalid source SHA-256")
+    if frozen_sha256 != str(archive.metadata["sha256"]):
+        raise ValueError("wet-lab bundle manifest and archive SHA-256 disagree")
     reads = read_sequences(reads_path)
     if not reads:
         raise ValueError("sequencing input contains no reads")
