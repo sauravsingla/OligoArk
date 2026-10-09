@@ -10,7 +10,7 @@ OligoArk is an open-source **research project** about DNA data storage. It conve
 | --- | --- |
 | What does it do? | Encode digital data as DNA-like sequences and reconstruct it. |
 | How is recovery checked? | A recovered file must match the original **SHA-256** checksum exactly. |
-| What has been tested? | A matched **10 MiB** codec comparison and a separate **1 GiB** scalable-storage test. |
+| What has been tested? | A matched **10 MiB** codec comparison, **partial 100 MiB** research results, and a separate **1 GiB** scalable-storage test. |
 | What is still difficult? | Insertion/deletion errors at 10 MiB and full 100 MiB matched validation. |
 
 ## How it works
@@ -46,7 +46,7 @@ This example uses a fixed input and **seed 42** to make the simulation repeatabl
 
 ## Research results
 
-Results below are from separate experiments with different configurations; **do not compare the 1 GiB storage test directly with the 10 MiB codec benchmark**.
+Results below are from separate experiments with different configurations; **do not compare the 1 GiB storage test directly with the 10 MiB or 100 MiB codec benchmarks**.
 
 ### Visual benchmark comparison
 
@@ -82,7 +82,38 @@ The matched comparison uses one deterministic **10 MiB** payload, **152-nt maxim
 
 OligoArk v3 used **25.0007% measured strand redundancy**. The latest completed 10 MiB matched validation included four methods; the older OligoArk compact-hybrid baseline recorded 10/10 clean recovery and 0/10 in the other tested fault regimes. Insertion/deletion-only recovery was **0/10** because all ten trials exceeded the configured **75-second per-trial deadline**; timeouts are failures, not recoveries.
 
-The matched **100 MiB** codec comparison is still incomplete. The new research workflow does not establish a completed 100 MiB result.
+### 100 MiB research results — partial validation (not the headline comparison)
+
+The [100 MiB matched-codec workflow, run 37766665792](https://github.com/sauravsingla/OligoArk/actions/runs/37766665792) tested four methods at source commit [`d7b0f89`](https://github.com/sauravsingla/OligoArk/commit/d7b0f89a3e7521f02381a872be92b37342607f71). **The overall workflow failed:** three methods retained observed trial outcomes; DNA Fountain exhausted its worker budget before reporting verifiable recovery trials. The fully validated **10 MiB comparison above remains the headline**. These are simulated-channel software experiments, **not physical DNA storage evidence**.
+
+**Exact recovery at 100 MiB** — values show original payloads recovered with the required exact verification; each condition requested **10 trials per method**.
+
+| Error condition | OligoArk compact-v3 | OligoArk compact hybrid | Goldman + XOR | DNA Fountain |
+| --- | ---: | ---: | ---: | ---: |
+| Clean (no errors) | **10/10** | **10/10** | 0/10 (10 timeouts) | N/V |
+| 1% strand loss | **10/10** | 0/10 | 0/10 (10 timeouts) | N/V |
+| 5% strand loss | **1/10** | 0/10 | 0/10 (10 timeouts) | N/V |
+| Substitutions | 0/10 | 0/10 (10 timeouts) | 0/10 (10 timeouts) | N/V |
+| Insertions/deletions | 0/10 (10 timeouts) | 0/10 (10 timeouts) | 0/10 (10 timeouts) | N/V |
+| Mixed errors | 0/10 (10 timeouts) | 0/10 (10 timeouts) | 0/10 (10 timeouts) | N/V |
+| **Exact recoveries / 60 requested** | **21/60** | **10/60** | **0/60 (60 timeouts)** | **N/V (60 unverified)** |
+
+**N/V means not verified**, **not** 0/10 observed unsuccessful decodes. DNA Fountain exceeded its **19,800-second (5.5-hour) worker budget**; its artifact retained identifiers for all 60 requested trials but marked every outcome **unavailable**, with no observed SHA-256 recovery verdicts. The run's trial-accounting validation correctly failed. A **timeout** is a retained negative result under the configured deadline, not evidence of intrinsic codec impossibility. In particular, all 60 Goldman + XOR trials timed out, including clean trials.
+
+**Measured encoding and storage properties at 100 MiB** (single GitHub-hosted run; do not infer reproducible speedups):
+
+| Method | Encode time | Peak RAM (maximum observed RSS) | Density (bits/nt) | Maximum strand | Measured strand redundancy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| OligoArk compact-v3 hybrid | 602.58 s | 3,810.70 MiB | 1.263157 | 152 nt | 25.0001% |
+| OligoArk compact hybrid | 871.49 s | 3,130.94 MiB | 1.221052 | 152 nt | 25.00% |
+| Goldman-style rotating XOR | 594.03 s | 3,213.53 MiB | 0.515436 | 149 nt | 25.00% |
+| DNA Fountain clean-room | Not measured | Not measured | Not measured | Not measured | Not measured |
+
+**Reproducibility and limitations:** all methods requested the same deterministic **100 MiB (104,857,600-byte)** source payload, a **152-nt maximum** strand-length ceiling, nominal **25% redundancy budget**, six matching channel conditions, and trial seeds **20260000–20260009**. Each actual recovery trial had a **300-second deadline**. The benchmark artifacts record per-trial exact-recovery verdicts, failures, deadlines and runtime/memory metrics; the three completed methods have all **60** trial records with observed outcomes. Different code designs implement redundancy differently, and a matched configuration is not proof of equal practical performance. DNA Fountain's missing measurements cannot be used to establish a four-method ranking. The substantial substitution/indel/mixed-error failures remain open research limitations.
+
+[Inspect the 100 MiB workflow and downloadable per-method artifacts](https://github.com/sauravsingla/OligoArk/actions/runs/37766665792).
+
+The **1 GiB** test below is a separate bounded-memory storage experiment and must not be interpreted as an additional 100 MiB codec recovery result.
 
 ### 1 GiB: scalable storage test
 
