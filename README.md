@@ -10,6 +10,12 @@ Encode digital files as **DNA-like strands**, simulate missing or corrupted read
 
 **Encode → Simulate noise → Reconstruct → Verify**
 
+## See the workflow in action
+
+![Animated OligoArk software simulation showing a digital file, DNA-like encoding, simulated noise, and verified exact recovery](assets/oligoark-workflow.svg)
+
+*Illustrative software workflow: Original file → DNA-like strands → Simulated errors → Exact recovery when verification succeeds. Results depend on the simulated conditions; no physical DNA synthesis or sequencing is shown.*
+
 [**Try the demo**](#quick-start) · [**See the results**](#featured-benchmark-10-mib) · [**Explore the methods**](docs/research.md) · [**Contribute**](CONTRIBUTING.md)
 
 > **Research status:** OligoArk is **simulation-first**, not a physically validated DNA-storage product. Published physical sequencing reads have been used for **reference-level reconstruction tests**, but an OligoArk-encoded archive has **not** completed DNA synthesis → sequencing → end-to-end recovery.
