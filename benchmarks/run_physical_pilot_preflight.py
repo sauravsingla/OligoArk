@@ -64,7 +64,7 @@ def preflight(output_dir: Path) -> dict[str, object]:
         assert int(row["length_nt"]) == len(seq), "CSV length mismatch"
         homopolymer = 1
         current = 1
-        for prev, base in zip(seq, seq[1:]):
+        for prev, base in zip(seq, seq[1:], strict=False):
             current = current + 1 if prev == base else 1
             homopolymer = max(homopolymer, current)
         assert homopolymer <= cfg["max_homopolymer"], "homopolymer constraint failure"
