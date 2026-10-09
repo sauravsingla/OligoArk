@@ -55,3 +55,21 @@ def test_wetlab_manifest_does_not_claim_physical_execution(tmp_path) -> None:
     manifest_text = (bundle / "manifest.json").read_text(encoding="utf-8")
     assert "prepared, not physically executed" in manifest_text
     assert "End-to-end physical-storage evidence requires" in manifest_text
+
+
+def test_recovery_rejects_inconsistent_preorder_source_hash(tmp_path) -> None:
+    source = tmp_path / "pilot.bin"
+    source.write_bytes(b"frozen pilot identity must match decoder archive")
+    bundle = tmp_path / "bundle"
+    prepare_wetlab_bundle(source, bundle)
+
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source"]["sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    from pytest import raises
+
+    with raises(ValueError, match="manifest and archive SHA-256 disagree"):
+        recover_wetlab_reads(bundle, bundle / "oligos.fasta", tmp_path / "invalid.bin")
+    assert not (tmp_path / "invalid.bin").exists()
