@@ -1,0 +1,59 @@
+name: Physical pilot software preflight (NO laboratory validation)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/physical-pilot-preflight.yml"
+      - "benchmarks/run_physical_pilot_preflight.py"
+      - "benchmarks/run_wetlab_validation.py"
+      - "src/oligoark/**"
+      - "tests/test_wetlab.py"
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-pilot:
+    name: Prepare, inspect and verify synthetic core strands
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e .
+      - name: Verify wet-lab handoff tests
+        run: |
+          python -m pip install pytest
+          python -m pytest -q tests/test_wetlab.py
+      - name: Generate 4 KiB non-biological pilot and exact software recovery
+        run: python benchmarks/run_physical_pilot_preflight.py --output physical-pilot-results
+      - name: Check evidence-class boundaries
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("physical-pilot-results")
+          report = json.loads((root / "preflight-report.json").read_text())
+          manifest = json.loads((root / "bundle/manifest.json").read_text())
+          assert report["software_pristine_roundtrip_sha256_passed"]
+          assert manifest["status"] == "prepared, not physically executed"
+          assert report["original_source_sha256"] == manifest["source"]["sha256"]
+          assert report["max_planned_total_nt_with_2x20nt_flanks"] <= 192
+          for filename in ("pilot.bin", "bundle/oligos.fasta",
+                           "bundle/oligos.csv", "bundle/archive.json",
+                           "bundle/manifest.json", "preflight-report.json",
+                           "recovered-software.bin"):
+              assert (root / filename).is_file(), filename
+          print("PASS: software preflight only; no physical evidence claimed.")
+          PY
+      - name: Retain prepared package as workflow artifact (not a synthesis order)
+        uses: actions/upload-artifact@v4
+        with:
+          name: oligoark-physical-pilot-v1-SOFTWARE-ONLY
+          path: physical-pilot-results/
+          retention-days: 30
+          if-no-files-found: error
