@@ -59,7 +59,7 @@ Compact-v3's **10 indel trials exceeded the 75-second deadline**. The fourth tes
 
 ## Research limitations
 
-OligoArk is **simulation-first**. Although published physical reads have been tested for reference reconstruction, **no OligoArk-encoded archive has completed synthesis → sequencing → exact recovery**. [Wet-lab protocol](docs/wet-lab-validation.md).
+OligoArk is **simulation-first**. Although published physical reads have been tested for reference reconstruction, **no OligoArk-encoded archive has completed synthesis → sequencing → exact recovery**. [Wet-lab protocol](docs/wet-lab-validation.md) · [Physical pilot plan (not yet executed)](docs/physical-pilot-v1.md).
 
 Indel recovery and 100 MiB noisy-channel results remain limited; the four-method 100 MiB comparison is unfinished. OligoArk combines existing techniques rather than claiming to invent fountain coding, Reed–Solomon protection, graph reconstruction or sequence screening.
 
