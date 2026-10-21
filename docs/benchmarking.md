@@ -16,6 +16,7 @@ This retains the historical fixed-vs-adaptive comparison and writes CSV/JSON, en
 python benchmarks/run_experiments.py --profile smoke
 python benchmarks/run_learning_evaluation.py
 python benchmarks/run_graph_rescue.py
+python benchmarks/run_graph_reconstruction_baseline.py
 python benchmarks/run_verified_demo.py
 ```
 
