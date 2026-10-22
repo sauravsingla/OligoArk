@@ -26,11 +26,12 @@ This baseline establishes a frozen reference point for:
 
 ## Fixture specification
 
-The fixture is generated purely in memory by `generate_synthetic_graph_baseline_fixture()` in
-`tests/test_reconstruct.py` and `benchmarks/run_graph_reconstruction_baseline.py`.
+The pytest fixture is generated in memory by `generate_synthetic_graph_baseline_fixture()` in
+`tests/test_reconstruct.py`. The standalone benchmark in `benchmarks/run_graph_reconstruction_baseline.py`
+recreates the default simulation configuration and exposes additional noise parameters to Python callers.
 
 ### Ground truth definition
-- **Payload**: 69 bytes of deterministic ASCII text (`b"OligoArk reproducible graph-reconstruction baseline fixture (#43, #18)"`).
+- **Payload**: 70 bytes of deterministic ASCII text (`b"OligoArk reproducible graph-reconstruction baseline fixture (#43, #18)"`).
 - **Archive framing**: Encoded using standard `ArchiveConfig(chunk_size=32, rs_nsym=8, redundancy_scheme="none")`, yielding **3 distinct ground-truth strands** with lengths of 236, 236, and 132 nucleotides.
 - **Inter-strand separation**: Pairwise Levenshtein similarities between the distinct ground-truth strands range between 0.42 and 0.51, well below the clustering threshold of 0.90, preventing spurious cross-cluster edges.
 
@@ -68,7 +69,8 @@ The baseline is evaluated with `GraphConsensusReconstructor(threshold=0.90, scor
    - **Direct read recovery (without graph reconstruction)**: `False`. Unaligned indels and substitutions break direct frame decoding and Reed-Solomon error correction.
    - **Graph-assisted recovery**: `True`. Appending the reconstructed consensus reads allows `recover_bytes()` to decode the frames and verify the exact expected SHA-256 hash.
 4. **Ablation contrast (medoid vs alignment)**:
-   - When `consensus_mode="medoid"` is evaluated on the exact same graph, consensus recovery drops to **0 / 3**, and archive recovery fails (`False`). This confirms that alignment-based indel voting is necessary to repair trace length shifts.
+   - When `consensus_mode="medoid"` is evaluated on the exact same graph, consensus recovery drops to **0 / 3**, and archive recovery fails (`False`). For this fixed synthetic fixture, alignment voting repairs errors that the medoid baseline does not;
+this result does not establish general superiority across other seeds or noise conditions.
 
 ## Reproduction commands
 
@@ -133,6 +135,6 @@ Archive SHA-256 Match:   True
 Medoid Matches:          0 / 3
 Medoid Archive Recovery: False (fails without alignment repair)
 
-Reconstruction Runtime:  < 5.0 s (CPU-only)
+Reconstruction Runtime:  <varies by machine> s (CPU-only)
 ===================================================================
 ```
