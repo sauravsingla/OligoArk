@@ -62,14 +62,14 @@ def run_baseline(
     direct_recovered = False
     try:
         direct_recovered = recover_bytes(archive, reads) == payload
-    except (ValueError, Exception):
+    except ValueError:
         direct_recovered = False
 
     # 5. Graph-assisted complete archive recovery (SHA-256 verified)
     graph_recovered = False
     try:
         graph_recovered = recover_bytes(archive, reads + result.consensus_reads) == payload
-    except (ValueError, Exception):
+    except ValueError:
         graph_recovered = False
 
     # 6. Medoid ablation comparison (non-alignment consensus)
@@ -85,7 +85,7 @@ def run_baseline(
         medoid_recovered = (
             recover_bytes(archive, reads + medoid_result.consensus_reads) == payload
         )
-    except (ValueError, Exception):
+    except ValueError:
         medoid_recovered = False
 
     elapsed = round(time.perf_counter() - started, 6)

@@ -264,7 +264,7 @@ def generate_synthetic_graph_baseline_fixture() -> SyntheticGraphBaselineFixture
     """Generate a tiny deterministic synthetic-read fixture.
 
     Parameters:
-    - Payload: 69 bytes synthetic ASCII text, creating 3 distinct archival strands
+    - Payload: 70 bytes synthetic ASCII text, creating 3 distinct archival strands
       with standard Reed-Solomon framing and zero inter-strand cross-clustering.
     - SimulationConfig:
       - substitution_rate = 0.015 (1.5% substitution noise)
@@ -308,7 +308,6 @@ def synthetic_graph_baseline() -> SyntheticGraphBaselineFixture:
 
 def test_graph_reconstruction_baseline_fixture(
     synthetic_graph_baseline: SyntheticGraphBaselineFixture,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Deterministic graph reconstruction baseline verification (#43, #18).
 
@@ -320,8 +319,8 @@ def test_graph_reconstruction_baseline_fixture(
     4. Recovery distinction:
        - Direct frame decoding without graph reconstruction fails (False).
        - Alignment-consensus-assisted recovery achieves SHA-256 verified recovery (True).
-       - Medoid non-alignment consensus fails to verify (False), proving the value
-         of alignment indel repair.
+       - Medoid non-alignment consensus fails to verify (False) on this fixed
+         synthetic fixture, showing a difference from alignment-based consensus.
     """
     fixture = synthetic_graph_baseline
 
@@ -353,7 +352,7 @@ def test_graph_reconstruction_baseline_fixture(
         direct_recovered = (
             recover_bytes(fixture.archive, list(fixture.reads)) == fixture.payload
         )
-    except (ValueError, Exception):
+    except ValueError:
         direct_recovered = False
     assert direct_recovered is False
 
@@ -382,7 +381,7 @@ def test_graph_reconstruction_baseline_fixture(
             )
             == fixture.payload
         )
-    except (ValueError, Exception):
+    except ValueError:
         medoid_recovered = False
     assert medoid_recovered is False
 
