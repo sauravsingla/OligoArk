@@ -148,7 +148,9 @@ class OptimizationWeightsRequest(BaseModel):
 class OptimizePlanRequest(PlanRequest):
     data_b64: str
     seeds: list[int] | None = Field(default=None, max_length=32)
-    calibration_seeds: list[int] = Field(default_factory=lambda: [9401, 9402, 9403, 9404], max_length=32)
+    calibration_seeds: list[int] = Field(
+        default_factory=lambda: [9401, 9402, 9403, 9404], max_length=32
+    )
     evaluation_seeds: list[int] | None = Field(default=None, max_length=32)
     duplicate_rate: float = Field(default=0.0, ge=0, le=1)
     copies_per_strand: int = Field(default=1, ge=1, le=32)
