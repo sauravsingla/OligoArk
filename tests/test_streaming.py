@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -480,5 +481,22 @@ def test_streaming_rejects_oversized_metadata_before_allocation(tmp_path) -> Non
     archive = tmp_path / "malicious.oab"
     archive.write_bytes(b"OAB2" + (1024 * 1024 + 1).to_bytes(4, "big"))
     with pytest.raises(ValueError, match="metadata exceeds"):
+        recover_file_streaming(archive, tmp_path / "output.bin")
+    assert not (tmp_path / "output.bin").exists()
+
+def test_streaming_rejects_impossible_claimed_original_size(tmp_path) -> None:
+    source = tmp_path / "payload.bin"
+    source.write_bytes(b"short payload")
+    archive = tmp_path / "archive.oab"
+    archive_file_streaming(source, archive, _scale_config("none"))
+    contents = archive.read_bytes()
+    length = int.from_bytes(contents[4:8], "big")
+    metadata = json.loads(contents[8 : 8 + length])
+    metadata["original_size"] = 10**12
+    modified = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+    archive.write_bytes(
+        contents[:4] + len(modified).to_bytes(4, "big") + modified + contents[8 + length :]
+    )
+    with pytest.raises(ValueError, match="invalid streaming strand counts"):
         recover_file_streaming(archive, tmp_path / "output.bin")
     assert not (tmp_path / "output.bin").exists()

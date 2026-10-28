@@ -503,7 +503,12 @@ def recover_file_streaming(
             records = int(cast(int, metadata["strand_count"]))
             size = int(cast(int, metadata["original_size"]))
             expected = str(metadata["sha256"])
-            if not 0 < total <= records or size < 0 or records > source.stat().st_size // 5:
+            if (
+                not 0 < total <= records
+                or size < 0
+                or size > total * config.chunk_size
+                or records > source.stat().st_size // 5
+            ):
                 raise ValueError("invalid streaming strand counts or original size")
             max_record_length = frame_overhead_bytes(
                 config.rs_nsym,
