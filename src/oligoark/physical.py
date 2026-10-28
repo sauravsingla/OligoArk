@@ -130,6 +130,9 @@ def read_sequences(path: str | Path, *, max_sequences: int | None = None) -> lis
             ):
                 sequences.append("".join(current).upper())
         elif first.startswith("@"):
+            # Four-line FASTQ records require a valid header, separator, and
+            # exactly one quality score per sequence base. Never silently
+            # accept a corrupted record as a physical sequencing read.
             while True:
                 header = handle.readline()
                 if not header:
@@ -137,8 +140,10 @@ def read_sequences(path: str | Path, *, max_sequences: int | None = None) -> lis
                 sequence = handle.readline().strip().upper()
                 plus = handle.readline()
                 quality = handle.readline()
-                if not sequence or not plus.startswith("+") or not quality:
+                if not header.startswith("@") or not sequence or not plus.startswith("+"):
                     raise ValueError("malformed FASTQ record")
+                if len(quality.rstrip("\r\n")) != len(sequence):
+                    raise ValueError("FASTQ sequence and quality lengths differ")
                 sequences.append(sequence)
                 if max_sequences is not None and len(sequences) >= max_sequences:
                     break

@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from oligoark.physical import (
     PhysicalDatasetManifest,
     evaluate_physical_reconstruction,
@@ -62,3 +64,21 @@ def test_fasta_fastq_parsing_and_reference_reconstruction(tmp_path: Path) -> Non
     assert result.reference_count == 1
     assert result.trace_exact_reference_matches == 1
     assert result.trace_exact_rate == 1.0
+
+
+@pytest.mark.parametrize(
+    ("record", "error"),
+    [
+        ("@read\\nACGT\\n+\\nIII\\n", "quality lengths differ"),
+        ("@read\\nACGT\\n+\\nIIIII\\n", "quality lengths differ"),
+        ("@read\\nACGT\\n+\\n", "quality lengths differ"),
+        ("@read\\nACGT\\n-\\nIIII\\n", "malformed FASTQ"),
+        ("@read\\nACGT\\n+\\nIIII\\nnot-a-header\\nTGCA\\n+\\nIIII\\n",
+         "malformed FASTQ"),
+    ],
+)
+def test_fastq_parser_rejects_malformed_records(tmp_path: Path, record: str, error: str) -> None:
+    path = tmp_path / "invalid.fastq"
+    path.write_text(record.replace("\\n", "\n"), encoding="utf-8")
+    with pytest.raises(ValueError, match=error):
+        read_sequences(path)
