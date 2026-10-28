@@ -11,6 +11,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import cast
@@ -232,6 +234,23 @@ def recover_wetlab_reads(
         raise ValueError("wet-lab bundle manifest has an invalid source SHA-256")
     if frozen_sha256 != str(archive.metadata["sha256"]):
         raise ValueError("wet-lab bundle manifest and archive SHA-256 disagree")
+    output = Path(output_path)
+    # Avoid replacing the raw reads or the immutable evidence required to
+    # independently audit and reproduce a physical-pilot recovery.
+    protected = (
+        Path(reads_path),
+        bundle / "archive.json",
+        manifest_path,
+        bundle / "oligos.fasta",
+        bundle / "oligos.csv",
+        bundle / "recovery-report.json",
+    )
+    if any(
+        output.resolve() == item.resolve()
+        or (output.exists() and item.exists() and output.samefile(item))
+        for item in protected
+    ):
+        raise ValueError("wet-lab recovery output must be distinct from evidence inputs")
     reads = read_sequences(reads_path)
     if not reads:
         raise ValueError("sequencing input contains no reads")
@@ -246,14 +265,9 @@ def recover_wetlab_reads(
         similarity_threshold=similarity_threshold,
         reconstructor=reconstructor,
     )
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(recovered)
-
     expected = str(archive.metadata["sha256"])
     actual = _sha256(recovered)
-    verified = actual == expected
-    if not verified:
+    if actual != expected:
         raise ValueError("wet-lab recovery output failed SHA-256 verification")
 
     summary = WetLabRecoverySummary(
@@ -266,6 +280,18 @@ def recover_wetlab_reads(
         consensus_reads=report.consensus_reads,
         claim_status="archive-recovery-sha256-verified",
     )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".part", dir=output.parent
+    )
+    os.close(fd)
+    temporary_output = Path(temporary_name)
+    try:
+        temporary_output.write_bytes(recovered)
+        os.replace(temporary_output, output)
+    finally:
+        temporary_output.unlink(missing_ok=True)
+
     (bundle / "recovery-report.json").write_text(
         json.dumps(summary.to_dict(), indent=2, sort_keys=True),
         encoding="utf-8",

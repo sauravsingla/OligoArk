@@ -114,21 +114,26 @@ def read_sequences(path: str | Path, *, max_sequences: int | None = None) -> lis
         handle.seek(0)
         if first.startswith(">"):
             current: list[str] = []
+            seen_header = False
             for line in handle:
                 line = line.strip()
                 if line.startswith(">"):
-                    if current:
-                        sequences.append("".join(current).upper())
-                        current = []
+                    if seen_header:
+                        sequence = "".join(current)
+                        if not sequence:
+                            raise ValueError("FASTA input contains an empty sequence record")
+                        sequences.append(sequence.upper())
                         if max_sequences is not None and len(sequences) >= max_sequences:
                             break
-                    continue
-                current.append(line)
-            if (
-                current
-                and (max_sequences is None or len(sequences) < max_sequences)
-            ):
-                sequences.append("".join(current).upper())
+                    seen_header = True
+                    current = []
+                elif line:
+                    current.append(line)
+            if seen_header and (max_sequences is None or len(sequences) < max_sequences):
+                sequence = "".join(current)
+                if not sequence:
+                    raise ValueError("FASTA input contains an empty sequence record")
+                sequences.append(sequence.upper())
         elif first.startswith("@"):
             # Four-line FASTQ records require a valid header, separator, and
             # exactly one quality score per sequence base. Never silently

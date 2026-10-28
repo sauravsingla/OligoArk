@@ -73,3 +73,57 @@ def test_recovery_rejects_inconsistent_preorder_source_hash(tmp_path) -> None:
     with raises(ValueError, match="manifest and archive SHA-256 disagree"):
         recover_wetlab_reads(bundle, bundle / "oligos.fasta", tmp_path / "invalid.bin")
     assert not (tmp_path / "invalid.bin").exists()
+
+
+def test_failed_checksum_preserves_existing_recovery_output(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    import oligoark.wetlab as wetlab_module
+
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"physical pilot must protect prior recovery")
+    bundle = tmp_path / "bundle"
+    prepare_wetlab_bundle(source, bundle)
+
+    output = tmp_path / "verified.bin"
+    output.write_bytes(b"previously verified recovery")
+
+    def corrupt_recovery(*_args, **_kwargs):
+        return b"corrupt reconstruction", object()
+
+    monkeypatch.setattr(wetlab_module, "recover_from_reads", corrupt_recovery)
+    with pytest.raises(ValueError, match="failed SHA-256 verification"):
+        recover_wetlab_reads(bundle, bundle / "oligos.fasta", output)
+    assert output.read_bytes() == b"previously verified recovery"
+    assert not list(tmp_path.glob(".verified.bin.*.part"))
+    assert not (bundle / "recovery-report.json").exists()
+
+
+def test_wetlab_output_must_not_destroy_sequence_input(tmp_path) -> None:
+    import pytest
+
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"preserve sequencing evidence")
+    bundle = tmp_path / "bundle"
+    prepare_wetlab_bundle(source, bundle)
+    reads_path = bundle / "oligos.fasta"
+    original_reads = reads_path.read_bytes()
+
+    with pytest.raises(ValueError, match="distinct from evidence inputs"):
+        recover_wetlab_reads(bundle, reads_path, reads_path)
+    assert reads_path.read_bytes() == original_reads
+    assert not list(bundle.glob(".oligos.fasta.*.part"))
+
+
+def test_successful_wetlab_recovery_replaces_prior_output(tmp_path) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"successful archive recovery" * 2)
+    bundle = tmp_path / "bundle"
+    prepare_wetlab_bundle(source, bundle)
+    output = tmp_path / "recovered.bin"
+    output.write_bytes(b"outdated content")
+
+    result = recover_wetlab_reads(bundle, bundle / "oligos.fasta", output)
+    assert result.verified_sha256
+    assert output.read_bytes() == source.read_bytes()
+    assert not list(tmp_path.glob(".recovered.bin.*.part"))

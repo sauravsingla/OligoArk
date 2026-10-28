@@ -82,3 +82,25 @@ def test_fastq_parser_rejects_malformed_records(tmp_path: Path, record: str, err
     path.write_text(record.replace("\\n", "\n"), encoding="utf-8")
     with pytest.raises(ValueError, match=error):
         read_sequences(path)
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        ">empty\n>present\nACGT\n",
+        ">present\nACGT\n>empty\n",
+        ">empty\n\n",
+    ],
+)
+def test_fasta_parser_rejects_empty_records(tmp_path: Path, contents: str) -> None:
+    path = tmp_path / "empty.fasta"
+    path.write_text(contents, encoding="utf-8")
+    with pytest.raises(ValueError, match="empty sequence record"):
+        read_sequences(path)
+
+
+def test_fasta_parser_preserves_multiline_sequences_and_limits(tmp_path: Path) -> None:
+    path = tmp_path / "valid.fasta"
+    path.write_text(">first\nAC\nGT\n>second\nTGCA\n", encoding="utf-8")
+    assert read_sequences(path) == ["ACGT", "TGCA"]
+    assert read_sequences(path, max_sequences=1) == ["ACGT"]
