@@ -232,63 +232,75 @@ def archive_file_streaming(
         "note": "software archive container; no wet-lab performance is implied",
     }
     metadata_bytes = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+    if len(metadata_bytes) > _MAX_METADATA_BYTES:
+        raise ValueError("streaming metadata exceeds maximum allowed length")
     reference = SequenceConstraints()
     sampled = passed = 0
     destination_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with destination_path.open("wb") as output, source_path.open("rb") as input_handle:
-        output.write(_HEADER.pack(_MAGIC, len(metadata_bytes)))
-        output.write(metadata_bytes)
-        group: list[bytes] = []
-        for index in range(data_count):
-            payload = input_handle.read(resolved.chunk_size) if size else b""
-            packed = _encode(payload, index=index, total=data_count, config=resolved)
-            if sampled < _QUALITY_SAMPLE:
-                sampled += 1
-                passed += int(reference.accepts(bytes_to_dna(packed)))
-            _write_record(output, packed)
-            group.append(payload)
-            finished = len(group) == resolved.parity_group_size or index == data_count - 1
-            if finished and resolved.redundancy_scheme in {"xor", "hybrid"}:
-                parity_payload = xor_bytes(group, resolved.chunk_size)
-                parity_packed = _encode(
-                    parity_payload,
-                    index=index // resolved.parity_group_size,
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination_path.name}.", suffix=".part", dir=destination_path.parent
+    )
+    os.close(fd)
+    temporary_destination = Path(temporary_name)
+    try:
+        with temporary_destination.open("wb") as output, source_path.open("rb") as input_handle:
+            output.write(_HEADER.pack(_MAGIC, len(metadata_bytes)))
+            output.write(metadata_bytes)
+            group: list[bytes] = []
+            for index in range(data_count):
+                payload = input_handle.read(resolved.chunk_size) if size else b""
+                packed = _encode(payload, index=index, total=data_count, config=resolved)
+                if sampled < _QUALITY_SAMPLE:
+                    sampled += 1
+                    passed += int(reference.accepts(bytes_to_dna(packed)))
+                _write_record(output, packed)
+                group.append(payload)
+                finished = len(group) == resolved.parity_group_size or index == data_count - 1
+                if finished and resolved.redundancy_scheme in {"xor", "hybrid"}:
+                    parity_payload = xor_bytes(group, resolved.chunk_size)
+                    parity_packed = _encode(
+                        parity_payload,
+                        index=index // resolved.parity_group_size,
+                        total=data_count,
+                        config=resolved,
+                        parity=True,
+                    )
+                    if sampled < _QUALITY_SAMPLE:
+                        sampled += 1
+                        passed += int(reference.accepts(bytes_to_dna(parity_packed)))
+                    _write_record(output, parity_packed)
+                if finished:
+                    group.clear()
+
+            for offset in range(fountain_count):
+                seed = resolved.fountain_seed + offset
+                indexes = indexes_for_seed(
+                    data_count,
+                    seed,
+                    max_degree=resolved.fountain_max_degree,
+                    layout=resolved.fountain_layout,
+                    first_seed=resolved.fountain_seed,
+                )
+                parts: list[bytes] = []
+                for source_index in indexes:
+                    input_handle.seek(source_index * resolved.chunk_size)
+                    parts.append(input_handle.read(resolved.chunk_size))
+                packed = _encode(
+                    xor_bytes(parts, resolved.chunk_size),
+                    index=seed,
                     total=data_count,
                     config=resolved,
-                    parity=True,
+                    fountain=True,
                 )
                 if sampled < _QUALITY_SAMPLE:
                     sampled += 1
-                    passed += int(reference.accepts(bytes_to_dna(parity_packed)))
-                _write_record(output, parity_packed)
-            if finished:
-                group.clear()
+                    passed += int(reference.accepts(bytes_to_dna(packed)))
+                _write_record(output, packed)
 
-        for offset in range(fountain_count):
-            seed = resolved.fountain_seed + offset
-            indexes = indexes_for_seed(
-                data_count,
-                seed,
-                max_degree=resolved.fountain_max_degree,
-                layout=resolved.fountain_layout,
-                first_seed=resolved.fountain_seed,
-            )
-            parts: list[bytes] = []
-            for source_index in indexes:
-                input_handle.seek(source_index * resolved.chunk_size)
-                parts.append(input_handle.read(resolved.chunk_size))
-            packed = _encode(
-                xor_bytes(parts, resolved.chunk_size),
-                index=seed,
-                total=data_count,
-                config=resolved,
-                fountain=True,
-            )
-            if sampled < _QUALITY_SAMPLE:
-                sampled += 1
-                passed += int(reference.accepts(bytes_to_dna(packed)))
-            _write_record(output, packed)
+        os.replace(temporary_destination, destination_path)
+    finally:
+        temporary_destination.unlink(missing_ok=True)
 
     archive_size = destination_path.stat().st_size
     strands = data_count + parity_count + fountain_count

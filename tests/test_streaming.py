@@ -500,3 +500,28 @@ def test_streaming_rejects_impossible_claimed_original_size(tmp_path) -> None:
     with pytest.raises(ValueError, match="invalid streaming strand counts"):
         recover_file_streaming(archive, tmp_path / "output.bin")
     assert not (tmp_path / "output.bin").exists()
+
+
+@pytest.mark.parametrize("destination_exists", [False, True])
+def test_failed_streaming_encode_preserves_destination(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, destination_exists: bool
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(os.urandom(1024))
+    archive = tmp_path / "archive.oab"
+    original = b"previously valid archive"
+    if destination_exists:
+        archive.write_bytes(original)
+
+    def fail_encode(*_args: object, **_kwargs: object) -> bytes:
+        raise RuntimeError("simulated encoding failure")
+
+    monkeypatch.setattr("oligoark.streaming._encode", fail_encode)
+    with pytest.raises(RuntimeError, match="simulated encoding failure"):
+        archive_file_streaming(source, archive, _scale_config("none"))
+
+    if destination_exists:
+        assert archive.read_bytes() == original
+    else:
+        assert not archive.exists()
+    assert not list(tmp_path.glob(".archive.oab.*.part"))
