@@ -32,7 +32,7 @@ jobs:
 
       - name: Cache DNAformer Pilot dataset
         id: pilot-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .external/BinnedPilotIllumina.txt
           key: dnaformer-pilot-illumina-02b16f63adf5ac85e302c151eaa8ad48
@@ -67,7 +67,7 @@ jobs:
           rustup default 1.85.1
 
       - name: Cache BBS build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
