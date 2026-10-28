@@ -515,7 +515,11 @@ def recover_file_streaming(
             records = int(cast(int, metadata["strand_count"]))
             size = int(cast(int, metadata["original_size"]))
             expected = str(metadata["sha256"])
-            if size < 0 or records > source.stat().st_size // 5:
+            if (
+                size < 0
+                or size > total * config.chunk_size
+                or records > source.stat().st_size // 5
+            ):
                 raise ValueError("invalid streaming strand counts or original size")
             data_count, parity_count, fountain_count = _counts(size, config)
             if (
