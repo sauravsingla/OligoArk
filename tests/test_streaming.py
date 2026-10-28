@@ -525,3 +525,27 @@ def test_failed_streaming_encode_preserves_destination(
     else:
         assert not archive.exists()
     assert not list(tmp_path.glob(".archive.oab.*.part"))
+
+
+@pytest.mark.parametrize("field", ["data_strands", "parity_strands", "strand_count"])
+def test_streaming_rejects_inconsistent_metadata_strand_counts(tmp_path, field: str) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(os.urandom(4096))
+    archive = tmp_path / "archive.oab"
+    output = tmp_path / "existing.bin"
+    output.write_bytes(b"keep verified output")
+    archive_file_streaming(source, archive, _scale_config("xor"))
+
+    contents = archive.read_bytes()
+    length = int.from_bytes(contents[4:8], "big")
+    metadata = json.loads(contents[8 : 8 + length])
+    metadata[field] += 1
+    updated = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+    archive.write_bytes(
+        contents[:4] + len(updated).to_bytes(4, "big") + updated + contents[8 + length :]
+    )
+
+    with pytest.raises(ValueError, match="strand counts disagree"):
+        recover_file_streaming(archive, output)
+    assert output.read_bytes() == b"keep verified output"
+    assert not list(tmp_path.glob(".existing.bin.*.part"))

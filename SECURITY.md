@@ -15,7 +15,7 @@ Please use GitHub private vulnerability reporting when it is enabled for the rep
 ## Current hardening boundaries
 
 - `DNAArchive` validates archive format, metadata types, strand alphabet, declared counts, and checksum metadata, but the library intentionally does not impose a universal file-size limit.
-- The reference FastAPI service enforces `OLIGOARK_MAX_API_PAYLOAD_BYTES` on decoded input and serialized archive requests; deployments should also enforce reverse-proxy/body limits.
+- The reference FastAPI service enforces `OLIGOARK_MAX_API_PAYLOAD_BYTES` on encoded and decoded input and serialized archive requests; oversized base64 strings are rejected before decoding. Deployments should also enforce reverse-proxy/body limits.
 - Optimizer full-grid search, graph construction, iterative global alignment, high `copies_per_strand` coverage, physical-read assignment, and publication experiments can be computationally expensive on adversarial or very large inputs. Q-gram indexing reduces unrelated graph comparisons, but production deployments still need quotas, timeouts, concurrency controls, file-size limits, and rate limiting.
 - The reference API has no authentication or authorization and is intended for local/research deployment unless placed behind an authenticated gateway.
 - Reconstruction endpoints cap requests at 1,024 reads, 4,096 nucleotides per read, and the configured aggregate read-byte budget; optimizer seed lists are bounded. These application checks do not replace HTTP body limits, CPU quotas, or request deadlines.

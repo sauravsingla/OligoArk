@@ -181,6 +181,9 @@ def _archive_from_mapping(value: dict[str, object]) -> DNAArchive:
 
 
 def _decode_payload(data_b64: str) -> bytes:
+    max_encoded_length = 4 * ((RUNTIME_CONFIG.max_api_payload_bytes + 2) // 3)
+    if len(data_b64) > max_encoded_length:
+        raise ValueError("Encoded input exceeds configured API payload limit")
     raw = base64.b64decode(data_b64, validate=True)
     if len(raw) > RUNTIME_CONFIG.max_api_payload_bytes:
         raise ValueError("Decoded input exceeds configured API payload limit")

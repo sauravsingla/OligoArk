@@ -177,3 +177,22 @@ def test_optimizer_api_limits_seed_lists() -> None:
         },
     )
     assert response.status_code == 422
+
+
+def test_oversized_base64_is_rejected_before_decoding(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    import oligoark.api as api_module
+
+    monkeypatch.setattr(
+        api_module, "RUNTIME_CONFIG", SimpleNamespace(max_api_payload_bytes=8)
+    )
+
+    def reject_decoder(*_args: object, **_kwargs: object) -> bytes:
+        raise AssertionError("oversized input reached base64 decoder")
+
+    monkeypatch.setattr(api_module.base64, "b64decode", reject_decoder)
+    with pytest.raises(ValueError, match="Encoded input exceeds"):
+        api_module._decode_payload("A" * 13)
