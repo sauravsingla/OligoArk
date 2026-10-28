@@ -2,6 +2,24 @@
 
 OligoArk provides continuity, smoke, controlled-reconstruction, held-out learning, and publication-scale experiment paths. Every result is a measured software result or a software-channel simulation unless a physical dataset is explicitly named.
 
+## CI artifact provenance and verification
+
+Each successful CI quality job uploads a `oligoark-research-results` artifact containing
+the benchmark outputs, `ci-environment.txt` with installed dependencies, and
+`ci-artifact-manifest.json` listing the exact GitHub commit, Python version,
+platform, file sizes and SHA-256 hashes. Verify downloaded file hashes against
+the manifest before comparing or citing any results. This evidence covers
+software benchmarks only, **not** physical DNA synthesis or sequencing.
+
+After running the documented smoke benchmark commands, reproduce the manifest with:
+
+```bash
+python -m pip freeze > ci-environment.txt
+python benchmarks/write_ci_artifact_manifest.py --output ci-artifact-manifest.json \
+  benchmark-results experiment-results learning-results \
+  graph-rescue-results.json verified-demo-results.json ci-environment.txt
+```
+
 ## Continuity benchmark
 
 ```bash
