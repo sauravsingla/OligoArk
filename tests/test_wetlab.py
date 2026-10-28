@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from oligoark.wetlab import prepare_wetlab_bundle, recover_wetlab_reads
 
 
@@ -127,3 +129,44 @@ def test_successful_wetlab_recovery_replaces_prior_output(tmp_path) -> None:
     assert result.verified_sha256
     assert output.read_bytes() == source.read_bytes()
     assert not list(tmp_path.glob(".recovered.bin.*.part"))
+
+
+@pytest.mark.parametrize(
+    "generated_name",
+    ("archive.json", "oligos.fasta", "oligos.csv", "manifest.json"),
+)
+def test_prepare_rejects_source_matching_generated_file(tmp_path, generated_name: str) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    source = bundle / generated_name
+    payload = b"original payload must survive unchanged"
+    source.write_bytes(payload)
+    with pytest.raises(ValueError, match="must not alias the source"):
+        prepare_wetlab_bundle(source, bundle)
+    assert source.read_bytes() == payload
+    assert {item.name for item in bundle.iterdir()} == {generated_name}
+
+
+def test_prepare_rejects_hardlink_source_alias(tmp_path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    source = tmp_path / "original.bin"
+    source.write_bytes(b"hardlinked research input must survive")
+    (bundle / "oligos.csv").hardlink_to(source)
+    with pytest.raises(ValueError, match="must not alias the source"):
+        prepare_wetlab_bundle(source, bundle)
+    assert source.read_bytes() == b"hardlinked research input must survive"
+
+
+def test_prepare_rejects_symlinked_output_and_preserves_external_file(tmp_path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    source = tmp_path / "original.bin"
+    source.write_bytes(b"valid research input")
+    external = tmp_path / "external-record.txt"
+    external.write_text("important unrelated data", encoding="utf-8")
+    (bundle / "archive.json").symlink_to(external)
+    with pytest.raises(ValueError, match="be symlinks"):
+        prepare_wetlab_bundle(source, bundle)
+    assert external.read_text(encoding="utf-8") == "important unrelated data"
+    assert not (bundle / "manifest.json").exists()

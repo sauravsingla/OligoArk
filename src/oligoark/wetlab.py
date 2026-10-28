@@ -129,6 +129,18 @@ def prepare_wetlab_bundle(
     """Create synthesis-ready core oligos plus all metadata required for recovery."""
     source = Path(source_path)
     output = Path(output_dir)
+    generated_paths = tuple(
+        output / name for name in ("archive.json", "oligos.fasta", "oligos.csv", "manifest.json")
+    )
+    # Do not overwrite the source (including hard-link aliases), or follow an
+    # existing symlink outside the bundle when creating laboratory evidence.
+    if any(
+        destination.is_symlink()
+        or source.resolve() == destination.resolve()
+        or (source.exists() and destination.exists() and source.samefile(destination))
+        for destination in generated_paths
+    ):
+        raise ValueError("wet-lab bundle outputs must not alias the source or be symlinks")
     output.mkdir(parents=True, exist_ok=True)
     payload = source.read_bytes()
 
