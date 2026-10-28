@@ -420,3 +420,65 @@ def test_v3_archive_recovers_sparse_single_indels_without_bruteforce_scan() -> N
         changed += 1
     assert changed == damaged
     assert recover_bytes(archive, reads) == payload
+@pytest.mark.parametrize("alias_kind", ["same", "symlink", "hardlink"])
+def test_streaming_encode_never_overwrites_its_input(tmp_path, alias_kind: str) -> None:
+    source = tmp_path / "payload.bin"
+    payload = os.urandom(256)
+    source.write_bytes(payload)
+    destination = source
+    if alias_kind != "same":
+        destination = tmp_path / "alias.bin"
+        if alias_kind == "symlink":
+            destination.symlink_to(source)
+        else:
+            os.link(source, destination)
+
+    with pytest.raises(ValueError, match="distinct files"):
+        archive_file_streaming(source, destination, _scale_config("none"))
+    assert source.read_bytes() == payload
+
+
+@pytest.mark.parametrize("alias_kind", ["same", "symlink", "hardlink"])
+def test_streaming_recover_never_overwrites_its_archive(tmp_path, alias_kind: str) -> None:
+    source = tmp_path / "payload.bin"
+    source.write_bytes(b"immutable source archive" * 10)
+    archive = tmp_path / "archive.oab"
+    archive_file_streaming(source, archive, _scale_config("none"))
+    original_archive = archive.read_bytes()
+    destination = archive
+    if alias_kind != "same":
+        destination = tmp_path / "alias.oab"
+        if alias_kind == "symlink":
+            destination.symlink_to(archive)
+        else:
+            os.link(archive, destination)
+
+    with pytest.raises(ValueError, match="distinct files"):
+        recover_file_streaming(archive, destination)
+    assert archive.read_bytes() == original_archive
+
+
+def test_failed_strict_recovery_keeps_existing_output(tmp_path) -> None:
+    source = tmp_path / "payload.bin"
+    source.write_bytes(os.urandom(4096))
+    archive = tmp_path / "archive.oab"
+    output = tmp_path / "existing.bin"
+    output.write_bytes(b"do not replace me")
+    archive_file_streaming(source, archive, _scale_config("none"))
+
+    with pytest.raises(ValueError, match="SHA-256"):
+        recover_file_streaming(
+            archive,
+            output,
+            fault=StreamingFaultProfile(dropout_rate=0.125, seed=2026),
+        )
+    assert output.read_bytes() == b"do not replace me"
+    assert not list(tmp_path.glob(".existing.bin.*.part"))
+
+
+def test_streaming_rejects_oversized_metadata_before_allocation(tmp_path) -> None:
+    archive = tmp_path / "malicious.oab"
+    archive.write_bytes(b"OAB2" + (1024 * 1024 + 1).to_bytes(4, "big"))
+    with pytest.raises(ValueError, match="metadata exceeds"):
+        recover_file_streaming(archive, tmp_path / "output.bin")
+    assert not (tmp_path / "output.bin").exists()

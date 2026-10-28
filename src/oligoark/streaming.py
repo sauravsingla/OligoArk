@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import random
 import struct
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import BinaryIO, cast
@@ -29,6 +31,15 @@ _HEADER = struct.Struct(">4sI")
 _RECORD = struct.Struct(">I")
 _HASH_BLOCK = 8 * 1024 * 1024
 _QUALITY_SAMPLE = 10_000
+_MAX_METADATA_BYTES = 1024 * 1024
+
+
+def _ensure_distinct_files(source: Path, destination: Path) -> None:
+    """Prevent destructive in-place operations, including hard links and symlinks."""
+    if source.resolve() == destination.resolve() or (
+        source.exists() and destination.exists() and source.samefile(destination)
+    ):
+        raise ValueError("Source and destination must be distinct files")
 
 
 @dataclass(frozen=True)
@@ -137,13 +148,15 @@ def _write_record(handle: BinaryIO, packed: bytes) -> None:
     handle.write(packed)
 
 
-def _read_record(handle: BinaryIO) -> bytes | None:
+def _read_record(handle: BinaryIO, *, max_length: int | None = None) -> bytes | None:
     raw = handle.read(_RECORD.size)
     if not raw:
         return None
     if len(raw) != _RECORD.size:
         raise ValueError("truncated streaming record header")
     (length,) = _RECORD.unpack(raw)
+    if max_length is not None and length > max_length:
+        raise ValueError("streaming record exceeds configured maximum frame length")
     packed = handle.read(length)
     if len(packed) != length:
         raise ValueError("truncated streaming record")
@@ -184,6 +197,7 @@ def archive_file_streaming(
     resolved = config or ArchiveConfig()
     resolved.validate()
     source_path, destination_path = Path(source), Path(destination)
+    _ensure_distinct_files(source_path, destination_path)
     size, sha256 = _digest(source_path)
     data_count, parity_count, fountain_count = _counts(size, resolved)
     if resolved.compact_framing:
@@ -302,7 +316,12 @@ def _metadata(handle: BinaryIO) -> dict[str, object]:
     magic, length = _HEADER.unpack(raw)
     if magic != _MAGIC:
         raise ValueError("not an oligoark-stream-v2 archive")
-    value = json.loads(handle.read(length))
+    if length > _MAX_METADATA_BYTES:
+        raise ValueError("streaming metadata exceeds maximum allowed length")
+    metadata_bytes = handle.read(length)
+    if len(metadata_bytes) != length:
+        raise ValueError("truncated streaming metadata")
+    value = json.loads(metadata_bytes)
     if not isinstance(value, dict) or value.get("format") != "oligoark-stream-v2":
         raise ValueError("invalid streaming metadata")
     return cast(dict[str, object], value)
@@ -464,159 +483,177 @@ def recover_file_streaming(
     resolved_fault = fault or StreamingFaultProfile()
     resolved_fault.validate()
     source, destination = Path(archive_path), Path(output_path)
+    _ensure_distinct_files(source, destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     dropped = undecodable = xor_recovered = fountain_recovered = indel_repaired = 0
 
-    with source.open("rb") as archive_handle:
-        metadata = _metadata(archive_handle)
-        config_obj = metadata.get("config")
-        if not isinstance(config_obj, dict):
-            raise ValueError("streaming config metadata must be an object")
-        config = ArchiveConfig.from_mapping(cast(dict[str, object], config_obj))
-        total = int(cast(int, metadata["data_strands"]))
-        records = int(cast(int, metadata["strand_count"]))
-        size = int(cast(int, metadata["original_size"]))
-        expected = str(metadata["sha256"])
-        known = bytearray(total)
-        known_count = 0
-        fountain_start: int | None = None
-        fountain_records = int(cast(int, metadata.get("fountain_strands", 0)))
-        fountain_ordinal_start = records - fountain_records
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".part", dir=destination.parent
+    )
+    os.close(fd)
+    temporary_destination = Path(temporary_name)
+    try:
+        with source.open("rb") as archive_handle:
+            metadata = _metadata(archive_handle)
+            config_obj = metadata.get("config")
+            if not isinstance(config_obj, dict):
+                raise ValueError("streaming config metadata must be an object")
+            config = ArchiveConfig.from_mapping(cast(dict[str, object], config_obj))
+            total = int(cast(int, metadata["data_strands"]))
+            records = int(cast(int, metadata["strand_count"]))
+            size = int(cast(int, metadata["original_size"]))
+            expected = str(metadata["sha256"])
+            if not 0 < total <= records or size < 0 or records > source.stat().st_size // 5:
+                raise ValueError("invalid streaming strand counts or original size")
+            max_record_length = frame_overhead_bytes(
+                config.rs_nsym,
+                compact_framing=config.compact_framing,
+                compact_index_bytes=config.compact_index_bytes,
+                inline_mask_framing=config.inline_mask_framing,
+            ) + config.chunk_size
+            known = bytearray(total)
+            known_count = 0
+            fountain_start: int | None = None
+            fountain_records = int(cast(int, metadata.get("fountain_strands", 0)))
+            fountain_ordinal_start = records - fountain_records
 
-        with destination.open("wb+") as output:
-            output.truncate(size)
-            for ordinal in range(records):
-                record_start = archive_handle.tell()
-                if fountain_records and ordinal == fountain_ordinal_start:
-                    fountain_start = record_start
-                packed = _read_record(archive_handle)
-                if packed is None:
-                    raise ValueError("archive ended before declared strand count")
-                frame, was_dropped, was_bad, was_indel_repaired = _decode(
-                    packed,
-                    config,
-                    resolved_fault,
-                    ordinal,
-                    total,
-                )
-                dropped += int(was_dropped)
-                undecodable += int(was_bad)
-                indel_repaired += int(was_indel_repaired)
-                if frame is None or frame.total_data != total:
-                    continue
-                if frame.is_parity:
-                    # XOR parity records are emitted directly after their data group. Recover
-                    # the group's one controlled erasure immediately instead of retaining all
-                    # parity payloads in memory.
-                    start = frame.index * config.parity_group_size
-                    end = min(start + config.parity_group_size, total)
-                    missing_indexes = [
-                        index for index in range(start, end) if not known[index]
-                    ]
-                    if len(missing_indexes) == 1:
-                        parts = [frame.payload] + [
-                            _read_chunk(output, index, config.chunk_size)
-                            for index in range(start, end)
-                            if known[index]
-                        ]
-                        payload = xor_bytes(parts, config.chunk_size)
-                        if _write_chunk(
-                            output,
-                            known,
-                            missing_indexes[0],
-                            payload,
-                            config.chunk_size,
-                        ):
-                            known_count += 1
-                            xor_recovered += 1
-                elif frame.is_fountain:
-                    # Fountain state stays on disk; opportunistically peel degree-one
-                    # equations during the initial pass.
-                    if known_count != total and _recover_fountain_frame(
-                        frame,
-                        output,
-                        known,
-                        total,
-                        config,
-                    ):
-                        known_count += 1
-                        fountain_recovered += 1
-                else:
-                    if _write_chunk(
-                        output,
-                        known,
-                        frame.index,
-                        frame.payload,
-                        config.chunk_size,
-                    ):
-                        known_count += 1
-
-            # If peeling stalled during the initial pass, rescan only the on-disk fountain
-            # records. This trades extra sequential I/O for bounded memory instead of retaining
-            # every unresolved fountain payload in a Python list.
-            changed = True
-            while (
-                changed
-                and fountain_start is not None
-                and fountain_records > 0
-                and known_count != total
-            ):
-                changed = False
-                archive_handle.seek(fountain_start)
-                for offset in range(fountain_records):
-                    packed = _read_record(archive_handle)
+            with temporary_destination.open("wb+") as output:
+                output.truncate(size)
+                for ordinal in range(records):
+                    record_start = archive_handle.tell()
+                    if fountain_records and ordinal == fountain_ordinal_start:
+                        fountain_start = record_start
+                    packed = _read_record(archive_handle, max_length=max_record_length)
                     if packed is None:
-                        raise ValueError("archive ended inside fountain records")
-                    frame, _, _, _ = _decode(
+                        raise ValueError("archive ended before declared strand count")
+                    frame, was_dropped, was_bad, was_indel_repaired = _decode(
                         packed,
                         config,
                         resolved_fault,
-                        fountain_ordinal_start + offset,
+                        ordinal,
                         total,
                     )
-                    if (
-                        frame is not None
-                        and frame.is_fountain
-                        and frame.total_data == total
-                        and _recover_fountain_frame(
+                    dropped += int(was_dropped)
+                    undecodable += int(was_bad)
+                    indel_repaired += int(was_indel_repaired)
+                    if frame is None or frame.total_data != total:
+                        continue
+                    if frame.is_parity:
+                        # XOR parity records are emitted directly after their data group. Recover
+                        # the group's one controlled erasure immediately instead of retaining all
+                        # parity payloads in memory.
+                        start = frame.index * config.parity_group_size
+                        end = min(start + config.parity_group_size, total)
+                        missing_indexes = [
+                            index for index in range(start, end) if not known[index]
+                        ]
+                        if len(missing_indexes) == 1:
+                            parts = [frame.payload] + [
+                                _read_chunk(output, index, config.chunk_size)
+                                for index in range(start, end)
+                                if known[index]
+                            ]
+                            payload = xor_bytes(parts, config.chunk_size)
+                            if _write_chunk(
+                                output,
+                                known,
+                                missing_indexes[0],
+                                payload,
+                                config.chunk_size,
+                            ):
+                                known_count += 1
+                                xor_recovered += 1
+                    elif frame.is_fountain:
+                        # Fountain state stays on disk; opportunistically peel degree-one
+                        # equations during the initial pass.
+                        if known_count != total and _recover_fountain_frame(
                             frame,
                             output,
                             known,
                             total,
                             config,
-                        )
-                    ):
-                        known_count += 1
-                        fountain_recovered += 1
-                        changed = True
-            # Redundancy payloads are padded to chunk width. If the final short chunk was
-            # reconstructed, trim any padded tail before hashing the recovered file.
-            output.truncate(size)
-            output.flush()
+                        ):
+                            known_count += 1
+                            fountain_recovered += 1
+                    else:
+                        if _write_chunk(
+                            output,
+                            known,
+                            frame.index,
+                            frame.payload,
+                            config.chunk_size,
+                        ):
+                            known_count += 1
 
-    recovered = known_count
-    missing = total - recovered
-    actual: str | None = None
-    if missing == 0:
-        _, actual = _digest(destination)
-    verified = missing == 0 and actual == expected
-    report = StreamingRecoveryReport(
-        source_bytes=size,
-        expected_sha256=expected,
-        output_sha256=actual,
-        verified_sha256=verified,
-        total_data_strands=total,
-        recovered_data_strands=recovered,
-        missing_data_strands=missing,
-        dropped_records=dropped,
-        undecodable_records=undecodable,
-        xor_recovered_strands=xor_recovered,
-        fountain_recovered_strands=fountain_recovered,
-        indel_repaired_records=indel_repaired,
-    )
-    if strict and not verified:
-        raise ValueError(
-            "streaming recovery failed SHA-256 verification "
-            f"({missing} data strands missing)"
+                # If peeling stalled during the initial pass, rescan only the on-disk fountain
+                # records. This trades extra sequential I/O for bounded memory instead of retaining
+                # every unresolved fountain payload in a Python list.
+                changed = True
+                while (
+                    changed
+                    and fountain_start is not None
+                    and fountain_records > 0
+                    and known_count != total
+                ):
+                    changed = False
+                    archive_handle.seek(fountain_start)
+                    for offset in range(fountain_records):
+                        packed = _read_record(archive_handle, max_length=max_record_length)
+                        if packed is None:
+                            raise ValueError("archive ended inside fountain records")
+                        frame, _, _, _ = _decode(
+                            packed,
+                            config,
+                            resolved_fault,
+                            fountain_ordinal_start + offset,
+                            total,
+                        )
+                        if (
+                            frame is not None
+                            and frame.is_fountain
+                            and frame.total_data == total
+                            and _recover_fountain_frame(
+                                frame,
+                                output,
+                                known,
+                                total,
+                                config,
+                            )
+                        ):
+                            known_count += 1
+                            fountain_recovered += 1
+                            changed = True
+                # Redundancy payloads are padded to chunk width. If the final short chunk was
+                # reconstructed, trim any padded tail before hashing the recovered file.
+                output.truncate(size)
+                output.flush()
+
+        recovered = known_count
+        missing = total - recovered
+        actual: str | None = None
+        if missing == 0:
+            _, actual = _digest(temporary_destination)
+        verified = missing == 0 and actual == expected
+        report = StreamingRecoveryReport(
+            source_bytes=size,
+            expected_sha256=expected,
+            output_sha256=actual,
+            verified_sha256=verified,
+            total_data_strands=total,
+            recovered_data_strands=recovered,
+            missing_data_strands=missing,
+            dropped_records=dropped,
+            undecodable_records=undecodable,
+            xor_recovered_strands=xor_recovered,
+            fountain_recovered_strands=fountain_recovered,
+            indel_repaired_records=indel_repaired,
         )
-    return report
+        if strict and not verified:
+            raise ValueError(
+                "streaming recovery failed SHA-256 verification "
+                f"({missing} data strands missing)"
+            )
+        os.replace(temporary_destination, destination)
+        return report
+    finally:
+        temporary_destination.unlink(missing_ok=True)

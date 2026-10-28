@@ -47,6 +47,10 @@ jobs:
       - run: pip install -e ".[dev,api,bench]"
       - run: ruff check .
       - run: mypy src/oligoark
+      - name: Validate research citation metadata
+        run: |
+          python -m pip install "cffconvert>=2.0,<3.0"
+          cffconvert --validate
       - run: python -m build
       - run: python -m compileall -q src tests examples benchmarks
       - name: Run all examples

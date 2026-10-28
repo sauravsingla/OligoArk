@@ -152,3 +152,28 @@ def test_api_held_out_optimizer_and_reconstruction_diagnostics() -> None:
     assert result["direct_recovered"] is False
     assert result["alignment"]["verified_sha256"] is True
     assert result["alignment"]["node_count"] == len(reads)
+
+def test_reconstruction_api_rejects_excessive_reads() -> None:
+    archive = client.post(
+        "/encode",
+        json={"data_b64": base64.b64encode(b"small").decode("ascii")},
+    ).json()
+    for endpoint in ("/recover-reads", "/reconstruction-diagnostics"):
+        too_many = client.post(endpoint, json={"archive": archive, "reads": ["ACGT"] * 1025})
+        assert too_many.status_code == 400
+        assert "Too many reads" in too_many.json()["detail"]
+        too_long = client.post(endpoint, json={"archive": archive, "reads": ["A" * 4097]})
+        assert too_long.status_code == 400
+        assert "strand length" in too_long.json()["detail"]
+
+
+def test_optimizer_api_limits_seed_lists() -> None:
+    response = client.post(
+        "/optimize-plan",
+        json={
+            "data_b64": base64.b64encode(b"small").decode("ascii"),
+            "retention_years": 1,
+            "calibration_seeds": list(range(33)),
+        },
+    )
+    assert response.status_code == 422

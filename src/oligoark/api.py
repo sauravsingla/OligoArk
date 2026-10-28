@@ -35,6 +35,8 @@ from .validation import compare_reconstruction_modes
 RUNTIME_CONFIG = RuntimeConfig.from_environment()
 configure_logging(RUNTIME_CONFIG.log_level)
 app = FastAPI(title="OligoArk", version=__version__)
+MAX_RECONSTRUCTION_READS = 1024
+MAX_RECONSTRUCTION_STRAND_LENGTH = 4096
 
 
 class EncodeRequest(BaseModel):
@@ -145,9 +147,9 @@ class OptimizationWeightsRequest(BaseModel):
 
 class OptimizePlanRequest(PlanRequest):
     data_b64: str
-    seeds: list[int] | None = None
-    calibration_seeds: list[int] = Field(default_factory=lambda: [9401, 9402, 9403, 9404])
-    evaluation_seeds: list[int] | None = None
+    seeds: list[int] | None = Field(default=None, max_length=32)
+    calibration_seeds: list[int] = Field(default_factory=lambda: [9401, 9402, 9403, 9404], max_length=32)
+    evaluation_seeds: list[int] | None = Field(default=None, max_length=32)
     duplicate_rate: float = Field(default=0.0, ge=0, le=1)
     copies_per_strand: int = Field(default=1, ge=1, le=32)
     max_candidates: int = Field(default=24, ge=1, le=256)
@@ -157,6 +159,16 @@ class OptimizePlanRequest(PlanRequest):
         default_factory=lambda: ["direct", "graph", "trace"]
     )
     weights: OptimizationWeightsRequest | None = None
+
+
+def _validate_reconstruction_reads(reads: list[str]) -> None:
+    """Reject excessively expensive reference-API reconstruction requests."""
+    if len(reads) > MAX_RECONSTRUCTION_READS:
+        raise ValueError("Too many reads for the reference API")
+    if any(len(read) > MAX_RECONSTRUCTION_STRAND_LENGTH for read in reads):
+        raise ValueError("Read exceeds the reference API strand length limit")
+    if sum(len(read) for read in reads) > RUNTIME_CONFIG.max_api_payload_bytes:
+        raise ValueError("Combined reads exceed the configured API payload limit")
 
 
 def _archive_from_mapping(value: dict[str, object]) -> DNAArchive:
@@ -258,6 +270,7 @@ def recover(req: RecoverRequest) -> dict[str, str]:
 def recover_reads(req: RecoverReadsRequest) -> dict[str, object]:
     try:
         archive = _archive_from_mapping(req.archive)
+        _validate_reconstruction_reads(req.reads)
         if req.reconstruction_mode not in {"graph", "trace"}:
             raise ValueError("reconstruction_mode must be graph or trace")
         reconstructor = (
@@ -282,6 +295,7 @@ def recover_reads(req: RecoverReadsRequest) -> dict[str, object]:
 @app.post("/reconstruction-diagnostics")
 def reconstruction_diagnostics(req: ReconstructionDiagnosticsRequest) -> dict[str, object]:
     try:
+        _validate_reconstruction_reads(req.reads)
         return compare_reconstruction_modes(
             _archive_from_mapping(req.archive),
             req.reads,

@@ -20,7 +20,7 @@ OligoArk welcomes reproducible contributions from software engineers, students, 
 
 - **[DNA insertion/deletion recovery challenge](https://github.com/sauravsingla/OligoArk/issues/16)** — improve exact recovery under indel noise while keeping timeouts bounded.
 - **[Graph AI benchmark challenge](https://github.com/sauravsingla/OligoArk/issues/18)** — compare optional edge scorers against deterministic baselines on held-out data.
-- **[Good first issue: deterministic graph baseline fixture](https://github.com/sauravsingla/OligoArk/issues/43)** — a smaller starting task; no GPU or external data required.
+- **[Current open issues](https://github.com/sauravsingla/OligoArk/issues)** — select an open task before beginning; the deterministic graph baseline issue #43 has been completed.
 
 ### Your first contribution
 
