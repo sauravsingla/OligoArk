@@ -90,9 +90,10 @@ improvement is claimed without actual matched measurements.
 ## Batched indel-recovery redundancy scans
 
 The 10 MiB matched-codec research job reported **10/10 indel-low trials
-timed out** at a 75-second per-trial limit for the
-`oligoark-compact-v3-hybrid` method (workflow run `40949463159`,
-October 29, 2026). The workflow completed successfully because it preserves
+timed out** at a 75-second per-trial limit for both
+`oligoark-compact-v3-hybrid` and `oligoark-compact-hybrid`, and **10/10
+mixed-noise trials timed out** for `oligoark-compact-hybrid`
+(workflow run `40949463159`, October 29, 2026). The workflow completed successfully because it preserves
 scientific timeouts as explicit failed trials; a green workflow is **not** a
 claim of successful recovery for every condition.
 
