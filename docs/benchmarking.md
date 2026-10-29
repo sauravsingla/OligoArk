@@ -72,6 +72,21 @@ traced-allocation ratios. It does not establish matched hardware, statistical
 significance, archive-level SHA-256 recovery or process RSS. Review those
 conditions separately before making any performance claim.
 
+### Streamed graph candidate evaluation
+
+Graph construction now scores qualifying pairs as they are discovered, rather than
+materializing a second quadratic candidate-pair list. Exhaustive mode still
+counts all unordered input pairs, including pairs rejected by the length bound;
+prefiltered mode counts only pairs surviving both cheap bounds. Deterministic
+edge order, scoring, and component results are protected by randomized parity
+tests against the previous materialized implementation.
+
+The q-gram shared-count inverted index can still grow quadratically for highly
+repetitive reads; this change does **not** establish bounded-memory graph
+construction. Compare identical inputs and software environments using the
+graph memory profile and strict comparison tool above. No runtime or peak-RSS
+improvement is claimed without actual matched measurements.
+
 ## CI artifact provenance and verification
 
 Each successful CI quality job uploads a `oligoark-research-results` artifact containing
