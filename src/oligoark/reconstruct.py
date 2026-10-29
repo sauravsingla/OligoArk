@@ -235,18 +235,12 @@ def build_similarity_graph(
     nodes = tuple(reads)
     edges: list[GraphEdge] = []
 
-    # Stream all pairs into the q-gram filter instead of allocating an O(n^2)
-    # list before most unrelated reads are rejected. Candidate ordering is unchanged.
-    all_pairs = (
-        (left, right)
-        for left in range(len(nodes))
-        for right in range(left + 1, len(nodes))
-    )
+    # Build the shared q-gram evidence once. Do not retain a separate list of
+    # signatures: the inverted index is the only structure needed afterward.
     if use_qgram_prefilter:
-        signatures = [_qgram_counts(read, qgram_width) for read in nodes]
         postings: dict[str, list[tuple[int, int]]] = {}
-        for index, signature in enumerate(signatures):
-            for qgram, count in signature.items():
+        for index, read in enumerate(nodes):
+            for qgram, count in _qgram_counts(read, qgram_width).items():
                 postings.setdefault(qgram, []).append((index, count))
 
         shared_counts: dict[tuple[int, int], int] = {}
@@ -258,49 +252,43 @@ def build_similarity_graph(
                         shared_counts.get(pair, 0) + min(left_count, right_count)
                     )
 
-        candidate_pair_indexes: list[tuple[int, int]] = []
-        for left, right in all_pairs:
-            left_length = len(nodes[left])
+    # Score qualifying pairs immediately instead of retaining an O(n^2)
+    # candidate-pair list. Preserve deterministic left/right ordering and the
+    # exhaustive mode's historical candidate-count semantics.
+    candidate_pairs = 0 if use_qgram_prefilter else len(nodes) * (len(nodes) - 1) // 2
+    for left in range(len(nodes)):
+        left_length = len(nodes[left])
+        for right in range(left + 1, len(nodes)):
             right_length = len(nodes[right])
             max_length = max(1, left_length, right_length)
             length_similarity = 1.0 - abs(left_length - right_length) / max_length
             if length_similarity < threshold:
                 continue
-            if min(left_length, right_length) < qgram_width:
-                candidate_pair_indexes.append((left, right))
-                continue
-
-            max_edit_distance = math.floor(
-                (1.0 - threshold) * max_length + 1e-12
-            )
-            left_qgrams = left_length - qgram_width + 1
-            right_qgrams = right_length - qgram_width + 1
-            required_shared = math.ceil(
-                (
-                    left_qgrams
-                    + right_qgrams
-                    - 2 * qgram_width * max_edit_distance
+            if use_qgram_prefilter and min(left_length, right_length) >= qgram_width:
+                max_edit_distance = math.floor(
+                    (1.0 - threshold) * max_length + 1e-12
                 )
-                / 2
-            )
-            if required_shared <= 0 or shared_counts.get((left, right), 0) >= required_shared:
-                candidate_pair_indexes.append((left, right))
-    else:
-        # Keep the explicit exhaustive mode's historical counting behavior.
-        candidate_pair_indexes = list(all_pairs)
-
-    for left, right in candidate_pair_indexes:
-        max_length = max(1, len(nodes[left]), len(nodes[right]))
-        length_similarity = 1.0 - abs(len(nodes[left]) - len(nodes[right])) / max_length
-        if length_similarity < threshold:
-            continue
-        weight = resolved_scorer.score(nodes[left], nodes[right])
-        if weight >= threshold:
-            edges.append(GraphEdge(left, right, weight))
+                left_qgrams = left_length - qgram_width + 1
+                right_qgrams = right_length - qgram_width + 1
+                required_shared = math.ceil(
+                    (
+                        left_qgrams
+                        + right_qgrams
+                        - 2 * qgram_width * max_edit_distance
+                    )
+                    / 2
+                )
+                if required_shared > 0 and shared_counts.get((left, right), 0) < required_shared:
+                    continue
+            if use_qgram_prefilter:
+                candidate_pairs += 1
+            weight = resolved_scorer.score(nodes[left], nodes[right])
+            if weight >= threshold:
+                edges.append(GraphEdge(left, right, weight))
     return SimilarityGraph(
         nodes=nodes,
         edges=tuple(edges),
-        candidate_pairs=len(candidate_pair_indexes),
+        candidate_pairs=candidate_pairs,
     )
 
 
