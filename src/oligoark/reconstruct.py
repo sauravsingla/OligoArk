@@ -362,7 +362,7 @@ def _alignment_consensus_with_reference(cluster: list[str], reference: str) -> s
 
     base_votes = [Counter[str]() for _ in reference]
     insertion_votes = [Counter[str]() for _ in range(len(reference) + 1)]
-    for read in sorted(cluster):
+    for read, multiplicity in sorted(Counter(cluster).items()):
         aligned_reference, aligned_read = global_align(reference, read)
         per_read_insertions = [""] * (len(reference) + 1)
         reference_position = 0
@@ -375,10 +375,10 @@ def _alignment_consensus_with_reference(cluster: list[str], reference: str) -> s
                 if read_base != "-":
                     per_read_insertions[reference_position] += read_base
                 continue
-            base_votes[reference_position][read_base] += 1
+            base_votes[reference_position][read_base] += multiplicity
             reference_position += 1
         for slot, insertion in enumerate(per_read_insertions):
-            insertion_votes[slot][insertion] += 1
+            insertion_votes[slot][insertion] += multiplicity
 
     output: list[str] = []
     for position, preferred in enumerate(reference):
@@ -464,12 +464,16 @@ def _trace_candidate_score(
     *,
     target_length: int | None,
     length_penalty: float,
+    frequencies: Counter[str] | None = None,
 ) -> tuple[float, int, int, str]:
     """Score a candidate only from observed traces plus an optional known oligo length."""
     length_delta = (
         abs(len(candidate) - target_length) if target_length is not None else 0
     )
-    trace_distance = sum(edit_distance(candidate, read) for read in cluster)
+    weights = frequencies if frequencies is not None else Counter(cluster)
+    trace_distance = sum(
+        edit_distance(candidate, read) * count for read, count in weights.items()
+    )
     return (
         trace_distance + length_penalty * length_delta * len(cluster),
         length_delta,
@@ -548,6 +552,7 @@ def multistart_trace_consensus(
             )
             add_candidate(reversed_candidate[::-1])
 
+    frequencies = Counter(cluster)
     return min(
         candidates,
         key=lambda candidate: _trace_candidate_score(
@@ -555,6 +560,7 @@ def multistart_trace_consensus(
             cluster,
             target_length=target_length,
             length_penalty=length_penalty,
+            frequencies=frequencies,
         ),
     )
 
@@ -566,7 +572,7 @@ def _alignment_vote_evidence(
     """Collect base and insertion votes after aligning reads to a candidate."""
     base_votes = [Counter[str]() for _ in reference]
     insertion_votes = [Counter[str]() for _ in range(len(reference) + 1)]
-    for read in sorted(cluster):
+    for read, multiplicity in sorted(Counter(cluster).items()):
         aligned_reference, aligned_read = global_align(reference, read)
         per_read_insertions = [""] * (len(reference) + 1)
         reference_position = 0
@@ -579,10 +585,10 @@ def _alignment_vote_evidence(
                 if read_base != "-":
                     per_read_insertions[reference_position] += read_base
                 continue
-            base_votes[reference_position][read_base] += 1
+            base_votes[reference_position][read_base] += multiplicity
             reference_position += 1
         for slot, insertion in enumerate(per_read_insertions):
-            insertion_votes[slot][insertion] += 1
+            insertion_votes[slot][insertion] += multiplicity
     return base_votes, insertion_votes
 
 
