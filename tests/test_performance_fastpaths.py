@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections import Counter
 
 import pytest
 
@@ -90,3 +91,72 @@ def test_cached_reed_solomon_generator_and_recovery() -> None:
         packed = rs_encode(payload, parity)
         assert rs_decode(packed, parity) == payload
     _generator_poly.cache_clear()
+
+
+def test_duplicate_alignment_votes_match_exhaustive_and_reuse_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reference = "ACGTACGT"
+    cluster = ["ACGTACGT"] * 7 + ["ACGACGT"] * 4 + ["ACGTTACGT"] * 3
+    original_align = reconstruction.global_align
+    base_votes = [Counter[str]() for _ in reference]
+    insertion_votes = [Counter[str]() for _ in range(len(reference) + 1)]
+    for read in sorted(cluster):
+        aligned_reference, aligned_read = original_align(reference, read)
+        insertions = [""] * (len(reference) + 1)
+        position = 0
+        for base, observed in zip(aligned_reference, aligned_read, strict=True):
+            if base == "-":
+                if observed != "-":
+                    insertions[position] += observed
+            else:
+                base_votes[position][observed] += 1
+                position += 1
+        for slot, insertion in enumerate(insertions):
+            insertion_votes[slot][insertion] += 1
+
+    calls: list[tuple[str, str]] = []
+
+    def counted_align(left: str, right: str) -> tuple[str, str]:
+        calls.append((left, right))
+        return original_align(left, right)
+
+    monkeypatch.setattr(reconstruction, "global_align", counted_align)
+    assert reconstruction._alignment_vote_evidence(reference, cluster) == (
+        base_votes,
+        insertion_votes,
+    )
+    assert len(calls) == len(set(cluster))
+    calls.clear()
+
+    output: list[str] = []
+    for position, preferred in enumerate(reference):
+        insertion = reconstruction._winner(insertion_votes[position], "")
+        if insertion:
+            output.append(insertion)
+        base = reconstruction._winner(base_votes[position], preferred)
+        if base != "-":
+            output.append(base)
+    tail = reconstruction._winner(insertion_votes[len(reference)], "")
+    if tail:
+        output.append(tail)
+    assert reconstruction._alignment_consensus_with_reference(
+        cluster, reference
+    ) == "".join(output)
+    assert len(calls) == len(set(cluster))
+
+
+def test_duplicate_candidate_scores_match_exhaustive() -> None:
+    cluster = ["ACGTACGT"] * 10 + ["ACGACGT"] * 4 + ["ACGTTACGT"] * 3
+    for candidate in ("ACGTACGT", "ACGACGT", "ACGTTACGT", "TCGTACGT"):
+        expected_distance = sum(reconstruction.edit_distance(candidate, read) for read in cluster)
+        score = reconstruction._trace_candidate_score(
+            candidate, cluster, target_length=8, length_penalty=1.25
+        )
+        delta = abs(len(candidate) - 8)
+        assert score == (
+            expected_distance + 1.25 * delta * len(cluster),
+            delta,
+            len(candidate),
+            candidate,
+        )
