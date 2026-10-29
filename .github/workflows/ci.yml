@@ -115,12 +115,16 @@ jobs:
         run: |
           python benchmarks/run_verified_demo.py
           test -s verified-demo-results.json
+      - name: Measure graph and consensus latency and traced memory
+        run: |
+          python benchmarks/run_graph_memory_profile.py --output performance-results/graph.json
+          test -s performance-results/graph.json
       - name: Record reproducibility environment and checksums
         run: |
           python -m pip freeze > ci-environment.txt
           python benchmarks/write_ci_artifact_manifest.py --output ci-artifact-manifest.json \
             benchmark-results experiment-results learning-results \
-            graph-rescue-results.json verified-demo-results.json ci-environment.txt
+            graph-rescue-results.json verified-demo-results.json performance-results ci-environment.txt
           test -s ci-artifact-manifest.json
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
@@ -132,6 +136,7 @@ jobs:
             learning-results/
             graph-rescue-results.json
             verified-demo-results.json
+            performance-results/
             ci-environment.txt
             ci-artifact-manifest.json
           if-no-files-found: error

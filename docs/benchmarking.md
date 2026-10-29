@@ -33,6 +33,33 @@ python -m pytest tests/test_performance_fastpaths.py tests/test_reconstruct.py t
 python -m cProfile -s cumulative benchmarks/run_graph_reconstruction_baseline.py --json
 ```
 
+## Measured graph/consensus performance baseline
+
+Run the fixed-seed benchmark on both checked-out revisions using identical
+Python versions, optional dependencies, CPU resources and arguments:
+
+```bash
+python benchmarks/run_graph_memory_profile.py --seed 17 --strands 12 --copies 4 --length 80 --repeats 3 --output performance-results/graph.json
+```
+
+The JSON records individual elapsed times, median latency, maximum peak traced
+Python allocation bytes, and SHA-256 fingerprints of the deterministic graph and
+consensus results. For a baseline commit that predates this script, copy the benchmark script
+from the candidate commit to a neutral location outside both worktrees and
+invoke that identical file from each checkout with `PYTHONPATH=src`. Do not
+compare results produced by different benchmark implementations. Compare
+fingerprints before interpreting speed differences; a changed
+fingerprint requires separate semantic validation. Timing under `tracemalloc`
+has profiler overhead and is not a production-throughput measurement. Traced
+allocations are **not** process RSS. This microbenchmark does not measure
+archive encoding/decoding throughput, 1 GiB capacity, or physical sequencing.
+
+CI runs the microbenchmark as a reproducibility smoke test and uploads its
+artifact. CI does **not** impose a wall-clock threshold because shared-runner
+contention makes such thresholds unstable; collect matched repeated runs and
+statistical dispersion before proposing performance gates. The output alone
+does not establish a before/after speedup.
+
 ## CI artifact provenance and verification
 
 Each successful CI quality job uploads a `oligoark-research-results` artifact containing
