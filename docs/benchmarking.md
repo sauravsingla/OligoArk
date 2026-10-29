@@ -87,6 +87,30 @@ construction. Compare identical inputs and software environments using the
 graph memory profile and strict comparison tool above. No runtime or peak-RSS
 improvement is claimed without actual matched measurements.
 
+## Batched indel-recovery redundancy scans
+
+The 10 MiB matched-codec research job reported **10/10 indel-low trials
+timed out** at a 75-second per-trial limit for the
+`oligoark-compact-v3-hybrid` method (workflow run `40949463159`,
+October 29, 2026). The workflow completed successfully because it preserves
+scientific timeouts as explicit failed trials; a green workflow is **not** a
+claim of successful recovery for every condition.
+
+During in-memory indel rescue, repeated full parity/fountain peeling after
+every eight newly decoded candidates can rescan large redundancy structures
+many times. The rescue loop now uses a deterministic size-dependent batch
+(maximum 4096 candidates, retaining the eight-candidate cadence for small
+archives), followed by the existing final redundancy pass when required.
+Unverified hints are still never accepted as recovered data: frame validation,
+missing-strand failure reporting, and final archive SHA-256 checks are unchanged.
+Tests check exact recovery and the number of full redundancy passes.
+
+This is a **work-reduction hypothesis**, not a demonstrated speedup or timeout
+fix. Compare the same indel-low and mixed-noise seeds, method, 10 MiB payload,
+75-second trial deadlines, machine, Python environment, RSS, and exact recovery
+before and after the change. Retain all timed-out and failed trials in the
+comparison. A 1 GiB SHA-256 milestone is not established by this change.
+
 ## CI artifact provenance and verification
 
 Each successful CI quality job uploads a `oligoark-research-results` artifact containing
