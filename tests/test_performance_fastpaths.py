@@ -153,6 +153,13 @@ def test_duplicate_candidate_scores_match_exhaustive() -> None:
         score = reconstruction._trace_candidate_score(
             candidate, cluster, target_length=8, length_penalty=1.25
         )
+        assert score == reconstruction._trace_candidate_score(
+            candidate,
+            cluster,
+            target_length=8,
+            length_penalty=1.25,
+            frequencies=Counter(cluster),
+        )
         delta = abs(len(candidate) - 8)
         assert score == (
             expected_distance + 1.25 * delta * len(cluster),
