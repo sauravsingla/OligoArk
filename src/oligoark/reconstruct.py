@@ -5,8 +5,9 @@ from __future__ import annotations
 import math
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 # Optional native acceleration keeps the core Python installation dependency-free.
 # Both backends compute exactly the same Levenshtein distance.
