@@ -181,7 +181,9 @@ def _encode(
         is_fountain=fountain,
         rs_nsym=config.rs_nsym,
         adaptive_masks=config.adaptive_masks,
-        sequence_constraints=constraints if constraints is not None else config.sequence_constraints,
+        sequence_constraints=(
+            constraints if constraints is not None else config.sequence_constraints
+        ),
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
