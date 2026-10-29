@@ -44,8 +44,11 @@ python benchmarks/run_graph_memory_profile.py --seed 17 --strands 12 --copies 4 
 
 The JSON records individual elapsed times, median latency, maximum peak traced
 Python allocation bytes, and SHA-256 fingerprints of the deterministic graph and
-consensus results. The same script and input parameters must be used on both
-revisions. Compare fingerprints before interpreting speed differences; a changed
+consensus results. For a baseline commit that predates this script, copy the benchmark script
+from the candidate commit to a neutral location outside both worktrees and
+invoke that identical file from each checkout with `PYTHONPATH=src`. Do not
+compare results produced by different benchmark implementations. Compare
+fingerprints before interpreting speed differences; a changed
 fingerprint requires separate semantic validation. Timing under `tracemalloc`
 has profiler overhead and is not a production-throughput measurement. Traced
 allocations are **not** process RSS. This microbenchmark does not measure
