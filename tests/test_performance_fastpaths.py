@@ -23,7 +23,9 @@ def _reference_distance(a: str, b: str) -> int:
 
 
 @pytest.mark.parametrize("seed", range(5))
-def test_python_distance_exact_on_sparse_and_random_edits(monkeypatch: pytest.MonkeyPatch, seed: int) -> None:
+def test_python_distance_exact_on_sparse_and_random_edits(
+    monkeypatch: pytest.MonkeyPatch, seed: int
+) -> None:
     monkeypatch.setattr(reconstruction, "_native_edit_distance", None)
     rng = random.Random(seed)
     for _ in range(60):
@@ -53,7 +55,10 @@ def test_weighted_medoid_and_anchor_order_match_exhaustive(monkeypatch: pytest.M
         unique = ["".join(rng.choices("ACGT", k=rng.randrange(2, 13))) for _ in range(6)]
         cluster = [rng.choice(unique) for _ in range(15)]
         unique_sorted = sorted(set(cluster))
-        naive = {item: sum(_reference_distance(item, other) for other in cluster) for item in unique_sorted}
+        naive = {
+            item: sum(_reference_distance(item, other) for other in cluster)
+            for item in unique_sorted
+        }
         assert reconstruction._weighted_read_costs(cluster) == naive
         expected_medoid = min(cluster, key=lambda x: (naive[x], len(x), x))
         assert reconstruction._medoid(cluster) == expected_medoid
