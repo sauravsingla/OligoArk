@@ -33,6 +33,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+speed = ["rapidfuzz>=3.9"]
 api = ["fastapi>=0.115", "uvicorn>=0.30"]
 bench = ["matplotlib>=3.8"]
 security = ["bandit>=1.7", "pip-audit>=2.7"]

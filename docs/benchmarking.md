@@ -2,6 +2,37 @@
 
 OligoArk provides continuity, smoke, controlled-reconstruction, held-out learning, and publication-scale experiment paths. Every result is a measured software result or a software-channel simulation unless a physical dataset is explicitly named.
 
+## Optional reconstruction acceleration
+
+The core package remains dependency-free. Install `pip install -e ".[speed]"`
+to use RapidFuzz's exact native Levenshtein implementation for graph pair
+scoring, medoid/anchor selection, and confidence-fusion candidate scoring.
+With no optional extra, the pure-Python implementation trims matching prefix
+and suffix regions before the dynamic program. Both paths compute identical
+edit distances; existing graph/consensus and final archive integrity checks
+remain unchanged.
+
+The medoid and trace-anchor selection now sum each distinct read-pair
+distance once, weighted by read multiplicity. Confidence fusion also reuses
+per-read q-gram signatures. Streaming frame creation reuses an immutable
+configuration's sequence constraints, and Reed–Solomon encoding caches each
+immutable generator polynomial by parity length.
+
+**Do not infer a speedup from implementation alone.** Compare baseline and
+candidate at the same commit, read set, Python/platform, CPU allocation,
+sequence length, read coverage, and thread settings. Record both
+wall-clock latency and SHA-256/exact reconstruction outcomes; report RSS,
+p50/p95 cluster latency and worst-case timeouts. The optional native backend
+must be reported separately from the dependency-free run.
+
+Quick focused validation:
+
+```bash
+python -m pip install -e ".[dev,speed]"
+python -m pytest tests/test_performance_fastpaths.py tests/test_reconstruct.py tests/test_streaming.py
+python -m cProfile -s cumulative benchmarks/run_graph_reconstruction_baseline.py --json
+```
+
 ## CI artifact provenance and verification
 
 Each successful CI quality job uploads a `oligoark-research-results` artifact containing
