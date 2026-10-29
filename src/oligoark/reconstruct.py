@@ -464,14 +464,15 @@ def _trace_candidate_score(
     *,
     target_length: int | None,
     length_penalty: float,
+    frequencies: Counter[str] | None = None,
 ) -> tuple[float, int, int, str]:
     """Score a candidate only from observed traces plus an optional known oligo length."""
     length_delta = (
         abs(len(candidate) - target_length) if target_length is not None else 0
     )
-    frequencies = Counter(cluster)
+    weights = frequencies if frequencies is not None else Counter(cluster)
     trace_distance = sum(
-        edit_distance(candidate, read) * count for read, count in frequencies.items()
+        edit_distance(candidate, read) * count for read, count in weights.items()
     )
     return (
         trace_distance + length_penalty * length_delta * len(cluster),
@@ -551,6 +552,7 @@ def multistart_trace_consensus(
             )
             add_candidate(reversed_candidate[::-1])
 
+    frequencies = Counter(cluster)
     return min(
         candidates,
         key=lambda candidate: _trace_candidate_score(
@@ -558,6 +560,7 @@ def multistart_trace_consensus(
             cluster,
             target_length=target_length,
             length_penalty=length_penalty,
+            frequencies=frequencies,
         ),
     )
 
