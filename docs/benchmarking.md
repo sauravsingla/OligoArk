@@ -60,6 +60,18 @@ contention makes such thresholds unstable; collect matched repeated runs and
 statistical dispersion before proposing performance gates. The output alone
 does not establish a before/after speedup.
 
+For two profiles collected with the same script and parameters, run:
+
+```bash
+python benchmarks/compare_graph_profiles.py baseline.json candidate.json --output performance-results/comparison.json
+```
+
+The comparison rejects different parameters, missing cases, invalid measurements,
+and changed output fingerprints before calculating descriptive median-time and
+traced-allocation ratios. It does not establish matched hardware, statistical
+significance, archive-level SHA-256 recovery or process RSS. Review those
+conditions separately before making any performance claim.
+
 ## CI artifact provenance and verification
 
 Each successful CI quality job uploads a `oligoark-research-results` artifact containing
