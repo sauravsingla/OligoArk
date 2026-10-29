@@ -7,6 +7,7 @@ small and self-contained so OligoArk's core codec is reproducible without a bina
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 _PRIMITIVE = 0x11D
 _GF_EXP = [0] * 512
@@ -76,11 +77,13 @@ def _poly_eval(poly: list[int] | bytes | bytearray, x: int) -> int:
     return y
 
 
-def _generator_poly(nsym: int) -> list[int]:
+@lru_cache(maxsize=32)
+def _generator_poly(nsym: int) -> tuple[int, ...]:
+    """Immutable cached generator; millions of equal-profile strands reuse it."""
     gen = [1]
     for i in range(nsym):
         gen = _poly_mul(gen, [1, _gf_pow(2, i)])
-    return gen
+    return tuple(gen)
 
 
 def rs_encode(data: bytes, nsym: int) -> bytes:

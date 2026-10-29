@@ -36,6 +36,18 @@ jobs:
           python -c "import re, pathlib; t=pathlib.Path('quick-start-output.txt').read_text(); assert re.search(r'(?m)^SHA-256: [0-9a-f]{64}', t)"
       - run: python -m pip check
 
+  optional-speed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[speed,dev]"
+      - name: Verify accelerated and pure-Python paths agree
+        run: pytest tests/test_performance_fastpaths.py
+
   quality:
     runs-on: ubuntu-latest
     steps:

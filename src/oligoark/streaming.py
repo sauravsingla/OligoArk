@@ -171,6 +171,7 @@ def _encode(
     config: ArchiveConfig,
     parity: bool = False,
     fountain: bool = False,
+    constraints: SequenceConstraints | None = None,
 ) -> bytes:
     return encode_frame_packed(
         payload,
@@ -180,7 +181,9 @@ def _encode(
         is_fountain=fountain,
         rs_nsym=config.rs_nsym,
         adaptive_masks=config.adaptive_masks,
-        sequence_constraints=config.sequence_constraints,
+        sequence_constraints=(
+            constraints if constraints is not None else config.sequence_constraints
+        ),
         mask_search_limit=config.mask_search_limit,
         compact_framing=config.compact_framing,
         compact_index_bytes=config.compact_index_bytes,
@@ -235,6 +238,7 @@ def archive_file_streaming(
     if len(metadata_bytes) > _MAX_METADATA_BYTES:
         raise ValueError("streaming metadata exceeds maximum allowed length")
     reference = SequenceConstraints()
+    encoding_constraints = resolved.sequence_constraints
     sampled = passed = 0
     destination_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -250,7 +254,10 @@ def archive_file_streaming(
             group: list[bytes] = []
             for index in range(data_count):
                 payload = input_handle.read(resolved.chunk_size) if size else b""
-                packed = _encode(payload, index=index, total=data_count, config=resolved)
+                packed = _encode(
+                    payload, index=index, total=data_count, config=resolved,
+                    constraints=encoding_constraints,
+                )
                 if sampled < _QUALITY_SAMPLE:
                     sampled += 1
                     passed += int(reference.accepts(bytes_to_dna(packed)))
@@ -265,6 +272,7 @@ def archive_file_streaming(
                         total=data_count,
                         config=resolved,
                         parity=True,
+                        constraints=encoding_constraints,
                     )
                     if sampled < _QUALITY_SAMPLE:
                         sampled += 1
@@ -292,6 +300,7 @@ def archive_file_streaming(
                     total=data_count,
                     config=resolved,
                     fountain=True,
+                    constraints=encoding_constraints,
                 )
                 if sampled < _QUALITY_SAMPLE:
                     sampled += 1

@@ -5,8 +5,19 @@ from __future__ import annotations
 import math
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+
+# Optional native acceleration keeps the core Python installation dependency-free.
+# Both backends compute exactly the same Levenshtein distance.
+_native_edit_distance: Callable[[str, str], int] | None = None
+try:
+    from rapidfuzz.distance import Levenshtein  # type: ignore[import-not-found]
+
+    _native_edit_distance = Levenshtein.distance
+except ImportError:
+    pass
 
 
 @dataclass(frozen=True)
@@ -83,7 +94,28 @@ class LevenshteinEdgeScorer:
 
 
 def edit_distance(a: str, b: str) -> int:
-    """Compute Levenshtein distance with O(min(len(a), len(b))) memory."""
+    """Exact Levenshtein distance; optional native backend, linear-space fallback."""
+    if a == b:
+        return 0
+    if _native_edit_distance is not None:
+        return _native_edit_distance(a, b)
+
+    # Remove common ends before the dynamic program. In DNA read clusters most
+    # edits are sparse, so this also speeds up the dependency-free implementation.
+    prefix = 0
+    limit = min(len(a), len(b))
+    while prefix < limit and a[prefix] == b[prefix]:
+        prefix += 1
+    a, b = a[prefix:], b[prefix:]
+    suffix = 0
+    limit = min(len(a), len(b))
+    while suffix < limit and a[-suffix - 1] == b[-suffix - 1]:
+        suffix += 1
+    if suffix:
+        a, b = a[:-suffix], b[:-suffix]
+    if not a or not b:
+        return max(len(a), len(b))
+
     if len(a) < len(b):
         a, b = b, a
     previous = list(range(len(b) + 1))
@@ -282,15 +314,26 @@ def _winner(counter: Counter[str], preferred: str = "") -> str:
     return tied[0]
 
 
+def _weighted_read_costs(cluster: list[str]) -> dict[str, int]:
+    """Total edit distance per unique read, weighted by duplicate coverage.
+
+    Compute each distinct unordered pair once. This preserves the exact medoid
+    and anchor rankings while avoiding repeated distances for identical reads.
+    """
+    frequencies = Counter(cluster)
+    unique = sorted(frequencies)
+    costs = {read: 0 for read in unique}
+    for index, left in enumerate(unique):
+        for right in unique[index + 1 :]:
+            distance = edit_distance(left, right)
+            costs[left] += distance * frequencies[right]
+            costs[right] += distance * frequencies[left]
+    return costs
+
+
 def _medoid(cluster: list[str]) -> str:
-    return min(
-        cluster,
-        key=lambda candidate: (
-            sum(edit_distance(candidate, other) for other in cluster),
-            len(candidate),
-            candidate,
-        ),
-    )
+    costs = _weighted_read_costs(cluster)
+    return min(costs, key=lambda candidate: (costs[candidate], len(candidate), candidate))
 
 
 def medoid_consensus(cluster: list[str]) -> str:
@@ -388,11 +431,11 @@ def _trace_anchor_order(
     target_length: int | None,
 ) -> list[str]:
     """Rank unique observed traces without using the unknown reference sequence."""
-    unique = sorted(set(cluster))
+    costs = _weighted_read_costs(cluster)
     return sorted(
-        unique,
+        costs,
         key=lambda candidate: (
-            sum(edit_distance(candidate, other) for other in cluster),
+            costs[candidate],
             abs(len(candidate) - target_length) if target_length is not None else 0,
             len(candidate),
             candidate,
@@ -765,11 +808,13 @@ def _candidate_qgram_similarity(
     cluster: list[str],
     *,
     width: int,
+    signatures: list[frozenset[str]] | None = None,
 ) -> float:
     signature = _qgrams(candidate, width)
     if not cluster:
         return 0.0
-    return sum(_jaccard(signature, _qgrams(read, width)) for read in cluster) / len(cluster)
+    resolved = signatures if signatures is not None else [_qgrams(read, width) for read in cluster]
+    return sum(_jaccard(signature, read_signature) for read_signature in resolved) / len(cluster)
 
 
 def _bounded_local_candidates(
@@ -995,6 +1040,7 @@ def confidence_fusion_trace_consensus(
             break
 
     distance_cache: dict[str, tuple[int, int]] = {}
+    qgram_signatures = [_qgrams(read, qgram_width) for read in cluster]
 
     def distance_scores(candidate: str) -> tuple[int, int]:
         cached = distance_cache.get(candidate)
@@ -1017,6 +1063,7 @@ def confidence_fusion_trace_consensus(
             candidate,
             cluster,
             width=qgram_width,
+            signatures=qgram_signatures,
         )
         composite = (
             robust
