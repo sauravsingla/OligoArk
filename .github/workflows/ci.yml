@@ -119,6 +119,24 @@ jobs:
         run: |
           python benchmarks/run_graph_memory_profile.py --output performance-results/graph.json
           test -s performance-results/graph.json
+      - name: Verify Reed-Solomon locator parity and generous relative timing bound
+        run: |
+          python benchmarks/run_rs_locator_profile.py --seed 20261030 --repeats 5
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("performance-results/rs-locator.json").read_text())
+          if report["exact_position_parity"] is not True:
+              raise SystemExit("Reed-Solomon error-location parity failed")
+          # Matched reference and optimized cases run in one process. This
+          # intentionally generous 0.75x floor avoids a brittle absolute
+          # wall-clock gate on shared CI hardware.
+          ratio = report["median_reference_over_optimized"]
+          if ratio < 0.75:
+              raise SystemExit(f"RS locator relative performance regression: {ratio:.3f}x")
+          print(f"RS locator exact parity passed; reference/optimized median ratio={ratio:.3f}x")
+          PY
       - name: Record reproducibility environment and checksums
         run: |
           python -m pip freeze > ci-environment.txt
