@@ -15,10 +15,11 @@ from typing import Any
 
 def summarize(payload: Any) -> dict[str, object]:
     """Count all failures and deadline-stack locations without dropping trials."""
-    if isinstance(payload, dict):
-        rows = payload.get("rows", payload.get("results", []))
-    else:
-        rows = payload
+    rows = (
+        payload.get("rows", payload.get("results", []))
+        if isinstance(payload, dict)
+        else payload
+    )
     if not isinstance(rows, list):
         raise ValueError("expected a list of result rows")
     groups: dict[str, dict[str, object]] = {}
@@ -46,7 +47,10 @@ def summarize(payload: Any) -> dict[str, object]:
             stack = trial.get("timeout_stack", [])
             if stack:
                 frame = stack[-1]
-                location = f"{frame.get('file', '?')}:{frame.get('line', '?')}:{frame.get('function', '?')}"
+                location = (
+                    f"{frame.get('file', '?')}:{frame.get('line', '?')}:"
+                    f"{frame.get('function', '?')}"
+                )
                 group["interrupted_locations"][location] += 1
     return {
         "note": "Single interrupted frames are diagnostic, not representative CPU profiles.",
