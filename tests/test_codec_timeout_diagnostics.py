@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 
-from run_matched_codec_scale import _TrialDeadline, _alarm_handler, _condition_row
+from run_matched_codec_scale import _alarm_handler, _condition_row, _TrialDeadline
 
 pytestmark = pytest.mark.skipif(
     not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"),
