@@ -131,10 +131,21 @@ def _find_error_locator(synd: list[int], nsym: int) -> list[int]:
 
 
 def _find_errors(err_loc: list[int], message_len: int) -> list[int]:
+    """Chien search with direct multiplication by successive GF(2) powers.
+
+    For x = 2**i in GF(256), log(x) = i mod 255. Avoid a separate
+    field-power calculation and generic GF multiplication call for every
+    polynomial coefficient. Keep the exact root order and failure contract.
+    """
     errs = len(err_loc) - 1
     positions: list[int] = []
+    coefficients = err_loc[1:]
     for i in range(message_len):
-        if _poly_eval(err_loc, _gf_pow(2, i)) == 0:
+        power = i % 255
+        value = err_loc[0]
+        for coef in coefficients:
+            value = (_GF_EXP[_GF_LOG[value] + power] if value else 0) ^ coef
+        if value == 0:
             positions.append(message_len - 1 - i)
     if len(positions) != errs:
         raise ECCDecodeError("could not locate all Reed-Solomon symbol errors")
