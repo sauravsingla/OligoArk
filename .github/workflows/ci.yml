@@ -168,6 +168,10 @@ jobs:
           test -s matched-codec-results/results.csv
           test -s matched-codec-results/metadata.json
           test -s matched-codec-results/summary.json
+      - name: Summarize codec timeout diagnostic evidence
+        run: |
+          python benchmarks/summarize_codec_timeouts.py matched-codec-results/results.json --output matched-codec-results/timeout-hotspots.json
+          test -s matched-codec-results/timeout-hotspots.json
       - name: Upload scalable-storage artifacts
         uses: actions/upload-artifact@v4
         with:
