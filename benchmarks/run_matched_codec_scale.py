@@ -18,7 +18,9 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 from run_dna_fountain_baseline import (
@@ -104,12 +106,29 @@ def _metrics(
 
 
 class _TrialDeadline(TimeoutError):
-    """Raised when one matched benchmark trial exceeds its measured budget."""
+    """Raised when a trial expires, preserving the interrupted call stack."""
+
+    def __init__(self, frames: list[dict[str, object]]) -> None:
+        super().__init__("matched codec trial deadline exceeded")
+        self.frames = frames
 
 
-def _alarm_handler(signum: int, frame: object) -> None:
-    del signum, frame
-    raise _TrialDeadline
+def _alarm_handler(signum: int, frame: FrameType | None) -> None:
+    """Capture bounded hot-path evidence without extending or hiding the deadline."""
+    del signum
+    root = Path(__file__).resolve().parents[1]
+    frames: list[dict[str, object]] = []
+    if frame is not None:
+        for item in traceback.extract_stack(frame, limit=16):
+            filename = Path(item.filename)
+            try:
+                display = filename.relative_to(root).as_posix()
+            except ValueError:
+                display = filename.name
+            frames.append(
+                {"file": display, "line": item.lineno, "function": item.name}
+            )
+    raise _TrialDeadline(frames)
 
 
 def _condition_row(
@@ -186,7 +205,7 @@ def _condition_row(
                         "error": error,
                     }
                 )
-            except _TrialDeadline:
+            except _TrialDeadline as exc:
                 timeout_trials += 1
                 elapsed = time.perf_counter() - trial_started
                 if current_stage == "decode" and decode_started is not None:
@@ -201,6 +220,7 @@ def _condition_row(
                         "sha256_verified": False,
                         "timed_out": True,
                         "timeout_stage": current_stage,
+                        "timeout_stack": exc.frames,
                         "timeout_seconds": condition_timeout_seconds,
                         "elapsed_trial_seconds": round(elapsed, 6),
                         "observed_decode_seconds_before_timeout": round(

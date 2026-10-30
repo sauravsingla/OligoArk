@@ -112,6 +112,28 @@ fix. Compare the same indel-low and mixed-noise seeds, method, 10 MiB payload,
 before and after the change. Retain all timed-out and failed trials in the
 comparison. A 1 GiB SHA-256 milestone is not established by this change.
 
+## Bounded call-stack diagnostics for codec trial deadlines
+
+The 10 MiB matched-codec jobs remain **scientifically unsuccessful** for the
+indel-low condition in both compact-hybrid methods and the mixed condition in
+the original compact-hybrid method: the October 29, 2026 PR #55 run
+(`40969167850`) still reports 10/10 timeouts in each of those three cases
+at the unchanged 75-second per-trial deadline. Successful GitHub workflow
+status means the trial accounting and artifact upload succeeded, **not**
+that exact recovery passed.
+
+To locate the next optimization target, timed-out trials now include a bounded
+`timeout_stack` array with up to 16 interrupted Python frames (repository-
+relative filename when possible, line number and function). This is captured
+only on the existing SIGALRM deadline; it adds no periodic sampling, extends
+no deadline, changes no decoding logic, and does not turn timeouts into passes.
+The field is absent for completed trials. Inspect
+`trial-results.json` in each matched-codec workflow artifact, comparing
+identical methods, seeds and noise conditions before changing a hot path.
+A deadline stack is a **single-point diagnostic**, not a statistically
+representative profiler or a performance improvement claim. Use controlled
+before/after profiling and exact SHA-256 recovery checks for subsequent fixes.
+
 ## CI artifact provenance and verification
 
 Each successful CI quality job uploads a `oligoark-research-results` artifact containing
