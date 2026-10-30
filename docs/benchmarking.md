@@ -405,6 +405,10 @@ python benchmarks/run_rs_locator_profile.py --seed 20261030 --repeats 5
 pytest tests/test_rs_chien_search.py tests/test_performance_fastpaths.py
 ```
 
+CI also checks exact locator parity and a deliberately generous same-process
+reference/optimized median ratio floor of 0.75x; this is a coarse regression
+tripwire, not a guarantee of production throughput on shared runners.
+
 The JSON includes raw samples, medians, interpreter/platform, and a fingerprint
 of exactly matching error positions. These measurements isolate error-location
 work; they do **not** establish a full-archive speedup, lower process RSS, or
