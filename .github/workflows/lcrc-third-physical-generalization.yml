@@ -16,10 +16,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out OligoArk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -31,7 +31,7 @@ jobs:
           python -m pytest tests/test_external_lcrc_benchmark.py tests/test_reconstruct.py -q
 
       - name: Check out pinned LCRC physical dataset
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: dna-storage-lab/DNAStorage_LCRC
           ref: ce35bb2720c49ea6d1e6bc17903655b45f9c6c51
@@ -51,7 +51,7 @@ jobs:
             .external/lcrc/LCRC_SmallScale/fastq/HFS_Pool_11.7K_NGS_PEmerged.fastq.gz
 
       - name: Check out pinned BBS baseline
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: GZHoffie/bbs
           ref: 3e4ab46871929819e4f3e34a831c57cac88bb456
@@ -128,7 +128,7 @@ jobs:
           python -m json.tool external-lcrc-results/summary.json > /dev/null
 
       - name: Upload benchmark artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: lcrc-third-physical-generalization
           path: external-lcrc-results/
