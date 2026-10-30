@@ -169,6 +169,10 @@ def peel_decode(
 
     for symbol in symbols:
         unknown = {index for index in symbol.indexes if index not in recovered}
+        # A fully satisfied equation cannot reveal another chunk. Avoid allocating
+        # and XORing its residual, which is costly for large, low-loss archives.
+        if not unknown:
+            continue
         residual = bytearray(symbol.payload)
         for index in symbol.indexes:
             if index in recovered:

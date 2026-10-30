@@ -62,3 +62,72 @@ def test_v3_hybrid_recovers_deterministic_five_percent_strand_dropout() -> None:
             if index not in dropped
         ]
         assert recover_bytes(archive, reads) == payload
+
+
+def _reference_peel_with_satisfied_equations(
+    known: dict[int, bytes], symbols: list, total: int, width: int
+) -> dict[int, bytes]:
+    """Independent legacy peel including equations with no unknown indexes."""
+    from collections import deque
+
+    recovered = dict(known)
+    unknown_sets: list[set[int]] = []
+    residuals: list[bytearray] = []
+    incident: list[list[int]] = [[] for _ in range(total)]
+    ready: deque[int] = deque()
+    for symbol in symbols:
+        unknown = {index for index in symbol.indexes if index not in recovered}
+        residual = bytearray(symbol.payload)
+        for index in symbol.indexes:
+            if index in recovered:
+                for offset, value in enumerate(recovered[index]):
+                    residual[offset] ^= value
+        equation_id = len(unknown_sets)
+        unknown_sets.append(unknown)
+        residuals.append(residual)
+        for index in unknown:
+            incident[index].append(equation_id)
+        if len(unknown) == 1:
+            ready.append(equation_id)
+    while ready:
+        equation_id = ready.popleft()
+        unknown = unknown_sets[equation_id]
+        if len(unknown) != 1:
+            continue
+        index = next(iter(unknown))
+        if index in recovered:
+            continue
+        payload = bytes(residuals[equation_id])
+        recovered[index] = payload
+        for dependent_id in incident[index]:
+            dependent = unknown_sets[dependent_id]
+            if index not in dependent:
+                continue
+            dependent.remove(index)
+            residual = residuals[dependent_id]
+            for offset in range(width):
+                residual[offset] ^= payload[offset]
+            if len(dependent) == 1:
+                ready.append(dependent_id)
+    return {index: recovered[index] for index in range(total) if index in recovered}
+
+
+def test_fountain_peel_randomized_parity_with_legacy_equations() -> None:
+    for seed in range(25):
+        rng = random.Random(2026 + seed)
+        total = rng.randrange(3, 50)
+        width = rng.randrange(1, 48)
+        chunks = [rng.randbytes(width) for _ in range(total)]
+        layout = "interleaved" if seed % 2 else "random"
+        symbols = make_symbols(
+            chunks, count=total * 2, width=width, seed=seed + 1,
+            max_degree=4, layout=layout,
+        )
+        missing = set(rng.sample(range(total), rng.randrange(total + 1)))
+        known = {index: chunk for index, chunk in enumerate(chunks) if index not in missing}
+        before = dict(known)
+        expected = _reference_peel_with_satisfied_equations(known, symbols, total, width)
+        actual = peel_decode(known, symbols, total, width)
+        assert actual == expected
+        assert known == before
+        assert all(actual[index] == chunks[index] for index in actual)
