@@ -16,10 +16,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out OligoArk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -54,7 +54,7 @@ jobs:
           sha256sum .external/BinnedPilotIllumina.txt
 
       - name: Check out pinned BBS baseline
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: GZHoffie/bbs
           ref: 3e4ab46871929819e4f3e34a831c57cac88bb456
@@ -125,7 +125,7 @@ jobs:
           python -m json.tool external-dnaformer-pilot-results/summary.json > /dev/null
 
       - name: Upload benchmark artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dnaformer-pilot-illumina-generalization
           path: external-dnaformer-pilot-results/
