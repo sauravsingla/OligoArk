@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - run: python -m pip install -U pip
@@ -53,7 +53,7 @@ jobs:
             --profile "$PROFILE" \
             --trials "$TRIALS" \
             --timeout-seconds 1200
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: matched-codecs-${{ github.run_id }}
           path: |
