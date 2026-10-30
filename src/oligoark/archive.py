@@ -611,6 +611,12 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
         hinted = [item for item in indel_candidates if hint_relevant(item[1])]
         unhinted = [item for item in indel_candidates if item[1] is None]
         changed_since_peel = 0
+        # A full parity/fountain peel scans the archive's redundancy state.
+        # Repeating it after every eight repaired reads becomes expensive for
+        # large archives with many indel candidates. Amortize the scan while
+        # retaining the same final peel and SHA-256 integrity verification.
+        # Small archives preserve the historical eight-read cadence.
+        peel_batch_size = max(8, min(4096, total_data // 16))
 
         def rescue(items: Iterable[tuple[str, CompactFrameHint | None]]) -> None:
             nonlocal data_chunks, missing, changed_since_peel
@@ -642,7 +648,7 @@ def recover_bytes(archive: DNAArchive, strands: Iterable[str] | None = None) -> 
                 if not changed:
                     continue
                 changed_since_peel += 1
-                if changed_since_peel >= 8:
+                if changed_since_peel >= peel_batch_size:
                     data_chunks = _apply_redundancy(
                         data_chunks,
                         parity_chunks,
