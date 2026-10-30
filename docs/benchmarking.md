@@ -387,3 +387,26 @@ On the default subset of the first 20 non-empty clusters (194 reads, under 20 se
 Upstream limitation: the CNR README notes (8/12/2024) that the 10,000 source sequences contain long-range dependencies instead of being uniformly random, due to an error in their generation. The clustering algorithm may therefore behave unexpectedly and some recovered clusters may be malformed, which makes trace reconstruction harder.
 
 Four reproducible external physical-read benchmarks now use the same frozen confidence-fusion reconstruction settings. On Microsoft's 110-base Clustered Nanopore Reads (CNR) dataset, OligoArk reaches **73/96 at five reads** and **93/96 at ten reads**, versus BBS **72–74/96** and **93/96**. On the independent Grass et al. Illumina dataset, the unchanged settings—apart from the mechanical 117-base target length—reach **94/96 at five reads** and **96/96 at ten reads**, versus BBS **90/96** and **95/96**. On the independent 2026 LCRC HFS-Pool-11.7K Illumina PE150 experiment, the same settings with the published 200-base target length reach **96/96 at both five and ten reads**, exactly tying BBS. On the DNAformer Pilot Illumina dataset, the same frozen settings with the mechanical 140-base target length reach **96/96 at both five and ten reads**, again exactly tying BBS; at one read both methods reach **83/96**. The LCRC association layer maps reads to the public design library before reconstruction and is kept separate from candidate scoring, while the CNR, Grass, and DNAformer benchmarks use explicit published bins. All four physical workflows are CPU-only and complete within the 10-minute benchmark budget; BBS remains substantially faster. See [external-cnr-benchmark.md](external-cnr-benchmark.md), [external-grass-benchmark.md](external-grass-benchmark.md), [external-lcrc-benchmark.md](external-lcrc-benchmark.md), and [external-dnaformer-pilot-benchmark.md](external-dnaformer-pilot-benchmark.md) for provenance, split isolation, confidence intervals, paired tests, runtime/memory, association rules, and claim boundaries.
+
+## Reed-Solomon error-location hot path
+
+The October 30, 2026 10 MiB matched-codec timeout reports identify
+`src/oligoark/ecc.py:_find_errors` among the interrupted Python frames for
+indel-low trials. The Reed-Solomon Chien search now evaluates each locator
+polynomial at successive powers of two using the GF(256) exponent/log tables
+directly, rather than calling the generic field-power and multiplication
+helpers per coefficient. This retains the same root order and raises the
+same `ECCDecodeError` for unlocatable roots.
+
+Run the deterministic matched-reference microbenchmark and full parity tests:
+
+```bash
+python benchmarks/run_rs_locator_profile.py --seed 20261030 --repeats 5
+pytest tests/test_rs_chien_search.py tests/test_performance_fastpaths.py
+```
+
+The JSON includes raw samples, medians, interpreter/platform, and a fingerprint
+of exactly matching error positions. These measurements isolate error-location
+work; they do **not** establish a full-archive speedup, lower process RSS, or
+resolution of the 75-second indel-low and mixed-noise failures. Continue to
+count all failed and timed-out trials in the matched-codec results.
