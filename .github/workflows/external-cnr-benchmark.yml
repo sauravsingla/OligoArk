@@ -23,12 +23,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out OligoArk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -39,7 +39,7 @@ jobs:
           pip install -e .
 
       - name: Check out pinned Microsoft CNR dataset
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: microsoft/clustered-nanopore-reads-dataset
           ref: 6938f44796185902a08381943c2895782886c5c3
@@ -61,7 +61,7 @@ jobs:
           sha256sum .external/cnr/Centers.txt .external/cnr/Clusters.txt
 
       - name: Check out pinned BBS baseline
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: GZHoffie/bbs
           ref: 3e4ab46871929819e4f3e34a831c57cac88bb456
@@ -144,7 +144,7 @@ jobs:
           PY
 
       - name: Upload external benchmark artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: oligoark-cnr-bbs-benchmark
           path: external-cnr-results/
