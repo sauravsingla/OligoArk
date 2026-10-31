@@ -61,7 +61,7 @@ def _measure(
         count = 0
         for candidate in candidate_fn(sequence):
             digest.update(candidate.encode("ascii"))
-            digest.update(b"\\x00")
+            digest.update(bytes([0]))
             count += 1
         times_ns.append(time.perf_counter_ns() - started)
         peak_bytes.append(tracemalloc.get_traced_memory()[1])
@@ -84,7 +84,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=20261031)
     parser.add_argument("--repeats", type=int, default=5)
-    parser.add_argument("--output", type=Path, default=Path("performance-results/indel-candidates.json"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("performance-results/indel-candidates.json")
+    )
     args = parser.parse_args()
     if args.repeats < 3:
         parser.error("--repeats must be at least 3")
@@ -133,7 +135,7 @@ def main() -> None:
         "cases": cases,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2) + "\\n")
+    args.output.write_text(json.dumps(report, indent=2) + chr(10))
     print(json.dumps(report, indent=2))
 
 
