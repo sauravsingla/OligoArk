@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from oligoark.baselines import (
     DnaFountainBaselineConfig,
     RotatingTernaryBaselineConfig,
@@ -93,3 +95,18 @@ def test_dna_fountain_progress_is_diagnostic_only() -> None:
     )
     assert instrumented == reference
     assert decode_dna_fountain_baseline(instrumented) == payload
+
+
+def test_dna_fountain_seeded_randomized_progress_parity() -> None:
+    rng = random.Random(20261101)
+    config = DnaFountainBaselineConfig(redundancy=2.0)
+    for size in (1, 33, 257, 1024):
+        payload = rng.randbytes(size)
+        reference = encode_dna_fountain_baseline(payload, config)
+        instrumented = encode_dna_fountain_baseline(
+            payload,
+            config,
+            progress=lambda _accepted, _attempts, _target: None,
+        )
+        assert instrumented == reference
+        assert decode_dna_fountain_baseline(instrumented) == payload
