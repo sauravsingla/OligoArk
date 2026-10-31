@@ -594,7 +594,6 @@ def _single_indel_candidates(sequence: str) -> Iterator[str]:
                 if position and base == sequence[position - 1]:
                     continue
                 yield sequence[:position] + base + sequence[position:]
-    return candidates
 
 
 def decode_frame_resilient(
