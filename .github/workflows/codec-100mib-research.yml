@@ -55,6 +55,11 @@ jobs:
             --timeout-seconds 1800
             --output "${OUT}")
           if [ "${METHOD}" = "dna-fountain-cleanroom" ]; then
+            # Keep worker-written phase, per-trial and 15-second peak-RSS
+            # heartbeat records even when the outer watchdog kills the worker.
+            # Unlike GNU time around timeout, these RSS samples belong to the
+            # Python codec worker itself, not the timeout wrapper.
+            export OLIGOARK_CODEC_PROGRESS_FILE="${OUT}/worker-progress.jsonl"
             # The previous 90-minute step lost its runner at ~71 minutes, before
             # always() could upload artifacts. Stop the process earlier, while
             # retaining an explicit FAILED run and measured peak process RSS.
