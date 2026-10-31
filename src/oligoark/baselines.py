@@ -19,6 +19,7 @@ import zlib
 from collections import deque
 from dataclasses import asdict, dataclass
 from functools import lru_cache
+from typing import Callable
 
 from .dna import SequenceConstraints, bytes_to_dna, dna_to_bytes
 from .ecc import rs_decode, rs_encode, xor_bytes
@@ -124,6 +125,8 @@ def _droplet_indexes(k: int, seed: int, c: float, delta: float) -> tuple[int, ..
 def encode_dna_fountain_baseline(
     data: bytes,
     config: DnaFountainBaselineConfig | None = None,
+    *,
+    progress: Callable[[int, int, int], None] | None = None,
 ) -> DnaFountainBaselineArchive:
     resolved = config or DnaFountainBaselineConfig()
     resolved.validate()
@@ -139,6 +142,8 @@ def encode_dna_fountain_baseline(
     seed = resolved.first_seed & 0xFFFFFFFF
     attempts = 0
     max_attempts = target * resolved.max_attempt_factor
+    if progress is not None:
+        progress(0, 0, target)
     while len(accepted) < target and attempts < max_attempts:
         indexes = _droplet_indexes(len(chunks), seed, resolved.c, resolved.delta)
         payload = xor_bytes([chunks[index] for index in indexes], resolved.chunk_size)
@@ -151,6 +156,10 @@ def encode_dna_fountain_baseline(
         seed = (seed + 0x9E3779B9) & 0xFFFFFFFF
         if constraints.accepts(sequence):
             accepted.append(sequence)
+        if progress is not None and attempts % 65_536 == 0:
+            progress(len(accepted), attempts, target)
+    if progress is not None:
+        progress(len(accepted), attempts, target)
     if len(accepted) < target:
         raise ValueError(
             f"DNA Fountain baseline screening budget exhausted ({len(accepted)}/{target})"
