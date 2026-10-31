@@ -78,6 +78,10 @@ jobs:
           test -s benchmark-results/metadata.json
           test -s benchmark-results/recovery_by_regime.png
           test -s benchmark-results/overhead_by_regime.png
+      - name: Verify direct DNA decode parity and traced-memory regression
+        run: |
+          python benchmarks/run_dna_decode_profile.py --seed 20261031 --repeats 7
+          test -s performance-results/dna-decode.json
       - name: Run ablation smoke experiment
         run: |
           python benchmarks/run_experiments.py --profile smoke
