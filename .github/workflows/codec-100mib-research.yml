@@ -41,7 +41,7 @@ jobs:
       # Leave time for always-run evidence checks and artifact upload if the
       # benchmark stalls; the failed benchmark step remains a failed job.
       - name: Run matched 100 MiB benchmark
-        timeout-minutes: 90
+        timeout-minutes: ${{ matrix.method == 'dna-fountain-cleanroom' && 90 || 330 }}
         env:
           METHOD: ${{ matrix.method }}
         run: |
