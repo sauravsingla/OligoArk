@@ -38,7 +38,10 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -U pip
       - run: pip install -e ".[bench]"
+      # Leave time for always-run evidence checks and artifact upload if the
+      # benchmark stalls; the failed benchmark step remains a failed job.
       - name: Run matched 100 MiB benchmark
+        timeout-minutes: 330
         env:
           METHOD: ${{ matrix.method }}
         run: |
@@ -54,6 +57,17 @@ jobs:
           test -s "${OUT}/trial-results.json"
           test -s "${OUT}/metadata.json"
           test -s "${OUT}/summary.json"
+      - name: Summarize retained timeout evidence
+        if: always()
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          OUT="matched-codec-100mib/${METHOD}"
+          if test -s "${OUT}/results.json"; then
+            python benchmarks/summarize_codec_timeouts.py "${OUT}/results.json" --output "${OUT}/timeout-hotspots.json"
+          else
+            echo "::warning::100 MiB benchmark did not retain results.json; job remains failed if benchmark or validation failed"
+          fi
       - name: Validate retained trial accounting
         if: always()
         env:
