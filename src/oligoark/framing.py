@@ -5,6 +5,7 @@ from __future__ import annotations
 import binascii
 import struct
 import zlib
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .dna import (
@@ -568,30 +569,31 @@ def decode_frame(
     )
 
 
-def _single_indel_candidates(sequence: str) -> list[str]:
-    """Generate deterministic single-indel repairs that restore byte alignment."""
+def _single_indel_candidates(sequence: str) -> Iterator[str]:
+    """Yield unique single-indel repairs in the original deterministic order.
+
+    Adjacent identical bases yield the same repaired strand when removed. Similarly,
+    inserting a base immediately after the same base duplicates an earlier repair.
+    Skip only these exact duplicates instead of retaining all candidate strands in
+    a list and a set; CRC and Reed-Solomon validation remain unchanged.
+    """
     sequence = sequence.strip().upper()
     if not sequence or set(sequence) - {"A", "C", "G", "T"}:
-        return []
+        return
     remainder = len(sequence) % 4
-    candidates: list[str] = []
-    seen: set[str] = set()
-
-    def add(candidate: str) -> None:
-        if candidate not in seen:
-            seen.add(candidate)
-            candidates.append(candidate)
-
     if remainder == 1:
         # One inserted base makes an otherwise byte-aligned strand one nucleotide too long.
         for position in range(len(sequence)):
-            add(sequence[:position] + sequence[position + 1 :])
+            if position and sequence[position] == sequence[position - 1]:
+                continue
+            yield sequence[:position] + sequence[position + 1 :]
     elif remainder == 3:
         # One deleted base makes the observed sequence one nucleotide too short.
         for position in range(len(sequence) + 1):
             for base in "ACGT":
-                add(sequence[:position] + base + sequence[position:])
-    return candidates
+                if position and base == sequence[position - 1]:
+                    continue
+                yield sequence[:position] + base + sequence[position:]
 
 
 def decode_frame_resilient(

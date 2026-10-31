@@ -137,6 +137,10 @@ jobs:
               raise SystemExit(f"RS locator relative performance regression: {ratio:.3f}x")
           print(f"RS locator exact parity passed; reference/optimized median ratio={ratio:.3f}x")
           PY
+      - name: Check exact indel candidate parity and traced-memory regression
+        run: |
+          python benchmarks/run_indel_candidate_profile.py --seed 20261031 --repeats 5
+          test -s performance-results/indel-candidates.json
       - name: Record reproducibility environment and checksums
         run: |
           python -m pip freeze > ci-environment.txt
