@@ -15,9 +15,8 @@ import statistics
 import sys
 import time
 import tracemalloc
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable
 
 from oligoark.framing import _single_indel_candidates
 
@@ -46,7 +45,7 @@ def _reference_candidates(sequence: str) -> list[str]:
 
 
 def _measure(
-    candidate_fn: Callable[[str], Iterable[str] | Iterator[str]],
+    candidate_fn: Callable[[str], Iterable[str]],
     sequence: str,
     repeats: int,
 ) -> dict[str, object]:
