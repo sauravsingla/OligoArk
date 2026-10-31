@@ -411,7 +411,25 @@ def _worker(
         ]
     elif method == "dna-fountain-cleanroom":
         config = DnaFountainBaselineConfig(redundancy=redundancy)
-        archive = encode_dna_fountain_baseline(payload, config)
+        def fountain_progress(accepted: int, attempts: int, target: int) -> None:
+            _progress_event(
+                "fountain-encode-progress",
+                method=method,
+                accepted_droplets=accepted,
+                attempted_droplets=attempts,
+                target_droplets=target,
+                acceptance_rate=round(accepted / attempts, 6) if attempts else None,
+            )
+
+        archive = encode_dna_fountain_baseline(
+            payload,
+            config,
+            progress=(
+                fountain_progress
+                if os.environ.get("OLIGOARK_CODEC_PROGRESS_FILE")
+                else None
+            ),
+        )
         encode_seconds = time.perf_counter() - started
         _progress_event("encode-complete", method=method, encode_seconds=round(encode_seconds, 6))
         rows = [
