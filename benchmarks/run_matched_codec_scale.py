@@ -17,6 +17,7 @@ import resource
 import signal
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -61,6 +62,32 @@ def _peak_rss_mib() -> float:
     if sys.platform == "darwin":
         return value / (1024 * 1024)
     return value / 1024
+
+
+def _progress_event(event: str, **details: object) -> None:
+    """Append optional worker diagnostics without changing recovery outcomes.
+
+    This is a progress log, not a completed-trial or exact-recovery verdict.
+    Each event records the worker's own peak RSS, unlike an outer timeout
+    wrapper's resource report. The opt-in path is inherited by the child.
+    """
+    target = os.environ.get("OLIGOARK_CODEC_PROGRESS_FILE")
+    if not target:
+        return
+    record = {
+        "event": event,
+        "timestamp_unix": round(time.time(), 3),
+        "pid": os.getpid(),
+        "peak_worker_rss_mib": round(_peak_rss_mib(), 3),
+        **details,
+    }
+    try:
+        with Path(target).open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
+    except OSError as exc:
+        # A failed optional diagnostic must not turn a genuine codec outcome
+        # into an unrelated failure. stderr is retained by the parent worker.
+        print(f"codec progress logging unavailable: {exc}", file=sys.stderr)
 
 
 def _repository_commit() -> str:
@@ -156,6 +183,7 @@ def _condition_row(
     channel_seconds = 0.0
     trial_results: list[dict[str, object]] = []
     condition_started = time.perf_counter()
+    _progress_event("condition-start", method=method, condition=condition_name, trials=trials)
     previous_handler: Any = None
     deadline_enabled = (
         condition_timeout_seconds > 0
@@ -169,6 +197,7 @@ def _condition_row(
     try:
         for trial in range(trials):
             trial_seed = 20_260_000 + trial
+            _progress_event("trial-start", method=method, condition=condition_name, trial=trial)
             current_stage = "channel"
             trial_started = time.perf_counter()
             decode_started: float | None = None
@@ -233,6 +262,13 @@ def _condition_row(
             finally:
                 if deadline_enabled:
                     signal.setitimer(signal.ITIMER_REAL, 0.0)
+                _progress_event(
+                    "trial-exit",
+                    method=method,
+                    condition=condition_name,
+                    trial=trial,
+                    outcome_recorded=any(item.get("trial") == trial for item in trial_results),
+                )
     finally:
         if deadline_enabled:
             signal.signal(signal.SIGALRM, previous_handler)
@@ -305,6 +341,14 @@ def _condition_row(
         )
     if extra:
         row.update(extra)
+    _progress_event(
+        "condition-complete",
+        method=method,
+        condition=condition_name,
+        successes=successes,
+        timeout_trials=timeout_trials,
+        recorded_trials=len(trial_results),
+    )
     return row
 
 def _worker(
@@ -315,9 +359,12 @@ def _worker(
     conditions: tuple[str, ...],
     condition_timeout_seconds: int,
 ) -> list[dict[str, object]]:
+    _progress_event("payload-start", method=method, size_bytes=size)
     payload = _payload(size)
     payload_sha256 = hashlib.sha256(payload).hexdigest()
+    _progress_event("payload-complete", method=method, size_bytes=size)
     started = time.perf_counter()
+    _progress_event("encode-start", method=method, size_bytes=size)
 
     if method in {"oligoark-compact-hybrid", "oligoark-compact-v3-hybrid"}:
         profile_name = (
@@ -331,6 +378,7 @@ def _worker(
         config = profile.to_archive_config(fountain_redundancy=fountain_share)
         archive = archive_bytes(payload, config)
         encode_seconds = time.perf_counter() - started
+        _progress_event("encode-complete", method=method, encode_seconds=round(encode_seconds, 6))
         stats = archive_statistics(archive)
         rows = [
             _condition_row(
@@ -365,6 +413,7 @@ def _worker(
         config = DnaFountainBaselineConfig(redundancy=redundancy)
         archive = encode_dna_fountain_baseline(payload, config)
         encode_seconds = time.perf_counter() - started
+        _progress_event("encode-complete", method=method, encode_seconds=round(encode_seconds, 6))
         rows = [
             _condition_row(
                 method=method,
@@ -388,6 +437,7 @@ def _worker(
         config = RotatingTernaryBaselineConfig(redundancy=redundancy)
         archive = encode_rotating_ternary_baseline(payload, config)
         encode_seconds = time.perf_counter() - started
+        _progress_event("encode-complete", method=method, encode_seconds=round(encode_seconds, 6))
         rows = [
             _condition_row(
                 method=method,
@@ -714,18 +764,36 @@ def main() -> None:
             if args.conditions
             else default_conditions
         )
-        print(
-            json.dumps(
-                _worker(
-                    args.method,
-                    args.size,
-                    args.redundancy,
-                    trials,
-                    conditions,
-                    args.condition_timeout_seconds,
-                )
+        stop_heartbeat = threading.Event()
+
+        def heartbeat() -> None:
+            while not stop_heartbeat.wait(15.0):
+                _progress_event("worker-heartbeat")
+
+        progress_enabled = bool(os.environ.get("OLIGOARK_CODEC_PROGRESS_FILE"))
+        heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+        _progress_event("worker-start", method=args.method, size_bytes=args.size)
+        if progress_enabled:
+            heartbeat_thread.start()
+        try:
+            worker_rows = _worker(
+                args.method,
+                args.size,
+                args.redundancy,
+                trials,
+                conditions,
+                args.condition_timeout_seconds,
             )
-        )
+        except BaseException as exc:
+            _progress_event("worker-error", error_type=type(exc).__name__)
+            raise
+        else:
+            _progress_event("worker-complete", result_rows=len(worker_rows))
+        finally:
+            stop_heartbeat.set()
+            if progress_enabled:
+                heartbeat_thread.join(timeout=1.0)
+        print(json.dumps(worker_rows))
         return
 
     if args.size is not None:
