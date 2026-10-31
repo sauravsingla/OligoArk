@@ -5,8 +5,8 @@ from __future__ import annotations
 import binascii
 import struct
 import zlib
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator
 
 from .dna import (
     SequenceConstraintError,
