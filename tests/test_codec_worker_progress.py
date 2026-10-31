@@ -44,7 +44,8 @@ def test_progress_log_records_worker_rss_and_exact_trial_outcomes(
     ]
     assert all(event["peak_worker_rss_mib"] >= 0 for event in events)
     assert all(event["pid"] > 0 and event["timestamp_unix"] > 0 for event in events)
-    assert [event["outcome_recorded"] for event in events if event["event"] == "trial-exit"] == [True, True]
+    recorded = [event["outcome_recorded"] for event in events if event["event"] == "trial-exit"]
+    assert recorded == [True, True]
 
 
 def test_worker_lifecycle_preserves_machine_readable_stdout(
