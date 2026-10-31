@@ -70,3 +70,26 @@ def test_rotating_ternary_xor_recovers_one_loss_per_group() -> None:
     ]
 
     assert decode_rotating_ternary_baseline(archive, kept) == payload
+
+
+def test_dna_fountain_progress_is_diagnostic_only() -> None:
+    payload = b"dna fountain baseline" * 16
+    config = DnaFountainBaselineConfig(redundancy=2.0)
+    reference = encode_dna_fountain_baseline(payload, config)
+    observed: list[tuple[int, int, int]] = []
+    instrumented = encode_dna_fountain_baseline(
+        payload,
+        config,
+        progress=lambda accepted, attempts, target: observed.append(
+            (accepted, attempts, target)
+        ),
+    )
+
+    assert observed[0] == (0, 0, len(reference.sequences))
+    assert observed[-1] == (
+        len(instrumented.sequences),
+        instrumented.attempts,
+        len(instrumented.sequences),
+    )
+    assert instrumented == reference
+    assert decode_dna_fountain_baseline(instrumented) == payload
