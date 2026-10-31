@@ -41,18 +41,60 @@ jobs:
       # Leave time for always-run evidence checks and artifact upload if the
       # benchmark stalls; the failed benchmark step remains a failed job.
       - name: Run matched 100 MiB benchmark
-        timeout-minutes: ${{ matrix.method == 'dna-fountain-cleanroom' && 90 || 330 }}
+        timeout-minutes: ${{ matrix.method == 'dna-fountain-cleanroom' && 55 || 330 }}
         env:
           METHOD: ${{ matrix.method }}
         run: |
           OUT="matched-codec-100mib/${METHOD}"
-          python benchmarks/run_matched_codec_scale.py \
-            --profile research-100 \
-            --method "${METHOD}" \
-            --trials 10 \
-            --condition-timeout-seconds 300 \
-            --timeout-seconds 1800 \
-            --output "${OUT}"
+          mkdir -p "${OUT}"
+          CMD=(python benchmarks/run_matched_codec_scale.py
+            --profile research-100
+            --method "${METHOD}"
+            --trials 10
+            --condition-timeout-seconds 300
+            --timeout-seconds 1800
+            --output "${OUT}")
+          if [ "${METHOD}" = "dna-fountain-cleanroom" ]; then
+            # The previous 90-minute step lost its runner at ~71 minutes, before
+            # always() could upload artifacts. Stop the process earlier, while
+            # retaining an explicit FAILED run and measured peak process RSS.
+            started=$(date +%s)
+            set +e
+            /usr/bin/time -v -o "${OUT}/resource-usage.txt" \
+              timeout --signal=TERM --kill-after=30s 2400s "${CMD[@]}"
+            status=$?
+            set -e
+            if [ "${status}" -ne 0 ]; then
+              STATUS="${status}" ELAPSED="$(( $(date +%s) - started ))" OUT="${OUT}" \
+                python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          status = int(os.environ["STATUS"])
+          diagnostic = {
+              "method": "dna-fountain-cleanroom",
+              "size_bytes": 100 * 1024 * 1024,
+              "status": "incomplete",
+              "exit_code": status,
+              "possible_watchdog_timeout": status == 124,
+              "watchdog_seconds": 2400,
+              "elapsed_seconds": int(os.environ["ELAPSED"]),
+              "trial_outcomes_verified": False,
+              "git_sha": os.environ.get("GITHUB_SHA"),
+              "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
+              "note": "Worker ended without complete evidence; do not count unavailable trials as failed recoveries or passes.",
+          }
+          (Path(os.environ["OUT"]) / "interruption.json").write_text(
+              json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+              echo "::error::100 MiB fountain worker incomplete (exit ${status}); diagnostic and resource usage retained"
+              exit "${status}"
+            fi
+          else
+            "${CMD[@]}"
+          fi
           test -s "${OUT}/results.json"
           test -s "${OUT}/trial-results.json"
           test -s "${OUT}/metadata.json"
