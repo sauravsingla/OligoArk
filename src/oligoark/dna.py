@@ -32,14 +32,19 @@ def dna_to_bytes(sequence: str) -> bytes:
     sequence = sequence.strip().upper()
     if len(sequence) % 4:
         raise ValueError("DNA sequence length must be divisible by 4")
+    # Decode one four-base group at a time rather than allocating a full
+    # per-nucleotide integer list for every strand or repair candidate.
+    # The left-to-right lookups preserve the first-invalid-base error contract.
     try:
-        vals = [BASE_TO_BITS[base] for base in sequence]
+        return bytes(
+            (BASE_TO_BITS[sequence[i]] << 6)
+            | (BASE_TO_BITS[sequence[i + 1]] << 4)
+            | (BASE_TO_BITS[sequence[i + 2]] << 2)
+            | BASE_TO_BITS[sequence[i + 3]]
+            for i in range(0, len(sequence), 4)
+        )
     except KeyError as exc:
         raise ValueError(f"Invalid DNA base: {exc.args[0]!r}") from exc
-    return bytes(
-        (vals[i] << 6) | (vals[i + 1] << 4) | (vals[i + 2] << 2) | vals[i + 3]
-        for i in range(0, len(vals), 4)
-    )
 
 
 @dataclass(frozen=True)
