@@ -46,10 +46,12 @@ def measure(
     fingerprint = hashlib.sha256(fn(sequence)).hexdigest()
     for _ in range(repeats):
         started = time.perf_counter_ns()
+        last = b""
         for _ in range(loops):
-            if hashlib.sha256(fn(sequence)).hexdigest() != fingerprint:
-                raise RuntimeError("nondeterministic DNA decoding")
+            last = fn(sequence)
         timing_ns.append((time.perf_counter_ns() - started) / loops)
+        if hashlib.sha256(last).hexdigest() != fingerprint:
+            raise RuntimeError("nondeterministic DNA decoding")
         tracemalloc.start()
         output = fn(sequence)
         peaks.append(tracemalloc.get_traced_memory()[1])
