@@ -33,6 +33,33 @@ python -m pytest tests/test_performance_fastpaths.py tests/test_reconstruct.py t
 python -m cProfile -s cumulative benchmarks/run_graph_reconstruction_baseline.py --json
 ```
 
+## Matched Fountain droplet XOR microbenchmark
+
+The 100 MiB DNA Fountain encoder was interrupted during droplet screening,
+before any verified recovery trial. A proposed integer-XOR implementation
+has exact right-zero-padding parity tests, but **no measured 100 MiB speedup**.
+To isolate one plausible hot path, run the deterministic reference/candidate
+microbenchmark on the same machine and Python environment:
+
+```bash
+python benchmarks/run_fountain_xor_profile.py \
+  --seed 20261101 --operations 4096 --width 32 --repeats 7 \
+  --min-relative-ratio 0.75
+```
+
+It exercises mixed droplet degrees, empty chunks and short tail chunks,
+compares every output byte with the reference `xor_bytes`, alternates
+measurement order, and records each elapsed sample, median ratio, SHA-256
+fingerprint, traced Python allocation peaks, and whole-process peak RSS.
+The CI gate rejects a reference/integer median ratio below 0.75 (a generous
+relative tolerance); it does **not** impose an absolute runner-time limit.
+The candidate is measured as a standalone function rather than through the
+production encoder, so future changes to production must be checked for
+parity separately. This is a synthetic XOR-only comparison: it does not
+measure GC screening, Reed-Solomon encoding, end-to-end throughput,
+isolated worker RSS, codec decoding, exact 100 MiB recovery, 1 GiB storage,
+or physical DNA performance. Preserve complete negative codec results.
+
 ## Measured graph/consensus performance baseline
 
 Run the fixed-seed benchmark on both checked-out revisions using identical

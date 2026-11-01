@@ -123,6 +123,12 @@ jobs:
         run: |
           python benchmarks/run_graph_memory_profile.py --output performance-results/graph.json
           test -s performance-results/graph.json
+      - name: Validate matched Fountain XOR parity and relative timing gate
+        run: |
+          python benchmarks/run_fountain_xor_profile.py \
+            --seed 20261101 --operations 4096 --repeats 7 \
+            --min-relative-ratio 0.75
+          test -s performance-results/fountain-xor.json
       - name: Verify Reed-Solomon locator parity and generous relative timing bound
         run: |
           python benchmarks/run_rs_locator_profile.py --seed 20261030 --repeats 5
