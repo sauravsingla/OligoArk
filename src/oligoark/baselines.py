@@ -146,7 +146,14 @@ def encode_dna_fountain_baseline(
         progress(0, 0, target)
     while len(accepted) < target and attempts < max_attempts:
         indexes = _droplet_indexes(len(chunks), seed, resolved.c, resolved.delta)
-        payload = xor_bytes([chunks[index] for index in indexes], resolved.chunk_size)
+        # Integer XOR avoids constructing a temporary list of padded byte strings.
+        # Preserve the reference XOR's right-zero-padding semantics exactly.
+        payload_value = 0
+        for index in indexes:
+            chunk = chunks[index]
+            shift = 8 * (resolved.chunk_size - len(chunk))
+            payload_value ^= int.from_bytes(chunk, "big") << shift
+        payload = payload_value.to_bytes(resolved.chunk_size, "big")
         sequence = bytes_to_dna(
             rs_encode(seed.to_bytes(4, "big") + payload, resolved.rs_nsym)
         )
