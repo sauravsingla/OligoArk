@@ -102,3 +102,45 @@ thresholds without controlled evidence of deterministic benefit.
 
 This software benchmark is not a physical DNA-storage experiment, and the
 1 GiB exact-recovery milestone remains unverified.
+
+## New 100 MiB OligoArk codec results (2026-11-01; run still incomplete)
+
+[Main research run 41270450630](https://github.com/sauravsingla/OligoArk/actions/runs/41270450630)
+used commit `c40ae00540d5711e7607af92c9e7a0e80a64f0e6`, Python 3.13,
+100 MiB deterministic payloads, ten trials per channel condition and a
+300-second per-trial deadline. The two OligoArk methods completed and
+uploaded their full trial-accounting artifacts; the jobs' **green** status
+means that all outcomes, including failures, were retained, **not** that
+recovery succeeded in all conditions.
+
+| Method | Clean | Dropout 1% | Dropout 5% | Substitution-low | Indel-low | Mixed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| OligoArk compact hybrid | 10/10 | 0/10 | 0/10 | 0/10 (10 timeouts) | 0/10 (10 timeouts) | 0/10 (10 timeouts) |
+| OligoArk compact v3 hybrid | 10/10 | 10/10 | 1/10 | 0/10 | 0/10 (10 timeouts) | 2/10 |
+
+Each cell is a count of SHA-256-verified exact recoveries, not a throughput
+measurement. Timeout counts are explicitly reported; other zero-success
+cells are failures without a per-trial timeout in the summarized log.
+The two source job logs and retained artifacts are
+[compact hybrid](https://github.com/sauravsingla/OligoArk/actions/runs/41270450630/job/124741960917)
+and [compact v3 hybrid](https://github.com/sauravsingla/OligoArk/actions/runs/41270450630/job/124741961082).
+At 100 MiB, all 10 indel-low trials for each OligoArk method still time out
+during decoding. Interrupted frames span DNA conversion, Reed-Solomon,
+mask/framing and (for compact hybrid) fountain peeling; these samples
+cannot establish a CPU hotspot or justify a speedup claim.
+
+The same run's
+[DNA Fountain job](https://github.com/sauravsingla/OligoArk/actions/runs/41270450630/job/124741961099)
+again exited 124 after the 2,400-second encoding watchdog without
+`results.json` or a verified trial. Its failed status is correct. The
+Goldman job was still running when the two OligoArk results above were
+reviewed, so no cross-codec final ranking is asserted here.
+
+These results demonstrate 100 MiB **clean** exact recovery for both OligoArk
+methods and selected noisy-condition recovery for compact v3, but not
+universal 100 MiB robustness, 100 MiB Fountain completion, a before/after
+performance gain, physical DNA recovery, or a 1 GiB SHA-256 milestone.
+The next optimization should be driven by repeated matched CPU and RSS
+profiles on the failing 100 MiB indel-low/mixed seeds; retain all failures
+and existing deadlines, then run randomized parity and end-to-end exact
+recovery checks before any production change.
