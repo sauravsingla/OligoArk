@@ -16,8 +16,8 @@ import resource
 import statistics
 import time
 import tracemalloc
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from oligoark.ecc import xor_bytes
 
