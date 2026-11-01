@@ -17,9 +17,9 @@ import random
 import struct
 import zlib
 from collections import deque
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from functools import lru_cache
-from typing import Callable
 
 from .dna import SequenceConstraints, bytes_to_dna, dna_to_bytes
 from .ecc import rs_decode, rs_encode, xor_bytes
