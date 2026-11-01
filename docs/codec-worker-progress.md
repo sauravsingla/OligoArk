@@ -21,7 +21,7 @@ python benchmarks/run_matched_codec_scale.py --profile ci \
 
 This is diagnostic instrumentation, **not a codec speedup**. The heartbeat can sample memory during an encoding stall; its maximum observed value is a lower bound on actual process peak RSS between samples. It excludes descendant processes and operating-system page cache. An event indicating a trial started or exited is **not** a verified trial result: only retained `results.json`, complete trial accounting, and SHA-256 exact-recovery verdicts support such claims. When a worker is terminated, incomplete trials remain unverified and validation must fail. A missing/unwritable optional progress file emits a warning without changing codec outcomes.
 
-The existing 10 MiB indel-low and mixed-noise timeout failures remain unresolved. The 100 MiB baseline has not demonstrated complete exact recovery, and no 1 GiB exact-recovery or physical DNA storage claim is established. Use phase and RSS evidence to prioritize further profiling before any algorithm or deadline changes.
+The existing 10 MiB indel-low and mixed-noise timeout failures remain unresolved. The 100 MiB baseline has not demonstrated complete exact recovery, and no 1 GiB matched 152-nt codec exact-recovery or physical DNA storage claim is established. Use phase and RSS evidence to prioritize further profiling before any algorithm or deadline changes.
 
 ## Encoding-screening diagnostics
 
@@ -101,7 +101,7 @@ Do not introduce parallel reconstruction, caching, or relaxed CI timing
 thresholds without controlled evidence of deterministic benefit.
 
 This software benchmark is not a physical DNA-storage experiment, and the
-1 GiB exact-recovery milestone remains unverified.
+1 GiB matched 152-nt codec exact-recovery milestone remains unverified.
 
 ## New 100 MiB OligoArk codec results (2026-11-01; run still incomplete)
 
@@ -139,8 +139,12 @@ reviewed, so no cross-codec final ranking is asserted here.
 These results demonstrate 100 MiB **clean** exact recovery for both OligoArk
 methods and selected noisy-condition recovery for compact v3, but not
 universal 100 MiB robustness, 100 MiB Fountain completion, a before/after
-performance gain, physical DNA recovery, or a 1 GiB SHA-256 milestone.
+performance gain, physical DNA recovery, or a 1 GiB matched 152-nt codec SHA-256 milestone.
 The next optimization should be driven by repeated matched CPU and RSS
 profiles on the failing 100 MiB indel-low/mixed seeds; retain all failures
 and existing deadlines, then run randomized parity and end-to-end exact
 recovery checks before any production change.
+
+## Scope clarification after the 1 GiB storage acceptance run
+
+The separate [2026-11-01 1 GiB software streaming-storage acceptance](results/storage-scale-1gib-2026-11-01.md) passed exact SHA-256 recovery under clean, controlled 1% dropout and controlled 5% dropout with the relaxed-constraint `scale-1024` profile. That result does **not** resolve the 152-nt matched-codec indel-low/mixed timeouts or demonstrate 1 GiB noisy matched-codec or physical DNA archive recovery. The negative results above remain valid.
