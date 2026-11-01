@@ -75,7 +75,9 @@ records logical bits/nt, total encoded nt, strand count, redundancy, binary arch
 encode/decode throughput, wall time, peak RSS, interpreter baseline RSS, RSS growth,
 constraint sampling and detailed recovery counters.
 
-The [2026-11-01 1 GiB storage acceptance report](results/storage-scale-1gib-2026-11-01.md) records a passing scheduled GitHub Actions run with exact SHA-256 recovery under clean, controlled 1% dropout and controlled 5% dropout. It includes per-condition latency, throughput, peak RSS, artifact hashes, and negative-result limitations. This is the relaxed-constraint software streaming profile, **not** a 1 GiB noisy 152-nt matched-codec or wet-lab validation.\n\n## Realistic-strand noise matrix
+The [2026-11-01 1 GiB storage acceptance report](results/storage-scale-1gib-2026-11-01.md) records a passing scheduled GitHub Actions run with exact SHA-256 recovery under clean, controlled 1% dropout and controlled 5% dropout. It includes per-condition latency, throughput, peak RSS, artifact hashes, and negative-result limitations. This is the relaxed-constraint software streaming profile, **not** a 1 GiB noisy 152-nt matched-codec or wet-lab validation.
+
+## Realistic-strand noise matrix
 
 The `physical` profile uses `oligoark-248` with 8 Reed-Solomon symbols and runs a
 64 KiB heterogeneous payload across:
