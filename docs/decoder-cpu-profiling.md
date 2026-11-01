@@ -13,10 +13,10 @@ python -m pip install -e ".[dev,bench]"
 mkdir -p performance-results/decoder-cpu
 OLIGOARK_CODEC_CPROFILE_DIR=performance-results/decoder-cpu \
   python benchmarks/run_matched_codec_scale.py \
-    --profile research-10 --method oligoark-compact-v3-hybrid \
+    --worker --profile research-10 --method oligoark-compact-v3-hybrid \
     --size 10485760 --conditions indel-low,mixed \
     --trials 3 --condition-timeout-seconds 300 \
-    --output performance-results/decoder-research-10
+    > performance-results/decoder-research-10.json
 python -m pstats performance-results/decoder-cpu/oligoark-compact-v3-hybrid-indel-low-trial-0.prof
 ```
 
