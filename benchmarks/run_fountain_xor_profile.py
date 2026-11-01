@@ -128,7 +128,9 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=32)
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--min-relative-ratio", type=float, default=0.75)
-    parser.add_argument("--output", type=Path, default=Path("performance-results/fountain-xor.json"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("performance-results/fountain-xor.json")
+    )
     args = parser.parse_args()
 
     result = profile(args.seed, args.operations, args.width, args.repeats)
