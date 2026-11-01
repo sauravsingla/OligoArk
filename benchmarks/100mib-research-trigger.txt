@@ -3,3 +3,12 @@
 This marker intentionally triggers .github/workflows/codec-100mib-research.yml after
 the validated indel-recovery changes merge to main. Update this file to request a
 future deliberate rerun. The benchmark retains all negative trials and timeouts.
+
+2026-11-01: Deliberate 100 MiB recheck after PR #70 (3e60616fdb88cbbb58bc881a12615738e5ecaffb).
+The previous main run 41247188001 timed out during clean-room DNA Fountain
+encoding after 2,400 seconds, before verified trials. PR #70 added opt-in
+accepted/attempted droplet progress and sampled worker RSS diagnostics without
+changing encoding, decoding, screening, recovery criteria or watchdog budgets.
+This marker requests a new main-branch research run to collect screening-rate
+and memory evidence. A timed-out or incomplete run must remain failed; do not
+claim exact recovery, throughput improvement or codec success from heartbeats.
