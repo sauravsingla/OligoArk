@@ -103,8 +103,32 @@ def rs_encode(data: bytes, nsym: int) -> bytes:
     return bytes(out)
 
 
+@lru_cache(maxsize=32)
+def _syndrome_multipliers(nsym: int) -> tuple[bytes, ...]:
+    """Precompute GF multiplication by each fixed RS syndrome evaluation point.
+
+    The tables are immutable and shared by codewords with the same parity
+    profile. Zero is mapped explicitly because the GF logarithm of zero is
+    undefined. All values are identical to _gf_mul(value, _gf_pow(2, i)).
+    """
+    return tuple(
+        bytes(
+            _GF_EXP[_GF_LOG[value] + (i % 255)] if value else 0
+            for value in range(256)
+        )
+        for i in range(nsym)
+    )
+
+
 def _syndromes(msg: bytes | bytearray, nsym: int) -> list[int]:
-    return [0] + [_poly_eval(msg, _gf_pow(2, i)) for i in range(nsym)]
+    """Evaluate all RS syndromes without per-symbol Python GF calls."""
+    syndromes = [0]
+    for multiply in _syndrome_multipliers(nsym):
+        value = msg[0]
+        for coefficient in msg[1:]:
+            value = multiply[value] ^ coefficient
+        syndromes.append(value)
+    return syndromes
 
 
 def _find_error_locator(synd: list[int], nsym: int) -> list[int]:
