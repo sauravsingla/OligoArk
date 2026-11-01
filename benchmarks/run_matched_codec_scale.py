@@ -8,6 +8,7 @@ strand-length, redundancy, seed and SHA-256 success constraints.
 from __future__ import annotations
 
 import argparse
+import cProfile
 import csv
 import hashlib
 import json
@@ -55,6 +56,26 @@ METHODS = (
 FULL_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB)
 SCALE_SIZES = (1 * KIB, 64 * KIB, 1 * MIB, 10 * MIB, 100 * MIB)
 RESEARCH_SIZES = (10 * MIB, 100 * MIB)
+
+
+def _profiled_decode(decode: Any, reads: Any, method: str, condition: str, trial: int) -> Any:
+    """Opt-in per-trial CPU profile; retain partial data on timeout or error.
+
+    Profiling adds overhead and is not suitable for comparing unprofiled
+    recovery rates or latency against the same fixed deadline.
+    """
+    destination = os.environ.get("OLIGOARK_CODEC_CPROFILE_DIR")
+    if not destination:
+        return decode(reads)
+    directory = Path(destination)
+    directory.mkdir(parents=True, exist_ok=True)
+    profile = cProfile.Profile()
+    profile.enable()
+    try:
+        return decode(reads)
+    finally:
+        profile.disable()
+        profile.dump_stats(str(directory / f"{method}-{condition}-trial-{trial}.prof"))
 
 
 def _peak_rss_mib() -> float:
@@ -214,7 +235,9 @@ def _condition_row(
                 error: str | None = None
                 success = False
                 try:
-                    recovered = decode(reads)
+                    recovered = _profiled_decode(
+                        decode, reads, method, condition_name, trial
+                    )
                     success = recovered == payload
                     successes += int(success)
                 except ValueError as exc:
