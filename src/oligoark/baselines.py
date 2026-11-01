@@ -151,7 +151,8 @@ def encode_dna_fountain_baseline(
         payload_value = 0
         for index in indexes:
             chunk = chunks[index]
-            payload_value ^= int.from_bytes(chunk, "big") << (8 * (resolved.chunk_size - len(chunk)))
+            shift = 8 * (resolved.chunk_size - len(chunk))
+            payload_value ^= int.from_bytes(chunk, "big") << shift
         payload = payload_value.to_bytes(resolved.chunk_size, "big")
         sequence = bytes_to_dna(
             rs_encode(seed.to_bytes(4, "big") + payload, resolved.rs_nsym)
