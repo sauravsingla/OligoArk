@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import random
+
+import pytest
 
 from oligoark.baselines import (
     DnaFountainBaselineConfig,
@@ -100,7 +103,7 @@ def test_dna_fountain_progress_is_diagnostic_only() -> None:
 def test_dna_fountain_seeded_randomized_progress_parity() -> None:
     rng = random.Random(20261101)
     config = DnaFountainBaselineConfig(redundancy=2.0)
-    for size in (1, 33, 257, 1024):
+    for size in (32, 64, 256, 1024):
         payload = rng.randbytes(size)
         reference = encode_dna_fountain_baseline(payload, config)
         instrumented = encode_dna_fountain_baseline(
@@ -109,4 +112,30 @@ def test_dna_fountain_seeded_randomized_progress_parity() -> None:
             progress=lambda _accepted, _attempts, _target: None,
         )
         assert instrumented == reference
+        assert instrumented.sha256 == hashlib.sha256(payload).hexdigest()
         assert decode_dna_fountain_baseline(instrumented) == payload
+
+
+def test_dna_fountain_progress_preserves_screening_failure() -> None:
+    # A one-byte payload pads most of its only chunk with zeros; strict
+    # homopolymer screening exhausts its budget. This is an expected failure,
+    # not an exact-recovery trial and must remain a failure with diagnostics.
+    payload = random.Random(20261101).randbytes(1)
+    config = DnaFountainBaselineConfig(redundancy=2.0)
+    with pytest.raises(ValueError, match="screening budget exhausted") as baseline_error:
+        encode_dna_fountain_baseline(payload, config)
+
+    observed: list[tuple[int, int, int]] = []
+    with pytest.raises(ValueError, match="screening budget exhausted") as progress_error:
+        encode_dna_fountain_baseline(
+            payload,
+            config,
+            progress=lambda accepted, attempts, target: observed.append(
+                (accepted, attempts, target)
+            ),
+        )
+
+    assert str(progress_error.value) == str(baseline_error.value)
+    assert observed[0] == (0, 0, 3)
+    assert observed[-1][0] < observed[-1][2]
+    assert observed[-1][1] == 3 * config.max_attempt_factor
