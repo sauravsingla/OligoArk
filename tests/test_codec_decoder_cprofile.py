@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from run_matched_codec_scale import _profiled_decode
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from run_matched_codec_scale import _profiled_decode  # noqa: E402
 
 
 def test_profiled_decode_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
