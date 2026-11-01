@@ -41,22 +41,22 @@ unchanged. No event is expected if the worker is killed before initialization.
 ## Measured 100 MiB screening failure and 10 MiB recovery limits (2026-11-01)
 
 Evidence: [main workflow run 41270450630](https://github.com/sauravsingla/OligoArk/actions/runs/41270450630), commit
-\`c40ae00540d5711e7607af92c9e7a0e80a64f0e6\`, artifact
-\`matched-codec-100mib-dna-fountain-cleanroom-41270450630\`
+`c40ae00540d5711e7607af92c9e7a0e80a64f0e6`, artifact
+`matched-codec-100mib-dna-fountain-cleanroom-41270450630`
 ([artifact 13069669297](https://github.com/sauravsingla/OligoArk/actions/runs/41270450630/artifacts/13069669297)).
 The benchmark used a deterministic 100 MiB payload, the unmodified clean-room
 Fountain screening policy, and a 2,400-second external watchdog. It exited
-124 during **encoding** and never produced \`results.json\` or any verified
+124 during **encoding** and never produced `results.json` or any verified
 channel trial. The workflow correctly marks this job failed.
 
-The retained \`worker-progress.jsonl\` contains 393 JSON Lines records:
-230 \`fountain-encode-progress\` events, 159 worker heartbeats, and four
+The retained `worker-progress.jsonl` contains 393 JSON Lines records:
+230 `fountain-encode-progress` events, 159 worker heartbeats, and four
 startup/payload/encoding phase events. At the last progress event, about
 2,397.45 seconds after worker start, screening had attempted **15,007,744**
 droplets and accepted **1,850,418** of **4,096,000** targeted droplets
 (**12.3298%** acceptance; **45.18%** of the target). The sampled worker
 high-water RSS was **1,048.605 MiB**. This is the Python worker's own
-reported high-water RSS, not the outer \`/usr/bin/time\` wrapper's
+reported high-water RSS, not the outer `/usr/bin/time` wrapper's
 26 MiB figure. The last sample precedes termination; actual peak RSS could
 be higher. The encoder was incomplete, so encode throughput, decode
 throughput, exact recovery, and a 100 MiB success rate are **not measured**.
@@ -65,7 +65,7 @@ progress records.
 
 Reproduce the **artifact analysis** without re-running the expensive benchmark:
 
-\`\`\`python
+```python
 import json
 from pathlib import Path
 
@@ -78,10 +78,10 @@ assert last["attempted_droplets"] == 15_007_744
 assert last["target_droplets"] == 4_096_000
 assert last["peak_worker_rss_mib"] == 1048.605
 print(last["accepted_droplets"] / last["target_droplets"])
-\`\`\`
+```
 
 The independent [10 MiB codec validation run 41259949586](https://github.com/sauravsingla/OligoArk/actions/runs/41259949586)
-(commit \`55ee92499beade8e792421563e78a369bb324c72\`, ten trials per
+(commit `55ee92499beade8e792421563e78a369bb324c72`, ten trials per
 condition, 75-second per-trial deadline) retained complete negative and
 positive trial outcomes:
 
@@ -90,9 +90,9 @@ positive trial outcomes:
 | OligoArk compact hybrid | 10/10 | 0/10 | 0/10 | 0/10 | 0/10 (10 timeouts) | 0/10 (10 timeouts) |
 | OligoArk compact v3 hybrid | 10/10 | 10/10 | 10/10 | 9/10 | 0/10 (10 timeouts) | 9/10 |
 
-These are exact-recovery successes from the retained \`results.json\` rows;
+These are exact-recovery successes from the retained `results.json` rows;
 a timeout is a failed trial, not an omitted trial. The interrupted stacks
-cluster across \`dna.py\`, \`ecc.py\`, and \`framing.py\`, but a single stack
+cluster across `dna.py`, `ecc.py`, and `framing.py`, but a single stack
 per deadline is not enough to attribute CPU time to a specific function.
 Before optimizing indel handling, collect repeated matched CPU/RSS profiles
 on the same seeds and noise conditions, preserve the 75-second limit and
