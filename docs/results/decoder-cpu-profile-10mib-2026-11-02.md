@@ -43,6 +43,7 @@ The `cProfile` cumulative totals are **inclusive** (nested callers overlap); do 
 ```bash
 python -m pip install -e ".[dev,bench]"
 pytest -q tests/test_codec_decoder_cprofile.py tests/test_matched_codec_runtime.py tests/test_streaming.py
+mkdir -p decoder-profile-results/profiles
 export OLIGOARK_CODEC_CPROFILE_DIR="$PWD/decoder-profile-results/profiles"
 export OLIGOARK_CODEC_PROGRESS_FILE="$PWD/decoder-profile-results/progress.jsonl"
 python benchmarks/run_matched_codec_scale.py --worker --profile research-10 \
