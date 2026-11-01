@@ -22,3 +22,17 @@ python benchmarks/run_matched_codec_scale.py --profile ci \
 This is diagnostic instrumentation, **not a codec speedup**. The heartbeat can sample memory during an encoding stall; its maximum observed value is a lower bound on actual process peak RSS between samples. It excludes descendant processes and operating-system page cache. An event indicating a trial started or exited is **not** a verified trial result: only retained `results.json`, complete trial accounting, and SHA-256 exact-recovery verdicts support such claims. When a worker is terminated, incomplete trials remain unverified and validation must fail. A missing/unwritable optional progress file emits a warning without changing codec outcomes.
 
 The existing 10 MiB indel-low and mixed-noise timeout failures remain unresolved. The 100 MiB baseline has not demonstrated complete exact recovery, and no 1 GiB exact-recovery or physical DNA storage claim is established. Use phase and RSS evidence to prioritize further profiling before any algorithm or deadline changes.
+
+## Encoding-screening diagnostics
+
+The clean-room DNA Fountain encoder can spend its full 2,400-second 100 MiB
+watchdog in encoding before a single channel trial starts. When the worker
+progress file is enabled, the baseline now records `fountain-encode-progress`
+events at the start, every 65,536 screened droplet attempts, and on completion.
+Each event includes accepted droplets, attempted droplets, target droplets,
+acceptance rate, and sampled worker peak RSS. These are **incomplete progress
+measurements**, not verified recoveries or evidence of a speedup. The callback
+is opt-in, and the parity test compares the exact encoded archive with and
+without instrumentation, followed by exact decoding. The existing watchdog,
+negative-result accounting, screening constraints and SHA-256 gate remain
+unchanged. No event is expected if the worker is killed before initialization.
