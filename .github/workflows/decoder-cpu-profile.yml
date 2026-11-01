@@ -1,0 +1,137 @@
+name: Focused decoder CPU profile (research only)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/decoder-cpu-profile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  indel-mixed-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        method:
+          - oligoark-compact-hybrid
+          - oligoark-compact-v3-hybrid
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev,bench]"
+      - name: Verify profiling, deadline accounting and exact-recovery tests
+        run: pytest -q tests/test_codec_decoder_cprofile.py tests/test_matched_codec_runtime.py tests/test_streaming.py
+      - name: Capture focused 10 MiB decoder CPU profiles
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          OUT="decoder-profile-results/${METHOD}"
+          mkdir -p "${OUT}/profiles"
+          export OLIGOARK_CODEC_CPROFILE_DIR="${PWD}/${OUT}/profiles"
+          export OLIGOARK_CODEC_PROGRESS_FILE="${PWD}/${OUT}/progress.jsonl"
+          # The worker uses the same payload, seeds, 152-nt ceiling, 25%
+          # redundancy, noise and 75-second per-trial deadline as the
+          # unprofiled 10 MiB PR validation. Profiling overhead is material:
+          # these timings/recovery rates MUST NOT be compared as speedups.
+          python benchmarks/run_matched_codec_scale.py \
+            --worker --profile research-10 \
+            --method "${METHOD}" --size 10485760 \
+            --conditions indel-low,mixed --trials 2 \
+            --condition-timeout-seconds 75 > "${OUT}/rows.json"
+      - name: Validate complete evidence and summarize CPU hot paths
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          python - "${METHOD}" <<'PY'
+          import contextlib
+          import hashlib
+          import io
+          import json
+          import pstats
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          method = sys.argv[1]
+          root = Path("decoder-profile-results") / method
+          rows = json.loads((root / "rows.json").read_text())
+          if len(rows) != 2 or {r["condition"] for r in rows} != {"indel-low", "mixed"}:
+              raise SystemExit("incomplete or duplicated condition rows")
+          report = {
+              "method": method,
+              "repository_sha": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "payload_size_bytes": 10485760,
+              "trials_per_condition": 2,
+              "trial_seeds": [20260000, 20260001],
+              "condition_timeout_seconds": 75,
+              "profiling_overhead": (
+                  "cProfile changes wall time and possibly recovery outcomes; "
+                  "no profiled/unprofiled speedup or recovery comparison is valid"
+              ),
+              "conditions": {},
+              "profile_sha256": {},
+          }
+          for row in rows:
+              trials = row["trial_results"]
+              if (
+                  row["trials"] != 2
+                  or len(trials) != 2
+                  or sorted(t["trial"] for t in trials) != [0, 1]
+                  or row["completed_trials"] + row["timeout_trials"] != 2
+                  or row["successes"] + row["failed_trials"] != 2
+              ):
+                  raise SystemExit("incomplete trial accounting")
+              for trial in trials:
+                  if trial["seed"] != 20260000 + trial["trial"]:
+                      raise SystemExit("trial seed mismatch")
+                  if bool(trial["success"]) != bool(trial["sha256_verified"]):
+                      raise SystemExit("exact SHA-256 success accounting mismatch")
+                  if trial.get("timed_out") and (
+                      trial["success"] or trial["sha256_verified"]
+                  ):
+                      raise SystemExit("timeout incorrectly marked successful")
+              report["conditions"][row["condition"]] = {
+                  "successes": row["successes"],
+                  "failed_trials": row["failed_trials"],
+                  "timeout_trials": row["timeout_trials"],
+                  "encode_seconds": row["encode_seconds"],
+                  "mean_decode_seconds": row["mean_decode_seconds"],
+                  "peak_rss_mib": row["peak_rss_mib"],
+              }
+          profiles = sorted((root / "profiles").glob("*.prof"))
+          for profile in profiles:
+              report["profile_sha256"][profile.name] = hashlib.sha256(
+                  profile.read_bytes()
+              ).hexdigest()
+              output = io.StringIO()
+              with contextlib.redirect_stdout(output):
+                  pstats.Stats(str(profile)).strip_dirs().sort_stats(
+                      "cumulative"
+                  ).print_stats(30)
+              (root / (profile.name + ".top30.txt")).write_text(
+                  output.getvalue(), encoding="utf-8"
+              )
+          (root / "summary.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Retain complete or interrupted diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: decoder-cpu-${{ matrix.method }}-${{ github.run_id }}
+          path: decoder-profile-results/
+          if-no-files-found: warn
+          retention-days: 90
