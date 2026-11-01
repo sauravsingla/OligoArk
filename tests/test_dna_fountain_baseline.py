@@ -102,7 +102,12 @@ def test_dna_fountain_progress_is_diagnostic_only() -> None:
 
 def test_dna_fountain_seeded_randomized_progress_parity() -> None:
     rng = random.Random(20261101)
-    config = DnaFountainBaselineConfig(redundancy=2.0)
+    # Isolate callback/archive parity from strict biochemical screening, which
+    # can reject every seed for some short random payloads. Strict screening
+    # success and budget exhaustion are verified in separate tests.
+    config = DnaFountainBaselineConfig(
+        redundancy=5.0, gc_tolerance=0.5, max_homopolymer=152
+    )
     for size in (32, 64, 256, 1024):
         payload = rng.randbytes(size)
         reference = encode_dna_fountain_baseline(payload, config)
