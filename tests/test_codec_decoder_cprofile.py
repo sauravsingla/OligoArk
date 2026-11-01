@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import cProfile
+import pstats
+import sys
 from pathlib import Path
 
 import pytest
-
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from run_matched_codec_scale import _profiled_decode  # noqa: E402
@@ -34,6 +33,6 @@ def test_profiled_decode_retains_success_and_failure(
     for trial in (0, 1):
         path = tmp_path / f"method-indel-low-trial-{trial}.prof"
         assert path.is_file()
-        profile = cProfile.Profile()
-        profile.load_stats(str(path))
-        assert profile.getstats()
+        stats = pstats.Stats(str(path))
+        assert stats.total_calls > 0
+        assert stats.stats
