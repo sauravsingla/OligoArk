@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import math
 import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -33,7 +34,7 @@ class OptimizationWeights:
     lifecycle_latency: float = 0.02
 
     def validate(self) -> None:
-        if any(value < 0 for value in vars(self).values()):
+        if any(not math.isfinite(value) or value < 0 for value in vars(self).values()):
             raise ValueError("optimization weights must be non-negative")
         if sum(vars(self).values()) <= 0:
             raise ValueError("at least one optimization weight must be positive")
@@ -84,7 +85,7 @@ class LifecycleObjectiveInputs:
     retrieval_latency_hours: float
 
     def validate(self) -> None:
-        if any(value < 0 for value in vars(self).values()):
+        if any(not math.isfinite(value) or value < 0 for value in vars(self).values()):
             raise ValueError("lifecycle objective inputs must be non-negative")
 
 
@@ -114,6 +115,11 @@ class CodecSearchSpace:
             raise ValueError("search space constraint/reconstruction dimensions must not be empty")
         if self.max_candidates < 1:
             raise ValueError("max_candidates must be positive")
+        if any(
+            not math.isfinite(value) or not 0.0 <= value <= 5.0
+            for value in self.fountain_redundancies
+        ):
+            raise ValueError("fountain_redundancies must be finite and between 0 and 5")
         if self.search_method not in {"balanced", "balanced_robust", "full_grid"}:
             raise ValueError(
                 "search_method must be 'balanced', 'balanced_robust', or 'full_grid'"

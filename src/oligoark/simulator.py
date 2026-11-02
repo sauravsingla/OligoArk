@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 
@@ -22,7 +23,7 @@ class SimulationConfig:
         for name, value in vars(self).items():
             if name in {"seed", "copies_per_strand"}:
                 continue
-            if not 0.0 <= value <= 1.0:
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
         if not 1 <= self.copies_per_strand <= 32:
             raise ValueError("copies_per_strand must be between 1 and 32")

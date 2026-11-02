@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 
 
@@ -14,7 +15,7 @@ class ChannelProfile:
 
     def validate(self) -> None:
         for name, value in vars(self).items():
-            if not 0.0 <= value <= 1.0:
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
 
     @property
@@ -30,7 +31,7 @@ class PolicyObjective:
 
     def validate(self) -> None:
         for name, value in vars(self).items():
-            if not 0.0 <= value <= 1.0:
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
         if sum(vars(self).values()) <= 0:
             raise ValueError("At least one policy objective priority must be positive")

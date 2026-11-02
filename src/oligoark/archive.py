@@ -82,7 +82,10 @@ class ArchiveConfig:
             raise ValueError(
                 f"redundancy_scheme must be one of {sorted(_REDUNDANCY_SCHEMES)}"
             )
-        if not 0.0 <= self.fountain_redundancy <= 5.0:
+        if (
+            not math.isfinite(self.fountain_redundancy)
+            or not 0.0 <= self.fountain_redundancy <= 5.0
+        ):
             raise ValueError("fountain_redundancy must be between 0 and 5")
         if not 0 <= self.fountain_seed <= 0xFFFFFFFF:
             raise ValueError("fountain_seed must fit in an unsigned 32-bit integer")
