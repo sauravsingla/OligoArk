@@ -1,0 +1,63 @@
+name: Whitening mask exact parity and timing (research)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/whitening-mask-profile.yml"
+      - "src/oligoark/framing.py"
+      - "tests/test_whitening_mask_cache.py"
+      - "benchmarks/run_whitening_mask_profile.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/whitening-mask-profile.yml"
+      - "src/oligoark/framing.py"
+      - "tests/test_whitening_mask_cache.py"
+      - "benchmarks/run_whitening_mask_profile.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  whitening-parity-and-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . pytest
+      - name: Verify exact masks, bounded cache and archive recovery
+        run: |
+          pytest -q tests/test_whitening_mask_cache.py \
+            tests/test_extended_inline_masks.py tests/test_indel_candidate_streaming.py
+      - name: Measure identical whitening bytes with alternating order
+        run: |
+          python benchmarks/run_whitening_mask_profile.py \
+            --seed 20261102 --cases-per-length 512 --repeats 7 \
+            --output performance-results/whitening-mask.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("performance-results/whitening-mask.json").read_text())
+          if report["exact_byte_parity"] is not True:
+              raise SystemExit("Original and cached whitening bytes differ")
+          if report["cache_info"]["currsize"] > 1024:
+              raise SystemExit("Whitening pad cache exceeds configured size")
+          ratio = report["reference_over_cached_wall_ratio"]
+          # A forgiving relative regression gate, not a speedup claim.
+          if ratio < 0.75:
+              raise SystemExit(f"Whitening relative timing regression: {ratio:.3f}x")
+          print(f"Exact whitening parity verified, relative wall ratio {ratio:.3f}x")
+          PY
+      - name: Retain independently reproducible measurements
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: whitening-mask-benchmark-${{ github.run_id }}
+          path: performance-results/whitening-mask.json
+          if-no-files-found: error
+          retention-days: 90

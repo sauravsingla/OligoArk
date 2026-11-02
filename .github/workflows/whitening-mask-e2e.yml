@@ -1,0 +1,122 @@
+name: Whitening cache matched 10 MiB noisy-codec research
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/whitening-mask-e2e.yml"
+      - "src/oligoark/framing.py"
+      - "benchmarks/compare_rs_lookup_e2e.py"
+      - "benchmarks/run_matched_codec_scale.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two distinct revisions on the same runner; evidence-only, no speedup claims.
+concurrency:
+  group: whitening-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  matched-unprofiled-whitening-10mib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        method:
+          - oligoark-compact-hybrid
+          - oligoark-compact-v3-hybrid
+    env:
+      BASELINE_SHA: bce161496bdee8465d9805091a53ef28c5c177ad
+      OPTIMIZED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Check out experimental harness
+        uses: actions/checkout@v5
+        with:
+          path: harness
+      - name: Check out pinned pre-whitening-optimization baseline
+        uses: actions/checkout@v5
+        with:
+          ref: bce161496bdee8465d9805091a53ef28c5c177ad
+          path: baseline
+      - name: Check out candidate optimization from triggering revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: optimized
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Verify provenance and isolate Python environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C baseline rev-parse HEAD)" = "${BASELINE_SHA}"
+          test "$(git -C optimized rev-parse HEAD)" = "${OPTIMIZED_SHA}"
+          python -m venv .venv-baseline
+          python -m venv .venv-optimized
+          .venv-baseline/bin/python -m pip install -e './baseline[bench]'
+          .venv-optimized/bin/python -m pip install -e './optimized[bench]'
+          test -z "${OLIGOARK_CODEC_CPROFILE_DIR:-}"
+      - name: Run unchanged-deadline 10 MiB alternating-order trials
+        shell: bash
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          ROOT="${GITHUB_WORKSPACE}/comparison-results/${METHOD}"
+          mkdir -p "${ROOT}"
+          failed=0
+          for repeat in 0 1; do
+            if [ "${repeat}" = 0 ]; then
+              order="baseline optimized"
+            else
+              order="optimized baseline"
+            fi
+            mkdir -p "${ROOT}/repeat-${repeat}"
+            for version in ${order}; do
+              OUT="${ROOT}/repeat-${repeat}/${version}"
+              echo "Revision ${version}, repeat ${repeat}, method ${METHOD}"
+              set +e
+              (
+                cd "${GITHUB_WORKSPACE}/${version}"
+                OLIGOARK_CODEC_PROGRESS_FILE="${OUT}.progress.jsonl" \
+                  timeout --signal=TERM --kill-after=15s 900s \
+                  "${GITHUB_WORKSPACE}/.venv-${version}/bin/python" \
+                  benchmarks/run_matched_codec_scale.py \
+                  --worker --profile research-10 --method "${METHOD}" \
+                  --size 10485760 --conditions indel-low,mixed --trials 2 \
+                  --condition-timeout-seconds 75 \
+                  > "${OUT}.json" 2> "${OUT}.stderr"
+              )
+              status=$?
+              set -e
+              printf '%s\n' "${status}" > "${OUT}.exit-code"
+              if [ "${status}" -ne 0 ]; then
+                echo "::error::${version} repeat ${repeat} worker incomplete (${status})"
+                failed=1
+              fi
+            done
+          done
+          exit "${failed}"
+      - name: Validate complete exact recovery and before/after evidence
+        if: always()
+        shell: bash
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          python harness/benchmarks/compare_rs_lookup_e2e.py \
+            "comparison-results/${METHOD}" --method "${METHOD}" \
+            --trials 2 --repeats 2 \
+            --baseline-sha "${BASELINE_SHA}" --optimized-sha "${OPTIMIZED_SHA}" \
+            --output "comparison-results/${METHOD}/paired-report.json"
+      - name: Retain successes, failures, timeouts and worker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: whitening-mask-e2e-${{ matrix.method }}-${{ github.run_id }}
+          path: comparison-results/
+          if-no-files-found: error
+          retention-days: 90

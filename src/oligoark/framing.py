@@ -7,6 +7,7 @@ import struct
 import zlib
 from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 
 from .dna import (
     SequenceConstraintError,
@@ -166,24 +167,45 @@ def frame_overhead_bytes(
     return 1 + _HEADER.size + rs_nsym
 
 
-def _mask(data: bytes, mask_id: int) -> bytes:
-    """Apply a reversible deterministic whitening mask."""
-    if not 0 <= mask_id <= 255:
-        raise ValueError("mask_id must fit in one byte")
+def _mask_pad_int_uncached(mask_id: int, length: int) -> int:
+    """Build the original deterministic whitening bytes as a little-endian integer."""
     if mask_id < len(_LEGACY_MASKS):
-        value = _LEGACY_MASKS[mask_id]
-        if value == 0:
-            return data
-        return bytes(byte ^ value for byte in data)
+        return int.from_bytes(bytes([_LEGACY_MASKS[mask_id]]) * length, "little")
 
     state = (0x9E3779B9 ^ (mask_id * 0x45D9F3B)) & 0xFFFFFFFF
-    out = bytearray(len(data))
-    for index, byte in enumerate(data):
+    pad = bytearray(length)
+    for index in range(length):
         state ^= (state << 13) & 0xFFFFFFFF
         state ^= state >> 17
         state ^= (state << 5) & 0xFFFFFFFF
-        out[index] = byte ^ (state & 0xFF)
-    return bytes(out)
+        pad[index] = state & 0xFF
+    return int.from_bytes(pad, "little")
+
+
+@lru_cache(maxsize=1024)
+def _mask_pad_int(mask_id: int, length: int) -> int:
+    """Reuse whitening pads across equal-sized frames and candidate masks."""
+    return _mask_pad_int_uncached(mask_id, length)
+
+
+def _mask(data: bytes, mask_id: int) -> bytes:
+    """Apply the legacy-compatible reversible deterministic whitening mask.
+
+    Frame-sized masks (<=255 bytes) are reused across repeated repair attempts.
+    A whole-buffer integer XOR avoids rerunning the Python xorshift loop on
+    every candidate. Larger inputs are never retained in the bounded cache.
+    """
+    if not 0 <= mask_id <= 255:
+        raise ValueError("mask_id must fit in one byte")
+    if mask_id == 0:
+        return data
+    length = len(data)
+    pad = (
+        _mask_pad_int(mask_id, length)
+        if length <= 255
+        else _mask_pad_int_uncached(mask_id, length)
+    )
+    return (int.from_bytes(data, "little") ^ pad).to_bytes(length, "little")
 
 
 def _flags(*, is_parity: bool, is_fountain: bool) -> int:
