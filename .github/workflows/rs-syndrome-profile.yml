@@ -1,0 +1,50 @@
+name: Reed-Solomon syndrome parity and timing (research)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rs-syndrome-profile.yml"
+      - "src/oligoark/ecc.py"
+      - "tests/test_rs_syndrome_lookup.py"
+      - "benchmarks/run_rs_syndrome_profile.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rs-syndrome-profile.yml"
+      - "src/oligoark/ecc.py"
+      - "tests/test_rs_syndrome_lookup.py"
+      - "benchmarks/run_rs_syndrome_profile.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syndrome-parity-and-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . pytest
+      - name: Verify randomized GF/RS parity and correction
+        run: pytest -q tests/test_rs_syndrome_lookup.py tests/test_ecc_and_simulator.py
+      - name: Measure equivalent syndrome arithmetic (no speedup gate)
+        run: |
+          set -euo pipefail
+          python benchmarks/run_rs_syndrome_profile.py \
+            --cases 400 --message-length 96 --nsym 12 --repeats 7 \
+            --output performance-results/rs-syndrome-12.json
+          python benchmarks/run_rs_syndrome_profile.py \
+            --cases 400 --message-length 36 --nsym 8 --repeats 7 \
+            --output performance-results/rs-syndrome-8.json
+      - name: Retain parity-verified benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rs-syndrome-benchmark-${{ github.run_id }}
+          path: performance-results/rs-syndrome-*.json
+          if-no-files-found: warn
+          retention-days: 30
