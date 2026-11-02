@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -20,7 +21,10 @@ class RuntimeConfig:
     def validate(self) -> None:
         if self.log_level.upper() not in {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}:
             raise ValueError("log_level must be a standard Python logging level")
-        if not 0.0 <= self.reconstruction_threshold <= 1.0:
+        if (
+            not math.isfinite(self.reconstruction_threshold)
+            or not 0.0 <= self.reconstruction_threshold <= 1.0
+        ):
             raise ValueError("reconstruction_threshold must be between 0 and 1")
         if self.max_api_payload_bytes <= 0:
             raise ValueError("max_api_payload_bytes must be positive")

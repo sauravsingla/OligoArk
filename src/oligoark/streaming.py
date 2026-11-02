@@ -74,7 +74,7 @@ class StreamingFaultProfile:
     def validate(self) -> None:
         for name in ("dropout_rate", "substitution_rate", "insertion_rate", "deletion_rate"):
             value = float(getattr(self, name))
-            if not 0.0 <= value <= 1.0:
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
 
 

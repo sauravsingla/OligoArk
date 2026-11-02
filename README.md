@@ -61,6 +61,8 @@ Compact-v3's **10 indel trials exceeded the 75-second deadline**. The fourth tes
 
 OligoArk is **simulation-first**. Although published physical reads have been tested for reference reconstruction, **no OligoArk-encoded archive has completed synthesis → sequencing → exact recovery**. [Wet-lab protocol](docs/wet-lab-validation.md) · [Physical pilot plan (not yet executed)](docs/physical-pilot-v1.md).
 
+The latest [10 MiB decoder performance study](docs/whitening-mask-performance.md) records a ~64× isolated mask-operation speedup with byte-identical outputs, but the tested indel-heavy conditions still timed out; no general decoder speedup is claimed. The [1 GiB streaming acceptance](docs/results/storage-scale-1gib-2026-11-01.md) used relaxed sequence constraints and cannot be compared with the 152-nt codec study.
+
 Indel recovery and 100 MiB noisy-channel results remain limited; the four-method 100 MiB comparison is unfinished. OligoArk combines existing techniques rather than claiming to invent fountain coding, Reed–Solomon protection, graph reconstruction or sequence screening.
 
 ## Explore and contribute

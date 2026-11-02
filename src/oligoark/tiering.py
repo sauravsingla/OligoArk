@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import cast
@@ -21,13 +22,21 @@ class WorkloadProfile:
     expected_access_probability: float | None = None
 
     def validate(self) -> None:
-        if self.retention_years <= 0 or self.accesses_per_year < 0:
+        if (
+            not math.isfinite(self.retention_years)
+            or not math.isfinite(self.accesses_per_year)
+            or self.retention_years <= 0
+            or self.accesses_per_year < 0
+        ):
             raise ValueError("retention_years must be > 0 and accesses_per_year >= 0")
-        if self.data_size_gb <= 0:
+        if not math.isfinite(self.data_size_gb) or self.data_size_gb <= 0:
             raise ValueError("data_size_gb must be positive")
         if (
             self.expected_access_probability is not None
-            and not 0 <= self.expected_access_probability <= 1
+            and (
+                not math.isfinite(self.expected_access_probability)
+                or not 0 <= self.expected_access_probability <= 1
+            )
         ):
             raise ValueError("expected_access_probability must be between 0 and 1")
         for name in (
@@ -39,7 +48,7 @@ class WorkloadProfile:
             "cost_priority",
         ):
             value = getattr(self, name)
-            if not 0 <= value <= 1:
+            if not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError(f"{name} must be between 0 and 1")
 
 
@@ -72,7 +81,7 @@ class EconomicAssumptions:
         ):
             if set(values) != expected:
                 raise ValueError(f"{name} must define exactly these tiers: {sorted(expected)}")
-            if any(not 0 <= value <= 1 for value in values.values()):
+            if any(not math.isfinite(value) or not 0 <= value <= 1 for value in values.values()):
                 raise ValueError(f"{name} values must be between 0 and 1")
 
     @classmethod
@@ -112,7 +121,7 @@ class TierLifecycleAssumption:
 
     def validate(self) -> None:
         for name, value in vars(self).items():
-            if value < 0:
+            if not math.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be non-negative")
 
 

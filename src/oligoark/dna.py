@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 
 BITS_TO_BASE = {0: "A", 1: "C", 2: "G", 3: "T"}
@@ -69,9 +70,9 @@ class SequenceConstraints:
     max_homopolymer: int = 4
 
     def validate(self) -> None:
-        if not 0.0 <= self.min_gc_fraction <= 1.0:
+        if not math.isfinite(self.min_gc_fraction) or not 0.0 <= self.min_gc_fraction <= 1.0:
             raise ValueError("min_gc_fraction must be between 0 and 1")
-        if not 0.0 <= self.max_gc_fraction <= 1.0:
+        if not math.isfinite(self.max_gc_fraction) or not 0.0 <= self.max_gc_fraction <= 1.0:
             raise ValueError("max_gc_fraction must be between 0 and 1")
         if self.min_gc_fraction > self.max_gc_fraction:
             raise ValueError("min_gc_fraction must be <= max_gc_fraction")
