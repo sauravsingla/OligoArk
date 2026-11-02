@@ -1,0 +1,121 @@
+name: RS lookup matched end-to-end codec research
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rs-lookup-e2e-comparison.yml"
+      - "benchmarks/compare_rs_lookup_e2e.py"
+      - "tests/test_compare_rs_lookup_e2e.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Fixed revisions, not moving main. Research evidence, not a performance gate.
+concurrency:
+  group: rs-lookup-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  matched-unprofiled-10mib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        method:
+          - oligoark-compact-hybrid
+          - oligoark-compact-v3-hybrid
+    env:
+      BASELINE_SHA: f2dc56e2ff0a845794271a46345976ae75af8da6
+      OPTIMIZED_SHA: 8af0391fe0d0988b22d13be564a791ef4721dad0
+    steps:
+      - name: Check out validation harness
+        uses: actions/checkout@v5
+        with:
+          path: harness
+      - name: Check out pinned pre-lookup baseline
+        uses: actions/checkout@v5
+        with:
+          ref: f2dc56e2ff0a845794271a46345976ae75af8da6
+          path: baseline
+      - name: Check out pinned merged lookup
+        uses: actions/checkout@v5
+        with:
+          ref: 8af0391fe0d0988b22d13be564a791ef4721dad0
+          path: optimized
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Verify pinned provenance and isolate Python environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C baseline rev-parse HEAD)" = "${BASELINE_SHA}"
+          test "$(git -C optimized rev-parse HEAD)" = "${OPTIMIZED_SHA}"
+          python -m venv .venv-baseline
+          python -m venv .venv-optimized
+          .venv-baseline/bin/python -m pip install -e './baseline[bench]'
+          .venv-optimized/bin/python -m pip install -e './optimized[bench]'
+          # No cProfile: timing and deadlines must remain unprofiled.
+          test -z "${OLIGOARK_CODEC_CPROFILE_DIR:-}"
+      - name: Run pinned alternating-order 10 MiB trials
+        shell: bash
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          ROOT="${GITHUB_WORKSPACE}/comparison-results/${METHOD}"
+          mkdir -p "${ROOT}"
+          failed=0
+          for repeat in 0 1; do
+            if [ "${repeat}" = 0 ]; then order="baseline optimized"; else order="optimized baseline"; fi
+            mkdir -p "${ROOT}/repeat-${repeat}"
+            for version in ${order}; do
+              OUT="${ROOT}/repeat-${repeat}/${version}"
+              echo "Pinned ${version} repeat ${repeat}, method ${METHOD}"
+              # The outer 900s watchdog covers encoding + four 75s trials.
+              # It never changes the 75s per-trial deadline. Incomplete worker
+              # output is preserved and rejected by the evidence validator.
+              set +e
+              (
+                cd "${GITHUB_WORKSPACE}/${version}"
+                OLIGOARK_CODEC_PROGRESS_FILE="${OUT}.progress.jsonl" \
+                  timeout --signal=TERM --kill-after=15s 900s \
+                  "${GITHUB_WORKSPACE}/.venv-${version}/bin/python" \
+                  benchmarks/run_matched_codec_scale.py \
+                  --worker --profile research-10 --method "${METHOD}" \
+                  --size 10485760 --conditions indel-low,mixed --trials 2 \
+                  --condition-timeout-seconds 75 \
+                  > "${OUT}.json" 2> "${OUT}.stderr"
+              )
+              status=$?
+              set -e
+              printf '%s\n' "${status}" > "${OUT}.exit-code"
+              if [ "${status}" -ne 0 ]; then
+                echo "::error::${version} repeat ${repeat} worker incomplete (exit ${status})"
+                failed=1
+              fi
+            done
+          done
+          exit "${failed}"
+      - name: Validate full SHA-256 trial accounting and compare paired results
+        if: always()
+        shell: bash
+        env:
+          METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          python harness/benchmarks/compare_rs_lookup_e2e.py \
+            "comparison-results/${METHOD}" --method "${METHOD}" \
+            --trials 2 --repeats 2 \
+            --baseline-sha "${BASELINE_SHA}" --optimized-sha "${OPTIMIZED_SHA}" \
+            --output "comparison-results/${METHOD}/paired-report.json"
+      - name: Retain successes, failures, timeouts and incomplete-worker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: rs-lookup-e2e-${{ matrix.method }}-${{ github.run_id }}
+          path: comparison-results/
+          if-no-files-found: error
+          retention-days: 90
