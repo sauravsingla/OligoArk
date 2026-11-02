@@ -182,7 +182,7 @@ def _mask_pad_int_uncached(mask_id: int, length: int) -> int:
     return int.from_bytes(pad, "little")
 
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=1024)
 def _mask_pad_int(mask_id: int, length: int) -> int:
     """Reuse whitening pads across equal-sized frames and candidate masks."""
     return _mask_pad_int_uncached(mask_id, length)
