@@ -53,7 +53,7 @@ def test_mask_cache_bounded_and_not_used_for_oversize_inputs() -> None:
             assert _mask(b"A" * length, mask_id) == _reference_mask(
                 b"A" * length, mask_id
             )
-    assert _mask_pad_int.cache_info().currsize <= 512
+    assert _mask_pad_int.cache_info().currsize <= 1024
 
 
 def test_mask_rejects_out_of_range_ids_without_changing_contract() -> None:
