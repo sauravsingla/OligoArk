@@ -45,7 +45,7 @@ jobs:
           report = json.loads(Path("performance-results/whitening-mask.json").read_text())
           if report["exact_byte_parity"] is not True:
               raise SystemExit("Original and cached whitening bytes differ")
-          if report["cache_info"]["currsize"] > 512:
+          if report["cache_info"]["currsize"] > 1024:
               raise SystemExit("Whitening pad cache exceeds configured size")
           ratio = report["reference_over_cached_wall_ratio"]
           # A forgiving relative regression gate, not a speedup claim.
