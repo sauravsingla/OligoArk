@@ -541,8 +541,9 @@ def decode_frame_packed(
         candidates = _inline_decode_mask_candidates(raw[0], mask_search_limit)
     else:
         indicated = raw[0]
-        candidates = [indicated]
-        candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
+        candidates = (indicated,) + tuple(
+            mask_id for mask_id in range(mask_search_limit) if mask_id != indicated
+        )
     last_error: ValueError | None = None
     for mask_id in candidates:
         try:
