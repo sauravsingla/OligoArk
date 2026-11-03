@@ -56,7 +56,8 @@ def _inline_mask_from_selector(selector: int) -> int:
     return selector
 
 
-def _inline_decode_mask_candidates(selector: int, limit: int) -> list[int]:
+@lru_cache(maxsize=1024)
+def _inline_decode_mask_candidates(selector: int, limit: int) -> tuple[int, ...]:
     """Try indicated, legacy, and one-base selector repairs; avoid 256 RS attempts.
 
     At scale almost all corrupted strands carry an intact mask selector. The
@@ -80,7 +81,7 @@ def _inline_decode_mask_candidates(selector: int, limit: int) -> list[int]:
             if new_base != old_base:
                 changed = (selector & ~(0x03 << shift)) | (new_base << shift)
                 add(_inline_mask_from_selector(changed))
-    return candidates
+    return tuple(candidates)
 
 
 @dataclass(frozen=True)
@@ -540,8 +541,9 @@ def decode_frame_packed(
         candidates = _inline_decode_mask_candidates(raw[0], mask_search_limit)
     else:
         indicated = raw[0]
-        candidates = [indicated]
-        candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
+        candidates = (indicated,) + tuple(
+            mask_id for mask_id in range(mask_search_limit) if mask_id != indicated
+        )
     last_error: ValueError | None = None
     for mask_id in candidates:
         try:
