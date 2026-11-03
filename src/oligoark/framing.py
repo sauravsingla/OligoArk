@@ -542,7 +542,7 @@ def decode_frame_packed(
         indicated = raw[0]
         candidates = [indicated]
         candidates.extend(mask_id for mask_id in range(mask_search_limit) if mask_id != indicated)
-    errors: list[Exception] = []
+    last_error: ValueError | None = None
     for mask_id in candidates:
         try:
             if compact_framing:
@@ -565,8 +565,10 @@ def decode_frame_packed(
                 )
             return _decode_legacy_with_mask(raw, mask_id, rs_nsym)
         except ValueError as exc:
-            errors.append(exc)
-    raise ValueError("Unable to decode OligoArk strand with any deterministic mask") from errors[-1]
+            # Keep only the final exception; a list of every failed mask
+            # retains hundreds of tracebacks per noisy strand.
+            last_error = exc
+    raise ValueError("Unable to decode OligoArk strand with any deterministic mask") from last_error
 
 
 def decode_frame(
