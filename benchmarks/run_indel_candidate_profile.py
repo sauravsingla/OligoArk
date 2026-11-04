@@ -91,8 +91,10 @@ def main() -> None:
         parser.error("--repeats must be at least 3")
 
     rng = random.Random(args.seed)
+    # Exercise both indel directions at multiple strand sizes to catch
+    # length-dependent candidate-order and allocation regressions.
     cases: list[dict[str, object]] = []
-    for length in (599, 601):
+    for length in (599, 601, 603, 605):
         sequence = "".join(rng.choices("ACGT", k=length))
         reference = _measure(_reference_candidates, sequence, args.repeats)
         streamed = _measure(_single_indel_candidates, sequence, args.repeats)
